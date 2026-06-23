@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls D:/SolarOps 2>/dev/null || echo \"empty/missing\"; echo \"---\"; ls E:/FieldOps-RiteSolar/src/components/ui 2>/dev/null)",
+      "Read(//mnt/d/**)",
+      "Read(//mnt/e/FieldOps-RiteSolar/src/components/**)",
+      "Bash(ls /mnt/)",
+      "Bash(cmd.exe /c \"dir D:\\\\SolarOps\")",
+      "Bash(cmd.exe /c \"dir E:\\\\FieldOps-RiteSolar\\\\src\\\\components\\\\ui\")",
+      "Bash(npx tsc *)",
+      "PowerShell(cd D:\\\\SolarOps ; npm run build 2>&1 | Select-String \"built|error|precache|kB\" | ForEach-Object { $_.Line })"
+    ]
+  }
+}

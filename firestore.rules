@@ -1,0 +1,53 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Helpers ────────────────────────────────────────────────────────────────
+    function isAuth()  { return request.auth != null; }
+    function isAdmin() {
+      return isAuth() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+    function isField() {
+      return isAuth() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'field';
+    }
+
+    // ── users ──────────────────────────────────────────────────────────────────
+    match /users/{uid} {
+      allow read:  if isAuth();
+      allow write: if isAdmin();
+    }
+
+    // ── appConfig ──────────────────────────────────────────────────────────────
+    match /appConfig/{docId} {
+      allow read:  if isAuth();
+      allow write: if isAdmin();
+    }
+
+    // ── invites ────────────────────────────────────────────────────────────────
+    match /invites/{inviteId} {
+      allow read:  if true;
+      allow write: if isAdmin();
+    }
+
+    // ── tasks ──────────────────────────────────────────────────────────────────
+    match /tasks/{taskId} {
+      allow read:   if isAdmin() ||
+                      (isField() && resource.data.assignedTo == request.auth.uid);
+      allow create: if isAdmin();
+      allow update: if isAdmin() ||
+                      (isField() && resource.data.assignedTo == request.auth.uid);
+      allow delete: if isAdmin();
+
+      match /updates/{updateId} {
+        allow read:   if isAdmin() ||
+                        (isField() && get(/databases/$(database)/documents/tasks/$(taskId)).data.assignedTo == request.auth.uid);
+        allow create: if isAdmin() ||
+                        (isField() && get(/databases/$(database)/documents/tasks/$(taskId)).data.assignedTo == request.auth.uid);
+        allow update: if false;
+        allow delete: if false;
+      }
+    }
+  }
+}

@@ -1,0 +1,159 @@
+import * as XLSX from 'xlsx';
+import type { Task, FieldDefinition } from '@/types';
+
+export function exportTasksToExcel(tasks: Task[]): void {
+  const dateStr = (d: Date | null | undefined) =>
+    d ? d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
+
+  const sorted = [...tasks].sort((a, b) => a.taskNum.localeCompare(b.taskNum));
+
+  // ── Sheet 1: Tasks Summary ────────────────────────────────────────────────────
+  const summaryRows = sorted.map((t) => ({
+    'Task #':            t.taskNum,
+    'Title':             t.title,
+    'Description':       t.description ?? '',
+    'Status':            t.status,
+    'Assigned To':       t.assignedToName ?? '',
+    'Engineer Code':     t.assignedToCode ?? '',
+    'Due Date':          dateStr(t.dueDate),
+    'Created Date':      dateStr(t.createdAt),
+    'Submitted Date':    dateStr(t.submittedAt),
+    'Follow-up Date':    dateStr(t.followUpDate),
+    'Blocked Reason':    t.blockedReason ?? '',
+    'GPS Latitude':      t.location?.lat ?? '',
+    'GPS Longitude':     t.location?.lng ?? '',
+  }));
+
+  // ── Sheet 2: Field Answers ────────────────────────────────────────────────────
+  // One row per task. Photo fields get one column per photo slot so every URL
+  // is its own clickable cell. Non-photo fields get one column for the text
+  // answer (plus extra photo columns if the field also has photos attached).
+
+  // Collect all unique fields across all tasks (union), sorted by sortOrder.
+  const fieldMap = new Map<string, FieldDefinition>();
+  for (const t of sorted) {
+    for (const f of t.fields) {
+      if (!fieldMap.has(f.fieldId)) fieldMap.set(f.fieldId, f);
+    }
+  }
+  const templateFields = [...fieldMap.values()].sort((a, b) => a.sortOrder - b.sortOrder);
+
+  // Pass 1 — find the maximum photo count per field across all tasks.
+  const maxPhotoCounts: Record<string, number> = {};
+  for (const t of sorted) {
+    for (const field of templateFields) {
+      const count = (t.fieldPhotos?.[field.fieldId] ?? []).length;
+      if (count > (maxPhotoCounts[field.fieldId] ?? 0)) {
+        maxPhotoCounts[field.fieldId] = count;
+      }
+    }
+  }
+
+  // Pass 2 — build the ordered column list.
+  // Each entry is { header: string; getValue: (t: Task) => string }.
+  const FIXED_COLS = [
+    { header: 'Task #',         getValue: (t: Task) => t.taskNum },
+    { header: 'Title',          getValue: (t: Task) => t.title },
+    { header: 'Assigned To',    getValue: (t: Task) => t.assignedToName ?? '' },
+    { header: 'Status',         getValue: (t: Task) => t.status },
+    { header: 'Submitted Date', getValue: (t: Task) => dateStr(t.submittedAt) },
+  ];
+
+  type Col = { header: string; getValue: (t: Task) => string; isPhoto: boolean };
+  const dynamicCols: Col[] = [];
+
+  for (const field of templateFields) {
+    if (field.type === 'section_header') continue;
+
+    const maxPhotos = maxPhotoCounts[field.fieldId] ?? 0;
+
+    if (field.type === 'photo_only') {
+      // Only photo columns (at least 1 so the column always appears).
+      const slots = Math.max(maxPhotos, 1);
+      for (let i = 0; i < slots; i++) {
+        const idx = i;
+        dynamicCols.push({
+          header:   slots === 1 ? field.label : `${field.label} - Photo ${idx + 1}`,
+          isPhoto:  true,
+          getValue: (t: Task) => (t.fieldPhotos?.[field.fieldId] ?? [])[idx] ?? '',
+        });
+      }
+    } else {
+      // Text answer column.
+      dynamicCols.push({
+        header:   field.label,
+        isPhoto:  false,
+        getValue: (t: Task) => {
+          const val = t.fieldAnswers[field.fieldId]?.value ?? '';
+          if (!val) return '';
+          if (field.type === 'measurement' && field.unit) return `${val} ${field.unit}`;
+          return val;
+        },
+      });
+      // Extra photo columns if any task attached photos to this non-photo field.
+      for (let i = 0; i < maxPhotos; i++) {
+        const idx = i;
+        dynamicCols.push({
+          header:   `${field.label} - Photo ${idx + 1}`,
+          isPhoto:  true,
+          getValue: (t: Task) => (t.fieldPhotos?.[field.fieldId] ?? [])[idx] ?? '',
+        });
+      }
+    }
+  }
+
+  // Pass 3 — build one row object per task.
+  const answerRows: Record<string, string>[] = sorted.map((t) => {
+    const row: Record<string, string> = {};
+    for (const col of FIXED_COLS)   row[col.header] = col.getValue(t);
+    for (const col of dynamicCols)  row[col.header] = col.getValue(t);
+    return row;
+  });
+
+  // Column widths.
+  const fixedWidths = [8, 35, 20, 12, 14];
+  const dynamicWidths = dynamicCols.map((c) => ({ wch: c.isPhoto ? 50 : 20 }));
+
+  // ── Workbook ──────────────────────────────────────────────────────────────────
+  const wb = XLSX.utils.book_new();
+
+  const ws1 = XLSX.utils.json_to_sheet(summaryRows);
+  ws1['!cols'] = [
+    { wch: 8 }, { wch: 40 }, { wch: 30 }, { wch: 12 }, { wch: 20 },
+    { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 12 },
+    { wch: 12 }, { wch: 16 }, { wch: 14 },
+  ];
+  XLSX.utils.book_append_sheet(wb, ws1, 'Tasks Summary');
+
+  const allHeaders = [
+    ...FIXED_COLS.map((c) => c.header),
+    ...dynamicCols.map((c) => c.header),
+  ];
+  const ws2 = XLSX.utils.json_to_sheet(
+    answerRows.length > 0 ? answerRows : [{}],
+    { header: allHeaders },
+  );
+
+  // Make Cloudinary URLs clickable hyperlinks in Excel
+  const range = XLSX.utils.decode_range(ws2['!ref'] ?? 'A1');
+  for (let R = range.s.r + 1; R <= range.e.r; R++) {
+    for (let C = range.s.c; C <= range.e.c; C++) {
+      const cellAddr = XLSX.utils.encode_cell({ r: R, c: C });
+      const cell = ws2[cellAddr];
+      if (cell && typeof cell.v === 'string' &&
+          (cell.v.includes('/raw/upload/') ||
+           cell.v.startsWith('https://res.cloudinary.com'))) {
+        cell.l = { Target: cell.v, Tooltip: 'Click to open' };
+      }
+    }
+  }
+
+  ws2['!cols'] = [
+    ...fixedWidths.map((w) => ({ wch: w })),
+    ...dynamicWidths,
+  ];
+  XLSX.utils.book_append_sheet(wb, ws2, 'Field Answers');
+
+  const filename = `solarops_tasks_${new Date().toISOString().slice(0, 10)}.xlsx`;
+  XLSX.writeFile(wb, filename);
+}

@@ -1,0 +1,582 @@
+import React, { useState, useEffect } from 'react';
+import {
+  collection, query, orderBy, getDocs,
+} from 'firebase/firestore';
+import {
+  MapPin, Calendar, User, Archive, ArchiveRestore, ChevronDown, ChevronUp, ExternalLink, Pencil,
+} from 'lucide-react';
+import { db } from '@/firebase/config';
+import { useAuthStore }      from '@/store/authStore';
+import { useTaskActions }    from '@/hooks/useTaskActions';
+import { useFieldEngineers } from '@/hooks/useFieldEngineers';
+import {
+  Sheet, SheetContent, SheetHeader, SheetTitle,
+} from '@/components/ui/sheet';
+import { Button } from '@/components/ui/button';
+import { cn }     from '@/lib/utils';
+import type { Task, TaskStatus, TaskUpdate } from '@/types';
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+const STATUS_META: Record<TaskStatus, { label: string; className: string }> = {
+  pending:     { label: 'Pending',     className: 'bg-gray-100 text-gray-600'   },
+  in_progress: { label: 'In Progress', className: 'bg-amber-100 text-amber-700' },
+  completed:   { label: 'Completed',   className: 'bg-green-100 text-green-700' },
+  blocked:     { label: 'Blocked',     className: 'bg-red-100 text-brand-red'   },
+};
+
+function StatusBadge({ status }: { status: TaskStatus }) {
+  const { label, className } = STATUS_META[status];
+  return (
+    <span className={cn('inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold', className)}>
+      {label}
+    </span>
+  );
+}
+
+function formatDate(d: Date | null | undefined): string {
+  if (!d) return '—';
+  return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+function formatDateTime(d: Date | null | undefined): string {
+  if (!d) return '—';
+  return d.toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+// ─── Photo grid ───────────────────────────────────────────────────────────────
+
+function isPdfUrl(url: string): boolean {
+  return url.toLowerCase().includes('.pdf') ||
+         url.toLowerCase().includes('/raw/upload/');
+}
+
+function getFilename(url: string): string {
+  try {
+    const parts = url.split('/');
+    const last  = parts[parts.length - 1];
+    return decodeURIComponent(last.split('?')[0]);
+  } catch {
+    return 'document.pdf';
+  }
+}
+
+function PhotoGrid({ urls, label }: { urls: string[]; label: string }) {
+  if (!urls.length) return null;
+  return (
+    <div>
+      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">{label}</p>
+      <div className="grid grid-cols-3 gap-2">
+        {urls.map((url, i) =>
+          isPdfUrl(url) ? (
+            <a
+              key={i}
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex flex-col items-center justify-center gap-1 rounded-lg border border-red-200 bg-red-50 hover:bg-red-100 transition-colors p-2 text-center no-underline min-h-[72px]"
+            >
+              <span className="text-2xl">📄</span>
+              <span className="text-[9px] text-red-700 font-medium leading-tight line-clamp-2">
+                {getFilename(url)}
+              </span>
+              <span className="text-[9px] text-red-400">Tap to open</span>
+            </a>
+          ) : (
+            <a
+              key={i}
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="relative block rounded-lg overflow-hidden bg-gray-100 hover:opacity-90 transition-opacity"
+              style={{ paddingBottom: '100%' }}
+            >
+              <img src={url} alt={`${label} ${i + 1}`}
+                className="absolute inset-0 h-full w-full object-cover" />
+              <ExternalLink className="absolute right-1 top-1 h-3 w-3 text-white drop-shadow" />
+            </a>
+          )
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── History entry ────────────────────────────────────────────────────────────
+
+function HistoryEntry({ update }: { update: TaskUpdate }) {
+  const [open, setOpen] = useState(false);
+  const answerCount = Object.keys(update.fieldAnswers).length;
+
+  return (
+    <div className="rounded-lg border border-gray-100 bg-gray-50">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left"
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          <StatusBadge status={update.status} />
+          <span className="text-xs text-gray-500 truncate">{update.submittedByName}</span>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="text-xs text-gray-400">{formatDateTime(update.submittedAt)}</span>
+          {open ? <ChevronUp className="h-3.5 w-3.5 text-gray-400" /> : <ChevronDown className="h-3.5 w-3.5 text-gray-400" />}
+        </div>
+      </button>
+
+      {open && (
+        <div className="border-t border-gray-100 px-3 py-3 flex flex-col gap-2">
+          {update.blockedReason && (
+            <p className="text-xs text-brand-red">
+              <span className="font-semibold">Blocked: </span>{update.blockedReason}
+            </p>
+          )}
+          {update.location && (
+            <p className="text-xs text-gray-500">
+              GPS: {update.location.lat.toFixed(5)}, {update.location.lng.toFixed(5)}
+            </p>
+          )}
+          {answerCount > 0 && (
+            <div className="flex flex-col gap-1">
+              {Object.entries(update.fieldAnswers).map(([fid, ans]) => (
+                <p key={fid} className="text-xs text-gray-600">
+                  <span className="font-medium text-gray-800">{fid}:</span> {ans.value}
+                </p>
+              ))}
+            </div>
+          )}
+          {Object.values(update.fieldPhotos).flat().length > 0 && (
+            <PhotoGrid urls={Object.values(update.fieldPhotos).flat()} label="Field photos" />
+          )}
+          {update.completionPhotos.length > 0 && (
+            <PhotoGrid urls={update.completionPhotos} label="Completion photos" />
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── History section ──────────────────────────────────────────────────────────
+
+function HistorySection({
+  history,
+  historyLoading,
+}: {
+  history:        TaskUpdate[];
+  historyLoading: boolean;
+}) {
+  const [expanded, setExpanded] = React.useState(false);
+  const PREVIEW = 3;
+  const shown   = expanded ? history : history.slice(0, PREVIEW);
+  const hasMore = history.length > PREVIEW;
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+          Submission History
+          {history.length > 0 && (
+            <span className="ml-1 text-gray-400">({history.length})</span>
+          )}
+        </p>
+        {hasMore && !historyLoading && (
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            className="flex items-center gap-1 text-xs font-medium text-brand-blue hover:underline"
+          >
+            {expanded ? (
+              <>Show less <ChevronUp className="h-3.5 w-3.5" /></>
+            ) : (
+              <>Show all {history.length} <ChevronDown className="h-3.5 w-3.5" /></>
+            )}
+          </button>
+        )}
+      </div>
+
+      {historyLoading ? (
+        <div className="h-10 animate-pulse rounded-lg bg-gray-200" />
+      ) : history.length === 0 ? (
+        <p className="text-xs text-gray-400">No submissions yet.</p>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {shown.map((u) => <HistoryEntry key={u.id} update={u} />)}
+          {hasMore && !expanded && (
+            <button
+              type="button"
+              onClick={() => setExpanded(true)}
+              className="text-xs text-gray-400 hover:text-brand-blue text-center py-1 hover:underline"
+            >
+              + {history.length - PREVIEW} more submissions
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Main component ───────────────────────────────────────────────────────────
+
+interface TaskDetailDrawerProps {
+  task:            Task | null;
+  onClose:         () => void;
+  onUpdate?:       (task: Task) => void;
+  onAdminUpdate?:  (task: Task) => void;
+}
+
+export function TaskDetailDrawer({ task, onClose, onUpdate, onAdminUpdate }: TaskDetailDrawerProps) {
+  const { currentUser }                    = useAuthStore();
+  const { assignTask, archiveTask, unarchiveTask } = useTaskActions();
+  const { engineers }                      = useFieldEngineers();
+  const [history, setHistory]              = useState<TaskUpdate[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [archiving,   setArchiving]   = useState(false);
+  const [unarchiving, setUnarchiving] = useState(false);
+  const [showAssignPicker, setShowAssignPicker] = useState(false);
+
+  const isAdmin = currentUser?.role === 'admin';
+
+  useEffect(() => {
+    if (!task) { setHistory([]); return; }
+    setHistoryLoading(true);
+    getDocs(
+      query(
+        collection(db, 'tasks', task.id, 'updates'),
+        orderBy('submittedAt', 'desc'),
+      )
+    ).then((snap) => {
+      setHistory(snap.docs.map((d) => {
+        const data = d.data();
+        return {
+          id:               d.id,
+          submittedBy:      data['submittedBy']     ?? '',
+          submittedByName:  data['submittedByName'] ?? '',
+          submittedAt:      data['submittedAt']?.toDate?.() ?? new Date(),
+          status:           data['status']          ?? 'pending',
+          location:         data['location']        ?? null,
+          blockedReason:    data['blockedReason']   ?? null,
+          fieldAnswers:     data['fieldAnswers']    ?? {},
+          fieldPhotos:      data['fieldPhotos']     ?? {},
+          completionPhotos: data['completionPhotos'] ?? [],
+          taskNum:          data['taskNum']         ?? '',
+          title:            data['title']           ?? '',
+        } as TaskUpdate;
+      }));
+      setHistoryLoading(false);
+    }).catch((err) => {
+      console.error('[TaskDetailDrawer] history fetch error:', err);
+      setHistoryLoading(false);
+    });
+  }, [task?.id]);
+
+  async function handleArchive() {
+    if (!task) return;
+    setArchiving(true);
+    try {
+      await archiveTask(task.id);
+      onClose();
+    } finally {
+      setArchiving(false);
+    }
+  }
+
+  async function handleUnarchive() {
+    if (!task) return;
+    setUnarchiving(true);
+    try {
+      await unarchiveTask(task.id);
+      onClose();
+    } finally {
+      setUnarchiving(false);
+    }
+  }
+
+  async function handleAssign(uid: string) {
+    if (!task) return;
+    const eng = engineers.find((e) => e.uid === uid);
+    if (!eng) return;
+    await assignTask(task.id, eng);
+    setShowAssignPicker(false);
+  }
+
+  if (!task) return null;
+
+  return (
+    <Sheet open={!!task} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <SheetContent side="right" className="flex flex-col p-0 w-full sm:max-w-lg">
+        {/* ── Header ── */}
+        <SheetHeader className="border-b border-white/10 px-5 py-4 shrink-0 bg-gradient-to-r from-brand-navy to-brand-blue pr-12">
+          <div className="flex items-start gap-3">
+            <div className="flex flex-col gap-1.5 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-mono text-xs text-white/60 shrink-0">{task.taskNum}</span>
+                <StatusBadge status={task.status} />
+              </div>
+              <SheetTitle className="text-base leading-snug line-clamp-2 text-white">{task.title}</SheetTitle>
+            </div>
+          </div>
+        </SheetHeader>
+
+        {/* ── Scrollable body ── */}
+        <div className="flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-5">
+
+          {/* Meta */}
+          <div className="flex flex-col gap-2 text-sm">
+            {/* Assigned */}
+            <div className="flex items-start gap-2">
+              <User className="h-4 w-4 text-gray-400 mt-0.5 shrink-0" />
+              {task.assignedTo ? (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-gray-700">
+                    {task.assignedToName}
+                    {task.assignedToCode && (
+                      <span className="ml-1 font-mono text-xs text-gray-400">({task.assignedToCode})</span>
+                    )}
+                  </span>
+                  {isAdmin && !showAssignPicker && (
+                    <button
+                      type="button"
+                      onClick={() => setShowAssignPicker(true)}
+                      className="text-xs font-medium text-brand-blue hover:underline"
+                    >
+                      Reassign
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-400 italic">Unassigned</span>
+                  {isAdmin && !showAssignPicker && (
+                    <button
+                      type="button"
+                      onClick={() => setShowAssignPicker(true)}
+                      className="text-xs font-medium text-brand-blue hover:underline"
+                    >
+                      Assign
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Inline assign picker */}
+            {isAdmin && showAssignPicker && (
+              <div className="flex items-center gap-2 ml-6">
+                <select
+                  autoFocus
+                  defaultValue=""
+                  onChange={(e) => { if (e.target.value) handleAssign(e.target.value); }}
+                  className="h-8 flex-1 rounded-md border border-input bg-background px-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                >
+                  <option value="" disabled>Select engineer…</option>
+                  {engineers.map((eng) => (
+                    <option key={eng.uid} value={eng.uid}>
+                      {eng.displayName}{eng.engineerCode ? ` — ${eng.engineerCode}` : ''}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => setShowAssignPicker(false)}
+                  className="text-xs text-gray-400 hover:text-gray-600"
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+
+            {/* Due date */}
+            {task.dueDate && (
+              <div className="flex items-center gap-2 text-gray-600">
+                <Calendar className="h-4 w-4 text-gray-400 shrink-0" />
+                <span>Due {formatDate(task.dueDate)}</span>
+              </div>
+            )}
+
+            {/* Follow-up date */}
+            {task.followUpDate && (
+              <div className="flex items-center gap-2 text-gray-600">
+                <Calendar className="h-4 w-4 text-orange-400 shrink-0" />
+                <span className="text-orange-600 font-medium text-sm">
+                  Follow-up: {formatDate(task.followUpDate)}
+                </span>
+              </div>
+            )}
+
+            {/* Created */}
+            <div className="flex items-center gap-2 text-gray-400 text-xs">
+              <span>Created {formatDateTime(task.createdAt)}</span>
+            </div>
+          </div>
+
+          {/* Description */}
+          {task.description && (
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Description</p>
+              <p className="text-sm text-gray-700 whitespace-pre-wrap">{task.description}</p>
+            </div>
+          )}
+
+          {/* Blocked reason */}
+          {task.status === 'blocked' && task.blockedReason && (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2">
+              <p className="text-xs font-semibold text-brand-red mb-0.5">Blocked reason</p>
+              <p className="text-sm text-red-800">{task.blockedReason}</p>
+            </div>
+          )}
+
+          {/* Field answers */}
+          {task.fields.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Form Fields</p>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
+                {task.fields.map((field) => {
+                  if (field.type === 'section_header') {
+                    return (
+                      <div key={field.fieldId} className="col-span-full pt-2 pb-1">
+                        <div className="flex items-center gap-3">
+                          <div className="flex-1 h-px bg-gray-200" />
+                          <span className="text-xs font-bold text-gray-400 uppercase tracking-widest px-1">
+                            {field.label}
+                          </span>
+                          <div className="flex-1 h-px bg-gray-200" />
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  const ans    = task.fieldAnswers[field.fieldId];
+                  const photos = task.fieldPhotos[field.fieldId] ?? [];
+                  const answered = !!(ans?.value) || photos.length > 0;
+                  return (
+                    <div key={field.fieldId} className={cn(
+                      'rounded-lg bg-gray-50 px-3 py-2 border-l-4',
+                      answered ? 'border-l-brand-green' : 'border-l-gray-200',
+                    )}>
+                      <div className="flex items-center gap-2 mb-1">
+                        <p className="text-xs font-semibold text-gray-800 flex-1">{field.label}</p>
+                        <span className="text-[10px] font-medium rounded px-1.5 py-0.5 bg-gray-200 text-gray-500 uppercase">
+                          {field.type.replace(/_/g, ' ')}
+                        </span>
+                      </div>
+                      {ans?.value ? (
+                        <p className="text-sm text-gray-700">{ans.value}</p>
+                      ) : photos.length === 0 ? (
+                        <p className="text-sm text-gray-300">—</p>
+                      ) : null}
+                      {photos.length > 0 && (
+                        <div className="mt-2">
+                          <PhotoGrid urls={photos} label={field.label} />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Completion photos */}
+          {task.completionPhotos.length > 0 && (
+            <PhotoGrid urls={task.completionPhotos} label="Completion Photos" />
+          )}
+
+          {/* GPS */}
+          {task.location && (
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Location</p>
+              <div className="flex items-center gap-2">
+                <MapPin className="h-4 w-4 text-brand-blue shrink-0" />
+                <span className="text-sm text-gray-700 font-mono">
+                  {task.location.lat.toFixed(5)}, {task.location.lng.toFixed(5)}
+                </span>
+                <a
+                  href={`https://www.google.com/maps?q=${task.location.lat},${task.location.lng}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs font-medium text-brand-blue hover:underline flex items-center gap-0.5"
+                >
+                  Open in Maps <ExternalLink className="h-3 w-3" />
+                </a>
+              </div>
+            </div>
+          )}
+
+          {/* Submission history */}
+          <HistorySection history={history} historyLoading={historyLoading} />
+        </div>
+
+        {/* ── Footer ── */}
+        {(currentUser?.role === 'field' && onUpdate || isAdmin) && (
+          <div className="border-t border-gray-100 px-5 py-4 shrink-0 flex flex-col gap-2">
+            {currentUser?.role === 'field' && onUpdate && (
+              <Button
+                className="w-full"
+                onClick={() => onUpdate(task)}
+              >
+                Update Task
+              </Button>
+            )}
+            {isAdmin && (
+              <div className="flex justify-end">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-xs text-gray-500 border-gray-200 hover:text-gray-700 gap-1.5"
+                  onClick={() => onAdminUpdate && onAdminUpdate(task)}
+                >
+                  <Pencil className="h-3 w-3" />
+                  Edit
+                </Button>
+              </div>
+            )}
+            {isAdmin && (
+              task.archived ? (
+                <Button
+                  variant="outline"
+                  className="w-full text-green-600 border-green-200 hover:bg-green-50"
+                  onClick={handleUnarchive}
+                  disabled={unarchiving}
+                >
+                  {unarchiving ? (
+                    <span className="flex items-center gap-2">
+                      <span className="h-4 w-4 animate-spin rounded-full border-2 border-green-600 border-t-transparent" />
+                      Restoring…
+                    </span>
+                  ) : (
+                    <>
+                      <ArchiveRestore className="h-4 w-4 mr-2" />
+                      Restore Task
+                    </>
+                  )}
+                </Button>
+              ) : (
+                <Button
+                  variant="outline"
+                  className="w-full text-red-600 border-red-200 hover:bg-red-50"
+                  onClick={handleArchive}
+                  disabled={archiving}
+                >
+                  {archiving ? (
+                    <span className="flex items-center gap-2">
+                      <span className="h-4 w-4 animate-spin rounded-full border-2 border-red-600 border-t-transparent" />
+                      Archiving…
+                    </span>
+                  ) : (
+                    <>
+                      <Archive className="h-4 w-4 mr-2" />
+                      Archive Task
+                    </>
+                  )}
+                </Button>
+              )
+            )}
+          </div>
+        )}
+      </SheetContent>
+    </Sheet>
+  );
+}
