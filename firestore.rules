@@ -2,51 +2,92 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // ── Helpers ────────────────────────────────────────────────────────────────
     function isAuth()  { return request.auth != null; }
-    function isAdmin() {
-      return isAuth() &&
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    function userRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
     }
-    function isField() {
-      return isAuth() &&
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'field';
-    }
+    function isAdmin()        { return isAuth() && userRole() == 'admin'; }
+    function isField()        { return isAuth() && userRole() == 'field'; }
+    function isProposal()     { return isAuth() && userRole() == 'proposal'; }
+    function isBackend()      { return isAuth() && userRole() == 'backend'; }
+    function isLogistics()    { return isAuth() && userRole() == 'logistics'; }
+    function isInstallation() { return isAuth() && userRole() == 'installation'; }
 
-    // ── users ──────────────────────────────────────────────────────────────────
     match /users/{uid} {
       allow read:  if isAuth();
       allow write: if isAdmin();
     }
 
-    // ── appConfig ──────────────────────────────────────────────────────────────
     match /appConfig/{docId} {
       allow read:  if isAuth();
-      allow write: if isAdmin();
+      allow write: if isAdmin()
+                   || isField()
+                   || isProposal()
+                   || isBackend();
     }
 
-    // ── invites ────────────────────────────────────────────────────────────────
     match /invites/{inviteId} {
-      allow read:  if true;
+      // Read allowed unauthenticated (signup flow)
+      // OR authenticated (admin management)
+      // but only pending invites for unauthenticated
+      allow read:  if isAuth()
+                   || resource.data.status == 'pending';
       allow write: if isAdmin();
     }
 
-    // ── tasks ──────────────────────────────────────────────────────────────────
     match /tasks/{taskId} {
-      allow read:   if isAdmin() ||
-                      (isField() && resource.data.assignedTo == request.auth.uid);
+      allow read:   if isAdmin()
+                    || (isField()        && resource.data.assignedTo         == request.auth.uid)
+                    || (isProposal()     && (resource.data.pipelineStage     == 'proposal'
+                                         || resource.data.proposalAssignedTo == request.auth.uid))
+                    || (isBackend()      && resource.data.backendAssignedTo  == request.auth.uid)
+                    || (isLogistics()    && resource.data.pipelineStage      == 'logistics')
+                    || (isInstallation() && resource.data.pipelineStage      == 'installation');
+
       allow create: if isAdmin();
-      allow update: if isAdmin() ||
-                      (isField() && resource.data.assignedTo == request.auth.uid);
+
+      allow update: if isAdmin()
+                    || (isField()        && resource.data.assignedTo             == request.auth.uid)
+                    || (isProposal()     && resource.data.proposalAssignedTo     == request.auth.uid)
+                    || (isBackend()      && resource.data.backendAssignedTo      == request.auth.uid)
+                    || (isLogistics()    && resource.data.pipelineStage          == 'logistics')
+                    || (isInstallation() && resource.data.pipelineStage          == 'installation');
+
       allow delete: if isAdmin();
 
       match /updates/{updateId} {
-        allow read:   if isAdmin() ||
-                        (isField() && get(/databases/$(database)/documents/tasks/$(taskId)).data.assignedTo == request.auth.uid);
-        allow create: if isAdmin() ||
-                        (isField() && get(/databases/$(database)/documents/tasks/$(taskId)).data.assignedTo == request.auth.uid);
+        allow read:   if isAdmin()
+                      || (isField() && get(/databases/$(database)/documents/tasks/$(taskId)).data.assignedTo == request.auth.uid);
+        allow create: if isAdmin()
+                      || (isField() && get(/databases/$(database)/documents/tasks/$(taskId)).data.assignedTo == request.auth.uid);
         allow update: if false;
         allow delete: if false;
+      }
+
+      match /stages/{stageId} {
+        allow read:   if isAdmin()
+                      || (isField()        && get(/databases/$(database)/documents/tasks/$(taskId)).data.assignedTo         == request.auth.uid)
+                      || (isProposal()     && (get(/databases/$(database)/documents/tasks/$(taskId)).data.pipelineStage     == 'proposal'
+                                           || get(/databases/$(database)/documents/tasks/$(taskId)).data.proposalAssignedTo == request.auth.uid))
+                      || (isBackend()      && get(/databases/$(database)/documents/tasks/$(taskId)).data.backendAssignedTo  == request.auth.uid)
+                      || (isLogistics()    && get(/databases/$(database)/documents/tasks/$(taskId)).data.pipelineStage      == 'logistics')
+                      || (isInstallation() && get(/databases/$(database)/documents/tasks/$(taskId)).data.pipelineStage      == 'installation');
+
+        allow create: if isAdmin()
+                      || (isField()        && get(/databases/$(database)/documents/tasks/$(taskId)).data.assignedTo             == request.auth.uid)
+                      || (isProposal()     && get(/databases/$(database)/documents/tasks/$(taskId)).data.proposalAssignedTo     == request.auth.uid)
+                      || (isBackend()      && get(/databases/$(database)/documents/tasks/$(taskId)).data.backendAssignedTo      == request.auth.uid)
+                      || (isLogistics()    && get(/databases/$(database)/documents/tasks/$(taskId)).data.pipelineStage          == 'logistics')
+                      || (isInstallation() && get(/databases/$(database)/documents/tasks/$(taskId)).data.pipelineStage          == 'installation');
+
+        allow update: if isAdmin()
+                      || (isField()        && get(/databases/$(database)/documents/tasks/$(taskId)).data.assignedTo             == request.auth.uid)
+                      || (isProposal()     && get(/databases/$(database)/documents/tasks/$(taskId)).data.proposalAssignedTo     == request.auth.uid)
+                      || (isBackend()      && get(/databases/$(database)/documents/tasks/$(taskId)).data.backendAssignedTo      == request.auth.uid)
+                      || (isLogistics()    && get(/databases/$(database)/documents/tasks/$(taskId)).data.pipelineStage          == 'logistics')
+                      || (isInstallation() && get(/databases/$(database)/documents/tasks/$(taskId)).data.pipelineStage          == 'installation');
+
+        allow delete: if isAdmin();
       }
     }
   }

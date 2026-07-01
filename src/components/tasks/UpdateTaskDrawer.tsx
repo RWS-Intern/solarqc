@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { MapPin, Loader2, CheckCircle2 } from 'lucide-react';
+import { MapPin, Loader2 } from 'lucide-react';
 import { useAuthStore }        from '@/store/authStore';
 import { useTaskSubmit }       from '@/hooks/useTaskSubmit';
 import { enqueueTaskUpdate }   from '@/hooks/useTaskOfflineQueue';
@@ -114,7 +114,7 @@ export function UpdateTaskDrawer({ task, onClose }: UpdateTaskDrawerProps) {
   // Alias after guard so all closures below reference a non-nullable value
   const task_ = task;
 
-  const isReadOnly = task_.status === 'completed' && currentUser?.role !== 'admin';
+  const isReadOnly = !!(task && task.pipelineStage && task.pipelineStage !== 'survey');
 
   // ── Handlers ─────────────────────────────────────────────────────────────────
 
@@ -227,6 +227,7 @@ export function UpdateTaskDrawer({ task, onClose }: UpdateTaskDrawerProps) {
       previousStatus:   t.status,
       taskNum:          t.taskNum,
       title:            t.title,
+      fields:           t.fields,
     };
 
     if (navigator.onLine) {
@@ -260,6 +261,8 @@ export function UpdateTaskDrawer({ task, onClose }: UpdateTaskDrawerProps) {
             location,
             followUpDate:     followUpDate ? new Date(followUpDate + 'T00:00:00').toISOString() : null,
             submittedAt:      new Date().toISOString(),
+            fields:           t.fields,
+            completionPhotos: t.completionPhotos ?? [],
           },
         });
         _emitToast('Saved offline — will sync when reconnected', 'info');
@@ -312,13 +315,29 @@ export function UpdateTaskDrawer({ task, onClose }: UpdateTaskDrawerProps) {
         {/* ── Scrollable body ── */}
         <div className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-5">
 
-          {/* Read-only banner */}
-          {isReadOnly && (
-            <div className="flex items-center gap-2 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
-              <CheckCircle2 className="h-4 w-4 shrink-0 text-green-500" />
-              This task has been completed.
-            </div>
-          )}
+          {/* Pipeline read-only banner */}
+          {isReadOnly && (() => {
+            const stageMessages: Partial<Record<string, { icon: string; title: string; body: string; border: string; bg: string; titleColor: string; bodyColor: string }>> = {
+              proposal:     { icon: '📄', title: 'With Proposal Team',     body: 'Proposal document is being prepared.',           border: 'border-purple-200', bg: 'bg-purple-50', titleColor: 'text-purple-800', bodyColor: 'text-purple-600' },
+              field_review: { icon: '👁️', title: 'Awaiting Your Review',   body: 'Proposal is ready. Check your review tasks.',    border: 'border-blue-200',   bg: 'bg-blue-50',   titleColor: 'text-blue-800',   bodyColor: 'text-blue-600'   },
+              backend:      { icon: '⚙️', title: 'With Backend Team',      body: (() => { const steps = task_.applicationJourneySteps ?? []; if (steps.length === 0) return 'Backend processing is in progress.'; const done = steps.filter((s) => s.status === 'done').length; if (done === steps.length) return '✅ All steps completed. Awaiting next stage.'; const currentStep = steps[task_.currentStepIndex ?? 0]; return `Step ${done + 1} of ${steps.length}: ${currentStep?.label ?? ''}`; })(),             border: 'border-orange-200', bg: 'bg-orange-50', titleColor: 'text-orange-800', bodyColor: 'text-orange-600' },
+
+              completed:    { icon: '✅', title: 'Lead Converted',          body: 'This lead has been successfully converted. All steps are complete.', border: 'border-green-300', bg: 'bg-green-50', titleColor: 'text-green-800', bodyColor: 'text-green-600' },
+              dropped:      { icon: '❌', title: 'Lead Dropped',           body: task_.droppedReason ?? 'Consumer declined the proposal.', border: 'border-red-200', bg: 'bg-red-50', titleColor: 'text-red-800', bodyColor: 'text-red-600' },
+            };
+            const msg = stageMessages[task_.pipelineStage ?? ''] ?? {
+              icon: '⏳', title: 'Processing', body: 'This task is being processed.',
+              border: 'border-blue-200', bg: 'bg-blue-50', titleColor: 'text-blue-800', bodyColor: 'text-blue-600',
+            };
+            return (
+              <div className={`mx-0 mb-0 rounded-lg border ${msg.border} ${msg.bg} px-4 py-3`}>
+                <p className={`text-sm font-semibold ${msg.titleColor}`}>
+                  {msg.icon} {msg.title}
+                </p>
+                <p className={`text-xs mt-0.5 ${msg.bodyColor}`}>{msg.body}</p>
+              </div>
+            );
+          })()}
 
           {/* Blocked reason */}
           {status === 'blocked' && !isReadOnly && (
@@ -373,15 +392,15 @@ export function UpdateTaskDrawer({ task, onClose }: UpdateTaskDrawerProps) {
           )}
 
           {/* GPS */}
-          <div className="flex flex-col gap-1.5">
-            <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Location</p>
-            {location ? (
-              <div className="flex items-center gap-2 rounded-xl border border-green-200 bg-green-50 px-3 py-2.5">
-                <MapPin className="h-4 w-4 text-green-600 shrink-0" />
-                <span className="text-sm font-mono text-gray-700 flex-1">
-                  {location.lat.toFixed(5)}, {location.lng.toFixed(5)}
-                </span>
-                {!isReadOnly && (
+          {!isReadOnly && (
+            <div className="flex flex-col gap-1.5">
+              <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Location</p>
+              {location ? (
+                <div className="flex items-center gap-2 rounded-xl border border-green-200 bg-green-50 px-3 py-2.5">
+                  <MapPin className="h-4 w-4 text-green-600 shrink-0" />
+                  <span className="text-sm font-mono text-gray-700 flex-1">
+                    {location.lat.toFixed(5)}, {location.lng.toFixed(5)}
+                  </span>
                   <button
                     type="button"
                     onClick={handleCaptureGps}
@@ -390,26 +409,24 @@ export function UpdateTaskDrawer({ task, onClose }: UpdateTaskDrawerProps) {
                   >
                     Re-capture
                   </button>
-                )}
-              </div>
-            ) : !isReadOnly ? (
-              <button
-                type="button"
-                onClick={handleCaptureGps}
-                disabled={gpsLoading}
-                className="flex items-center gap-2 w-full justify-center rounded-xl border-2 border-dashed border-brand-blue/30 bg-blue-50 px-4 py-3 text-sm font-medium text-brand-blue hover:bg-blue-100 transition-colors disabled:opacity-50"
-              >
-                {gpsLoading ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <MapPin className="h-4 w-4" />
-                )}
-                {gpsLoading ? 'Getting location…' : 'Capture Location'}
-              </button>
-            ) : (
-              <p className="text-sm text-gray-400 italic">No location captured</p>
-            )}
-          </div>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleCaptureGps}
+                  disabled={gpsLoading}
+                  className="flex items-center gap-2 w-full justify-center rounded-xl border-2 border-dashed border-brand-blue/30 bg-blue-50 px-4 py-3 text-sm font-medium text-brand-blue hover:bg-blue-100 transition-colors disabled:opacity-50"
+                >
+                  {gpsLoading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <MapPin className="h-4 w-4" />
+                  )}
+                  {gpsLoading ? 'Getting location…' : 'Capture Location'}
+                </button>
+              )}
+            </div>
+          )}
 
           {/* Checklist */}
           {sortedFields.length > 0 && (

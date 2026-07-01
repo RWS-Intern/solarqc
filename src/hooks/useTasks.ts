@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   collection, query, where, orderBy, limit, onSnapshot,
-  startAfter, getDocs,
+  startAfter, getDocs, Timestamp,
   type DocumentSnapshot,
 } from 'firebase/firestore';
 import { db } from '@/firebase/config';
 import { useTaskStore } from '@/store/taskStore';
 import { useAuthStore } from '@/store/authStore';
-import type { Task, TaskStatus } from '@/types';
+import type { Task, TaskStatus, PipelineStage, StageHistoryEntry, JourneyStepAnswer } from '@/types';
 
 function docToTask(d: { id: string; data: () => Record<string, unknown> }): Task {
   const data = d.data();
@@ -16,6 +16,7 @@ function docToTask(d: { id: string; data: () => Record<string, unknown> }): Task
     taskNum:          (data['taskNum']          as string)  ?? '',
     title:            (data['title']            as string)  ?? '',
     description:      (data['description']      as string)  ?? undefined,
+    district:         (data['district']          as string)  ?? undefined,
     assignedTo:       (data['assignedTo']       as string | null) ?? null,
     assignedToName:   (data['assignedToName']   as string)  ?? '',
     assignedToCode:   (data['assignedToCode']   as string)  ?? '',
@@ -35,27 +36,55 @@ function docToTask(d: { id: string; data: () => Record<string, unknown> }): Task
     updatedAt:        (data['updatedAt'] as { toDate?: () => Date } | null)?.toDate?.()   ?? new Date(),
     archived:         (data['archived']          as boolean) ?? false,
     archivedAt:       (data['archivedAt'] as { toDate?: () => Date } | null)?.toDate?.()  ?? null,
+    pipelineStage:           ((data['pipelineStage'] as string) ?? 'survey') as PipelineStage,
+    stageHistory:            ((data['stageHistory'] as StageHistoryEntry[]) ?? []).map((e: StageHistoryEntry) => ({
+                               ...e,
+                               timestamp: (e.timestamp as unknown as { toDate?: () => Date })?.toDate?.() ?? new Date(),
+                             })),
+    proposalAssignedTo:      (data['proposalAssignedTo']      as string | null) ?? null,
+    proposalAssignedToName:  (data['proposalAssignedToName']  as string) ?? '',
+    backendAssignedTo:       (data['backendAssignedTo']       as string | null) ?? null,
+    backendAssignedToName:   (data['backendAssignedToName']   as string) ?? '',
+    logisticsAssignedTo:     (data['logisticsAssignedTo']     as string | null) ?? null,
+    logisticsAssignedToName: (data['logisticsAssignedToName'] as string) ?? '',
+    installationAssignedTo:      (data['installationAssignedTo']      as string | null) ?? null,
+    installationAssignedToName:  (data['installationAssignedToName']  as string) ?? '',
+    proposalRevisionCount:   (data['proposalRevisionCount']   as number) ?? 0,
+    droppedReason:           (data['droppedReason']           as string | null) ?? null,
+    paymentType:             ((data['paymentType'] as string) ?? null) as 'cash' | 'loan' | null,
+    applicationJourneySteps: ((data['applicationJourneySteps'] as JourneyStepAnswer[]) ?? []).map((s) => ({
+                               ...s,
+                               recordedAt: (s.recordedAt as unknown as { toDate?: () => Date })?.toDate?.() ?? null,
+                               inputValue: (s as unknown as { inputValue?: string }).inputValue,
+                             })),
+    currentStepIndex:        (data['currentStepIndex'] as number) ?? 0,
+    journeyCompleted:        (data['journeyCompleted'] as boolean) ?? false,
   };
 }
 
-const PAGE_SIZE = 200;
+const PAGE_SIZE = 50;
 
 export function useArchivedTasks() {
   const [archivedTasks, setArchivedTasks] = useState<Task[]>([]);
-  const [loading, setLoading]             = useState(false);
-  const { currentUser }                   = useAuthStore();
+  const [loading,       setLoading]       = useState(false);
+  const [hasMore,       setHasMore]       = useState(false);
+  const lastDocRef = useRef<DocumentSnapshot | null>(null);
+  const { currentUser } = useAuthStore();
 
   async function loadArchivedTasks() {
     if (!currentUser || currentUser.role !== 'admin') return;
     setLoading(true);
+    lastDocRef.current = null;
     try {
       const snap = await getDocs(query(
         collection(db, 'tasks'),
         where('archived', '==', true),
         orderBy('archivedAt', 'desc'),
-        limit(100),
+        limit(50),
       ));
       setArchivedTasks(snap.docs.map(docToTask));
+      lastDocRef.current = snap.docs[snap.docs.length - 1] ?? null;
+      setHasMore(snap.docs.length === 50);
     } catch (err) {
       console.error('[useArchivedTasks] error:', err);
     } finally {
@@ -63,110 +92,394 @@ export function useArchivedTasks() {
     }
   }
 
-  return { archivedTasks, loading, loadArchivedTasks };
+  async function loadMoreArchived() {
+    if (!lastDocRef.current || !currentUser) return;
+    setLoading(true);
+    try {
+      const snap = await getDocs(query(
+        collection(db, 'tasks'),
+        where('archived', '==', true),
+        orderBy('archivedAt', 'desc'),
+        startAfter(lastDocRef.current),
+        limit(50),
+      ));
+      setArchivedTasks((prev) => [...prev, ...snap.docs.map(docToTask)]);
+      lastDocRef.current = snap.docs[snap.docs.length - 1] ?? null;
+      setHasMore(snap.docs.length === 50);
+    } catch (err) {
+      console.error('[useArchivedTasks] loadMore error:', err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return { archivedTasks, loading, hasMore, loadArchivedTasks, loadMoreArchived };
 }
 
-export function useTasks() {
-  const { setTasks, setLastUpdated, setIsConnected, setHasMore, setLoadingMore, setLoadMore } = useTaskStore();
-  const { currentUser } = useAuthStore();
-  const lastDocRef = useRef<DocumentSnapshot | null>(null);
+export type AdminFilter =
+  | 'all'
+  | 'pending'
+  | 'in_progress'
+  | 'completed'
+  | 'blocked'
+  | 'follow_up'
+  | 'overdue'
+  | 'archived'
+  | 'dropped'
+  | 'converted'
+  | 'pipeline_proposal'
+  | 'pipeline_field_review'
+  | 'pipeline_backend'
+  | 'unassigned'
+  | 'unassigned_backend'
+  | 'my_tasks';
 
+export function useTasks() {
+  const {
+    setTasks, setLastUpdated, setIsConnected,
+    setHasMore, setLoadingMore, setLoadMore,
+    setIsLoadingTasks,
+  } = useTaskStore();
+  const { currentUser } = useAuthStore();
+  const lastDocRef      = useRef<DocumentSnapshot | null>(null);
+  const unsubRef        = useRef<(() => void) | null>(null);
+
+  // ── Field engineer: simple listener on own tasks ──────────────────────────
   useEffect(() => {
     if (!currentUser) return;
+    const pipelineRoles = ['proposal', 'backend', 'logistics', 'installation'];
+    if (pipelineRoles.includes(currentUser.role)) return;
+    if (currentUser.role === 'admin') return; // admin handled by subscribeToFilter
 
-    lastDocRef.current = null;
-    setHasMore(false);
-    setLoadMore(null);
-
-    let q;
-    if (currentUser.role === 'admin') {
-      q = query(
-        collection(db, 'tasks'),
-        where('archived', '==', false),
-        orderBy('createdAt', 'desc'),
-        limit(PAGE_SIZE),
-      );
-    } else {
-      q = query(
-        collection(db, 'tasks'),
-        where('assignedTo', '==', currentUser.uid),
-        where('archived', '==', false),
-        orderBy('createdAt', 'desc'),
-      );
-    }
-
-    const unsubscribe = onSnapshot(
-      q,
+    const q = query(
+      collection(db, 'tasks'),
+      where('assignedTo', '==', currentUser.uid),
+      where('archived',   '==', false),
+      orderBy('createdAt', 'desc'),
+      limit(200),
+    );
+    const unsub = onSnapshot(q,
       (snap) => {
-        const tasks = snap.docs.map(docToTask);
-        setTasks(tasks);
+        setTasks(snap.docs.map(docToTask));
         setLastUpdated(new Date());
         setIsConnected(true);
-        if (currentUser.role === 'admin') {
-          lastDocRef.current = snap.docs[snap.docs.length - 1] ?? null;
-          setHasMore(snap.docs.length === PAGE_SIZE);
-        }
       },
       (err) => {
-        console.error('[useTasks] snapshot error:', err);
+        console.error('[useTasks] field error:', err);
         setIsConnected(false);
       },
     );
+    return unsub;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser?.uid]);
 
-    async function loadMore() {
+  // ── Admin: build query for a given filter ─────────────────────────────────
+  function buildAdminQuery(
+    filter: AdminFilter,
+    searchTerm?: string,
+    engineerUid?: string,
+    districtFilter?: string,
+  ) {
+    const base = collection(db, 'tasks');
+
+    // Engineer filter — bypass all other filter logic
+    if (engineerUid) {
+      return {
+        q: query(
+          collection(db, 'tasks'),
+          where('assignedTo', '==', engineerUid),
+          where('archived',   '==', false),
+          orderBy('createdAt', 'desc'),
+          limit(PAGE_SIZE),
+        ),
+        isSearch: false as const,
+      };
+    }
+
+    // District filter — bypass switch
+    if (districtFilter) {
+      return {
+        q: query(
+          collection(db, 'tasks'),
+          where('district', '==', districtFilter),
+          where('archived', '==', false),
+          orderBy('updatedAt', 'desc'),
+          limit(PAGE_SIZE),
+        ),
+        isSearch: false as const,
+      };
+    }
+
+    if (searchTerm && searchTerm.trim().length > 0) {
+      const term = searchTerm.trim().toLowerCase();
+      if (filter === 'my_tasks') {
+        const taskNumQuery = query(
+          base,
+          where('archived',  '==', false),
+          where('createdBy', '==', currentUser!.uid),
+          where('taskNum',   '>=', searchTerm.trim().toUpperCase()),
+          where('taskNum',   '<=', searchTerm.trim().toUpperCase() + ''),
+          limit(PAGE_SIZE),
+        );
+        const titleQuery = query(
+          base,
+          where('archived',   '==', false),
+          where('createdBy',  '==', currentUser!.uid),
+          where('titleLower', '>=', term),
+          where('titleLower', '<=', term + ''),
+          limit(PAGE_SIZE),
+        );
+        return { taskNumQuery, titleQuery, isSearch: true as const };
+      }
+      const taskNumQuery = query(
+        base,
+        where('archived', '==', false),
+        where('taskNum',  '>=', searchTerm.trim().toUpperCase()),
+        where('taskNum',  '<=', searchTerm.trim().toUpperCase() + ''),
+        limit(PAGE_SIZE),
+      );
+      const titleQuery = query(
+        base,
+        where('archived',   '==', false),
+        where('titleLower', '>=', term),
+        where('titleLower', '<=', term + ''),
+        limit(PAGE_SIZE),
+      );
+      return { taskNumQuery, titleQuery, isSearch: true as const };
+    }
+
+    let q;
+    switch (filter) {
+      case 'pending':
+        q = query(base,
+          where('archived', '==', false),
+          where('status',   '==', 'pending'),
+          orderBy('createdAt', 'desc'), limit(PAGE_SIZE));
+        break;
+      case 'in_progress':
+        q = query(base,
+          where('archived', '==', false),
+          where('status',   '==', 'in_progress'),
+          orderBy('createdAt', 'desc'), limit(PAGE_SIZE));
+        break;
+      case 'completed':
+        q = query(base,
+          where('archived', '==', false),
+          where('status',   '==', 'completed'),
+          orderBy('createdAt', 'desc'), limit(PAGE_SIZE));
+        break;
+      case 'blocked':
+        q = query(base,
+          where('archived', '==', false),
+          where('status',   '==', 'blocked'),
+          orderBy('createdAt', 'desc'), limit(PAGE_SIZE));
+        break;
+      case 'pipeline_proposal':
+        q = query(base,
+          where('archived',      '==', false),
+          where('pipelineStage', '==', 'proposal'),
+          orderBy('createdAt', 'desc'), limit(PAGE_SIZE));
+        break;
+      case 'pipeline_field_review':
+        q = query(base,
+          where('archived',      '==', false),
+          where('pipelineStage', '==', 'field_review'),
+          orderBy('createdAt', 'desc'), limit(PAGE_SIZE));
+        break;
+      case 'pipeline_backend':
+        q = query(base,
+          where('archived',      '==', false),
+          where('pipelineStage', '==', 'backend'),
+          orderBy('createdAt', 'desc'), limit(PAGE_SIZE));
+        break;
+      case 'converted':
+        q = query(base,
+          where('archived',      '==', false),
+          where('pipelineStage', '==', 'completed'),
+          orderBy('createdAt', 'desc'), limit(PAGE_SIZE));
+        break;
+      case 'dropped':
+        q = query(base,
+          where('archived',      '==', false),
+          where('pipelineStage', '==', 'dropped'),
+          orderBy('createdAt', 'desc'), limit(PAGE_SIZE));
+        break;
+      case 'unassigned':
+        q = query(base,
+          where('archived',      '==', false),
+          where('pipelineStage', '==', 'proposal'),
+          orderBy('createdAt', 'desc'), limit(PAGE_SIZE));
+        break;
+      case 'unassigned_backend':
+        q = query(base,
+          where('archived',      '==', false),
+          where('pipelineStage', '==', 'backend'),
+          orderBy('createdAt', 'desc'), limit(PAGE_SIZE));
+        break;
+      case 'follow_up':
+        q = query(base,
+          where('archived',     '==', false),
+          where('followUpDate', '!=', null),
+          orderBy('followUpDate', 'asc'),
+          limit(PAGE_SIZE));
+        break;
+      case 'overdue': {
+        const now = new Date();
+        q = query(base,
+          where('archived', '==', false),
+          where('status',   'in', ['pending', 'in_progress', 'blocked']),
+          where('dueDate',  '<',  Timestamp.fromDate(now)),
+          orderBy('dueDate', 'asc'),
+          limit(PAGE_SIZE));
+        break;
+      }
+      case 'my_tasks':
+        q = query(base,
+          where('archived',  '==', false),
+          where('createdBy', '==', currentUser!.uid),
+          orderBy('createdAt', 'desc'),
+          limit(PAGE_SIZE));
+        break;
+      default: // 'all'
+        q = query(base,
+          where('archived', '==', false),
+          orderBy('updatedAt', 'desc'), limit(PAGE_SIZE));
+    }
+    return { q, isSearch: false as const };
+  }
+
+  // ── Admin: subscribe to a filter ──────────────────────────────────────────
+  function subscribeToFilter(
+    filter: AdminFilter,
+    searchTerm?: string,
+    engineerUid?: string,
+    districtFilter?: string,
+  ) {
+    if (currentUser?.role !== 'admin') return;
+
+    if (unsubRef.current) {
+      unsubRef.current();
+      unsubRef.current = null;
+    }
+
+    lastDocRef.current = null;
+    setHasMore(false);
+    setTasks([]);
+    setIsLoadingTasks(true);
+
+    const built = buildAdminQuery(filter, searchTerm, engineerUid, districtFilter);
+
+    if (built.isSearch) {
+      const { taskNumQuery, titleQuery } = built;
+      Promise.all([
+        getDocs(taskNumQuery),
+        getDocs(titleQuery),
+      ]).then(([numSnap, titleSnap]) => {
+        const seen  = new Set<string>();
+        const merged: Task[] = [];
+        [...numSnap.docs, ...titleSnap.docs].forEach((d) => {
+          if (!seen.has(d.id)) {
+            seen.add(d.id);
+            merged.push(docToTask(d));
+          }
+        });
+        merged.sort((a, b) =>
+          (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0)
+        );
+        setTasks(merged);
+        setIsLoadingTasks(false);
+        setIsConnected(true);
+        setHasMore(false);
+      }).catch((err) => {
+        console.error('[useTasks] search error:', err);
+        setIsLoadingTasks(false);
+      });
+      return;
+    }
+
+    // Normal filter — real-time onSnapshot
+    const { q } = built;
+    const unsub = onSnapshot(q,
+      (snap) => {
+        const rawTasks = snap.docs.map(docToTask);
+        const filtered = filter === 'unassigned'
+          ? rawTasks.filter(t => !t.proposalAssignedTo)
+          : filter === 'unassigned_backend'
+          ? rawTasks.filter(t => !t.backendAssignedTo)
+          : rawTasks;
+        setTasks(filtered);
+        setLastUpdated(new Date());
+        setIsConnected(true);
+        setIsLoadingTasks(false);
+        lastDocRef.current = snap.docs[snap.docs.length - 1] ?? null;
+        setHasMore(snap.docs.length === PAGE_SIZE);
+      },
+      (err) => {
+        console.error('[useTasks] admin error:', err);
+        setIsConnected(false);
+        setIsLoadingTasks(false);
+      },
+    );
+    unsubRef.current = unsub;
+
+    setLoadMore(async () => {
       if (!lastDocRef.current) return;
       setLoadingMore(true);
       try {
-        const moreQuery = query(
+        const filterConstraints = (() => {
+          switch (filter) {
+            case 'pending':
+              return [where('archived','==',false), where('status','==','pending'), orderBy('createdAt','desc')];
+            case 'in_progress':
+              return [where('archived','==',false), where('status','==','in_progress'), orderBy('createdAt','desc')];
+            case 'completed':
+              return [where('archived','==',false), where('status','==','completed'), orderBy('createdAt','desc')];
+            case 'blocked':
+              return [where('archived','==',false), where('status','==','blocked'), orderBy('createdAt','desc')];
+            case 'pipeline_proposal':
+              return [where('archived','==',false), where('pipelineStage','==','proposal'), orderBy('createdAt','desc')];
+            case 'pipeline_field_review':
+              return [where('archived','==',false), where('pipelineStage','==','field_review'), orderBy('createdAt','desc')];
+            case 'pipeline_backend':
+              return [where('archived','==',false), where('pipelineStage','==','backend'), orderBy('createdAt','desc')];
+            case 'converted':
+              return [where('archived','==',false), where('pipelineStage','==','completed'), orderBy('createdAt','desc')];
+            case 'dropped':
+              return [where('archived','==',false), where('pipelineStage','==','dropped'), orderBy('createdAt','desc')];
+            case 'my_tasks':
+              return [where('archived','==',false), where('createdBy','==',currentUser!.uid), orderBy('createdAt','desc')];
+            default:
+              return [where('archived','==',false), orderBy('createdAt','desc')];
+          }
+        })();
+        const moreSnap = await getDocs(query(
           collection(db, 'tasks'),
-          where('archived', '==', false),
-          orderBy('createdAt', 'desc'),
+          ...filterConstraints,
           startAfter(lastDocRef.current),
           limit(PAGE_SIZE),
-        );
-        const snap = await getDocs(moreQuery);
-        const moreTasks = snap.docs.map(docToTask);
-        const existing = useTaskStore.getState().tasks;
+        ));
+        const moreTasks = moreSnap.docs.map(docToTask);
+        const existing  = useTaskStore.getState().tasks;
         setTasks([...existing, ...moreTasks]);
-        lastDocRef.current = snap.docs[snap.docs.length - 1] ?? null;
-        setHasMore(snap.docs.length === PAGE_SIZE);
+        lastDocRef.current = moreSnap.docs[moreSnap.docs.length - 1] ?? null;
+        setHasMore(moreSnap.docs.length === PAGE_SIZE);
       } catch (err) {
         console.error('[useTasks] loadMore error:', err);
       } finally {
         setLoadingMore(false);
       }
-    }
+    });
+  }
 
-    if (currentUser.role === 'admin') {
-      setLoadMore(loadMore);
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (unsubRef.current) {
+        unsubRef.current();
+        unsubRef.current = null;
+      }
+    };
+  }, []);
 
-      // Background load all tasks for full-search coverage
-      const loadSearchTasks = () => {
-        const { setSearchTasks, setSearchTasksLoaded } = useTaskStore.getState();
-        setSearchTasksLoaded(false);
-        getDocs(query(
-          collection(db, 'tasks'),
-          where('archived', '==', false),
-          orderBy('createdAt', 'desc'),
-        )).then((snap) => {
-          setSearchTasks(snap.docs.map(docToTask));
-        }).catch((err) => {
-          console.error('[useTasks] search load failed:', err);
-        });
-      };
-
-      loadSearchTasks();
-
-      // Refresh every 5 minutes so newly created tasks appear in search
-      const interval = setInterval(loadSearchTasks, 5 * 60 * 1000);
-
-      return () => {
-        unsubscribe();
-        clearInterval(interval);
-      };
-    }
-
-    return unsubscribe;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentUser?.uid]);
+  return { subscribeToFilter };
 }

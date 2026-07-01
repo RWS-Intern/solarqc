@@ -1,14 +1,18 @@
 import { useState, useEffect } from 'react';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '@/firebase/config';
-import type { AppConfig, FieldDefinition } from '@/types';
+import type { AppConfig, FieldDefinition, JourneyStepDefinition } from '@/types';
 
 const DEFAULT_CONFIG: AppConfig = {
   orgName:            '',
   taskNumCounter:     0,
   engineerNumCounter: 0,
   taskTemplate:       [],
+  backendCashSteps:   [],
+  backendLoanSteps:   [],
   superAdminUid:      '',
+  pipelineCounts:     undefined,
+  memberCounts:       undefined,
 };
 
 export function useAppConfig() {
@@ -22,11 +26,17 @@ export function useAppConfig() {
         if (snap.exists()) {
           const data = snap.data();
           setConfig({
-            orgName:            data['orgName']            ?? DEFAULT_CONFIG.orgName,
-            taskNumCounter:     data['taskNumCounter']     ?? 0,
-            engineerNumCounter: data['engineerNumCounter'] ?? 0,
-            taskTemplate:       (data['taskTemplate']      ?? []) as FieldDefinition[],
-            superAdminUid:      (data['superAdminUid']     as string) ?? '',
+            orgName:                  data['orgName']                   ?? DEFAULT_CONFIG.orgName,
+            taskNumCounter:           data['taskNumCounter']            ?? 0,
+            engineerNumCounter:       data['engineerNumCounter']        ?? 0,
+            taskTemplate:             (data['taskTemplate']             ?? []) as FieldDefinition[],
+            backendChecklistTemplate: (data['backendChecklistTemplate'] ?? []) as FieldDefinition[],
+            backendCashSteps:         (data['backendCashSteps']         ?? []) as JourneyStepDefinition[],
+            backendLoanSteps:         (data['backendLoanSteps']         ?? []) as JourneyStepDefinition[],
+            superAdminUid:            (data['superAdminUid']            as string) ?? '',
+            pipelineCounts:           data['pipelineCounts'] as AppConfig['pipelineCounts'] ?? undefined,
+            memberCounts:             data['memberCounts'] as Record<string, number> | undefined,
+            districts:                (data['districts'] ?? []) as string[],
           });
         }
         setLoading(false);

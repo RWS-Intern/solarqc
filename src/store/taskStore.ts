@@ -15,11 +15,39 @@ interface TaskState {
   setLoadingMore: (v: boolean)    => void;
   loadMore:       (() => void) | null;
   setLoadMore:    (fn: (() => void) | null) => void;
-  // Search layer (full unpaginated set for admin)
-  searchTasks:          Task[];
-  searchTasksLoaded:    boolean;
-  setSearchTasks:       (tasks: Task[]) => void;
-  setSearchTasksLoaded: (loaded: boolean) => void;
+  // Loading state for admin filter queries
+  isLoadingTasks:    boolean;
+  setIsLoadingTasks: (v: boolean) => void;
+  // Proposal stage tasks
+  proposalTasks:           Task[];
+  proposalTasksLoading:    boolean;
+  setProposalTasks:        (tasks: Task[]) => void;
+  setProposalTasksLoading: (v: boolean)    => void;
+  // Proposal history tasks (past proposal stage)
+  proposalHistoryTasks:        Task[];
+  proposalHistoryLoading:      boolean;
+  setProposalHistoryTasks:     (tasks: Task[]) => void;
+  setProposalHistoryLoading:   (v: boolean)    => void;
+  // Proposal history pagination
+  proposalHistoryHasMore:    boolean;
+  proposalHistoryLastDoc:    unknown;
+  setProposalHistoryHasMore: (v: boolean) => void;
+  setProposalHistoryLastDoc: (d: unknown) => void;
+  // Backend stage tasks
+  backendTasks:           Task[];
+  backendTasksLoading:    boolean;
+  setBackendTasks:        (tasks: Task[]) => void;
+  setBackendTasksLoading: (v: boolean)    => void;
+  // Backend history tasks (past backend stage)
+  backendHistoryTasks:        Task[];
+  backendHistoryLoading:      boolean;
+  setBackendHistoryTasks:     (tasks: Task[]) => void;
+  setBackendHistoryLoading:   (v: boolean)    => void;
+  // Backend history pagination
+  backendHistoryHasMore:    boolean;
+  backendHistoryLastDoc:    unknown;
+  setBackendHistoryHasMore: (v: boolean) => void;
+  setBackendHistoryLastDoc: (d: unknown) => void;
 }
 
 export const useTaskStore = create<TaskState>((set) => ({
@@ -35,8 +63,30 @@ export const useTaskStore = create<TaskState>((set) => ({
   setLoadingMore: (v)     => set({ loadingMore: v }),
   loadMore:       null,
   setLoadMore:    (fn)    => set({ loadMore: fn }),
-  searchTasks:          [],
-  searchTasksLoaded:    false,
-  setSearchTasks:       (tasks) => set({ searchTasks: tasks, searchTasksLoaded: true }),
-  setSearchTasksLoaded: (loaded) => set({ searchTasksLoaded: loaded }),
+  isLoadingTasks:    false,
+  setIsLoadingTasks: (v)  => set({ isLoadingTasks: v }),
+  proposalTasks:           [],
+  proposalTasksLoading:    false,
+  setProposalTasks:        (tasks) => set({ proposalTasks: tasks }),
+  setProposalTasksLoading: (v)     => set({ proposalTasksLoading: v }),
+  proposalHistoryTasks:        [],
+  proposalHistoryLoading:      false,
+  setProposalHistoryTasks:     (tasks) => set({ proposalHistoryTasks: tasks }),
+  setProposalHistoryLoading:   (v)     => set({ proposalHistoryLoading: v }),
+  proposalHistoryHasMore:    false,
+  proposalHistoryLastDoc:    null,
+  setProposalHistoryHasMore: (v) => set({ proposalHistoryHasMore: v }),
+  setProposalHistoryLastDoc: (d) => set({ proposalHistoryLastDoc: d }),
+  backendTasks:           [],
+  backendTasksLoading:    false,
+  setBackendTasks:        (tasks) => set({ backendTasks: tasks }),
+  setBackendTasksLoading: (v)     => set({ backendTasksLoading: v }),
+  backendHistoryTasks:        [],
+  backendHistoryLoading:      false,
+  setBackendHistoryTasks:     (tasks) => set({ backendHistoryTasks: tasks }),
+  setBackendHistoryLoading:   (v)     => set({ backendHistoryLoading: v }),
+  backendHistoryHasMore:    false,
+  backendHistoryLastDoc:    null,
+  setBackendHistoryHasMore: (v) => set({ backendHistoryHasMore: v }),
+  setBackendHistoryLastDoc: (d) => set({ backendHistoryLastDoc: d }),
 }));

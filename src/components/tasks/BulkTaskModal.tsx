@@ -14,23 +14,24 @@ import type { BulkTaskRow }    from '@/hooks/useBulkTaskActions';
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface ParsedRow {
-  rowNum:      number;
-  title:       string;
-  description: string;
+  rowNum:       number;
+  title:        string;
+  description:  string;
   engineerCode: string;
-  dueDate:     string;
-  valid:       boolean;
-  error:       string;
-  resolved:    BulkTaskRow | null;
+  dueDate:      string;
+  district:     string;
+  valid:        boolean;
+  error:        string;
+  resolved:     BulkTaskRow | null;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function downloadTemplate() {
   const csv = [
-    'title,description,engineerCode,dueDate',
-    '"Rooftop inspection - Site A","Check panel condition","ENG-001","2026-07-01"',
-    '"Site survey - Kothrud","","",""',
+    'title,description,engineerCode,dueDate,district',
+    '"Rooftop inspection - Site A","Check panel condition","ENG-001","2026-07-01","Nagpur"',
+    '"Site survey - Kothrud","","","",""',
   ].join('\n');
   const blob = new Blob([csv], { type: 'text/csv' });
   const url  = URL.createObjectURL(blob);
@@ -92,33 +93,35 @@ export function BulkTaskModal({ open, onClose }: BulkTaskModalProps) {
           const description = (raw['description'] ?? '').trim();
           const engineerCode = (raw['engineerCode'] ?? '').trim();
           const dueDate     = (raw['dueDate'] ?? '').trim();
+          const district    = (raw['district'] ?? '').trim();
 
           // Validate
           if (!title) {
-            return { rowNum, title, description, engineerCode, dueDate, valid: false, error: 'Title is required', resolved: null };
+            return { rowNum, title, description, engineerCode, dueDate, district, valid: false, error: 'Title is required', resolved: null };
           }
 
           let engineer = null;
           if (engineerCode) {
             const found = engineers.find((e) => e.engineerCode === engineerCode);
             if (!found) {
-              return { rowNum, title, description, engineerCode, dueDate, valid: false, error: `Engineer "${engineerCode}" not found`, resolved: null };
+              return { rowNum, title, description, engineerCode, dueDate, district, valid: false, error: `Engineer "${engineerCode}" not found`, resolved: null };
             }
             engineer = found;
           }
 
           if (dueDate && !isValidDate(dueDate)) {
-            return { rowNum, title, description, engineerCode, dueDate, valid: false, error: 'Due date must be YYYY-MM-DD', resolved: null };
+            return { rowNum, title, description, engineerCode, dueDate, district, valid: false, error: 'Due date must be YYYY-MM-DD', resolved: null };
           }
 
           const resolved: BulkTaskRow = {
             title,
             description,
+            district: district || undefined,
             engineer,
             dueDate: dueDate ? new Date(dueDate) : null,
           };
 
-          return { rowNum, title, description, engineerCode, dueDate, valid: true, error: '', resolved };
+          return { rowNum, title, description, engineerCode, dueDate, district, valid: true, error: '', resolved };
         });
         setRows(parsed);
       },
@@ -178,7 +181,7 @@ export function BulkTaskModal({ open, onClose }: BulkTaskModalProps) {
           <div className="flex items-center justify-between rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
             <div>
               <p className="text-sm font-semibold text-gray-800">Download Template</p>
-              <p className="text-xs text-gray-500 mt-0.5">CSV format: title, description, engineerCode, dueDate</p>
+              <p className="text-xs text-gray-500 mt-0.5">CSV format: title, description, engineerCode, dueDate, district</p>
             </div>
             <Button variant="outline" size="sm" onClick={downloadTemplate} className="flex items-center gap-1.5 shrink-0">
               <Download className="h-3.5 w-3.5" />
@@ -235,6 +238,7 @@ export function BulkTaskModal({ open, onClose }: BulkTaskModalProps) {
                       <th className="text-left px-3 py-2 font-semibold text-gray-500">Title</th>
                       <th className="text-left px-3 py-2 font-semibold text-gray-500">Engineer</th>
                       <th className="text-left px-3 py-2 font-semibold text-gray-500">Due Date</th>
+                      <th className="text-left px-3 py-2 font-semibold text-gray-500">District</th>
                       <th className="text-left px-3 py-2 font-semibold text-gray-500">Status</th>
                     </tr>
                   </thead>
@@ -248,6 +252,7 @@ export function BulkTaskModal({ open, onClose }: BulkTaskModalProps) {
                         <td className="px-3 py-2 font-medium text-gray-800 max-w-[180px] truncate">{row.title || '—'}</td>
                         <td className="px-3 py-2 text-gray-600">{row.engineerCode || '—'}</td>
                         <td className="px-3 py-2 text-gray-600">{row.dueDate || '—'}</td>
+                        <td className="px-3 py-2 text-gray-600">{row.district || '—'}</td>
                         <td className="px-3 py-2">
                           {row.valid ? (
                             <span className="flex items-center gap-1 text-green-600 font-medium">

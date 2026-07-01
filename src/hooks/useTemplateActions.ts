@@ -1,11 +1,11 @@
 import {
-  doc, serverTimestamp,
+  doc, updateDoc, serverTimestamp,
   collection, getDocs, query, where, writeBatch, runTransaction,
   type DocumentReference,
 } from 'firebase/firestore';
 import { db }        from '@/firebase/config';
 import { useToast }  from '@/components/ui/toast';
-import type { FieldDefinition } from '@/types';
+import type { FieldDefinition, JourneyStepDefinition } from '@/types';
 
 export function useTemplateActions() {
   const { showToast } = useToast();
@@ -135,5 +135,42 @@ export function useTemplateActions() {
     }
   }
 
-  return { saveTemplate };
+  async function saveBackendJourneySteps(
+    cashSteps: JourneyStepDefinition[],
+    loanSteps: JourneyStepDefinition[],
+  ): Promise<void> {
+    try {
+      const configRef = doc(db, 'appConfig', 'global');
+      await runTransaction(db, async (tx) => {
+        const snap = await tx.get(configRef);
+        if (!snap.exists()) throw new Error('Config not found');
+        tx.update(configRef, {
+          backendCashSteps: cashSteps,
+          backendLoanSteps: loanSteps,
+          updatedAt:        serverTimestamp(),
+        });
+      });
+      showToast('Application journey steps saved. New steps apply to unstarted tasks only.', 'success');
+    } catch (err) {
+      console.error('[saveBackendJourneySteps] failed:', err);
+      showToast('Failed to save steps. Try again.', 'error');
+      throw err;
+    }
+  }
+
+  async function saveDistricts(districts: string[]): Promise<void> {
+    try {
+      await updateDoc(doc(db, 'appConfig', 'global'), {
+        districts,
+        updatedAt: serverTimestamp(),
+      });
+      showToast('Districts saved', 'success');
+    } catch (err) {
+      console.error('[saveDistricts] failed:', err);
+      showToast('Failed to save districts. Try again.', 'error');
+      throw err;
+    }
+  }
+
+  return { saveTemplate, saveBackendJourneySteps, saveDistricts };
 }

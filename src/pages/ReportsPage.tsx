@@ -1,22 +1,21 @@
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
 } from 'recharts';
 import { Download } from 'lucide-react';
+import {
+  getDocs, query, collection, where, limit, orderBy,
+} from 'firebase/firestore';
+import { db } from '@/firebase/config';
 import { useTaskStore } from '@/store/taskStore';
+import { useAppConfig } from '@/hooks/useAppConfig';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import type { TaskStatus } from '@/types';
+import type { Task, TaskStatus } from '@/types';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const STATUS_COLORS: Record<TaskStatus, string> = {
-  pending:     '#9CA3AF',
-  in_progress: '#F4A261',
-  completed:   '#2A9D8F',
-  blocked:     '#E63946',
-};
 
 const STATUS_LABELS: Record<TaskStatus, string> = {
   pending:     'Pending',
@@ -52,15 +51,35 @@ const STATUS_BADGE: Record<TaskStatus, string> = {
 
 // ─── CSV export ───────────────────────────────────────────────────────────────
 
-function exportCsv(rows: { taskNum: string; title: string; assignedToName: string; status: string; submittedAt: Date | null }[]) {
+const PIPELINE_STAGE_LABEL: Record<string, string> = {
+  survey:       'Survey',
+  proposal:     'Proposal',
+  field_review: 'Field Review',
+  backend:      'Backend',
+  completed:    'Converted',
+  dropped:      'Dropped',
+  logistics:    'Logistics',
+  installation: 'Installation',
+};
+
+function csvCell(val: string | number | null | undefined): string {
+  if (val == null) return '""';
+  return `"${String(val).replace(/"/g, '""')}"`;
+}
+
+function isoDate(d: Date | null | undefined): string {
+  return d ? d.toISOString().slice(0, 10) : '';
+}
+
+function exportSubmissionsCsv(rows: { taskNum: string; title: string; assignedToName: string; status: string; submittedAt: Date | null }[]) {
   const header = ['Task #', 'Title', 'Assigned To', 'Status', 'Submitted At'].join(',');
   const body = rows.map((r) =>
     [
-      `"${r.taskNum}"`,
-      `"${r.title.replace(/"/g, '""')}"`,
-      `"${r.assignedToName}"`,
-      `"${r.status}"`,
-      `"${r.submittedAt ? r.submittedAt.toISOString() : ''}"`,
+      csvCell(r.taskNum),
+      csvCell(r.title),
+      csvCell(r.assignedToName),
+      csvCell(r.status),
+      csvCell(r.submittedAt ? r.submittedAt.toISOString() : ''),
     ].join(',')
   );
   const csv  = [header, ...body].join('\n');
@@ -69,6 +88,50 @@ function exportCsv(rows: { taskNum: string; title: string; assignedToName: strin
   const a    = document.createElement('a');
   a.href     = url;
   a.download = `solarops_submissions_${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function exportPipelineCsv(rows: Task[]) {
+  const header = [
+    'Task #', 'Title', 'Field Engineer', 'Pipeline Stage', 'Payment Type',
+    'Journey Steps Done', 'Journey Total Steps',
+    'Proposal Team', 'Backend Team',
+    'Dropped Reason', 'Conversion Date', 'Survey Date', 'Created Date',
+  ].join(',');
+
+  const body = rows.map((t) => {
+    const stageLabel = PIPELINE_STAGE_LABEL[t.pipelineStage ?? 'survey'] ?? (t.pipelineStage ?? 'Survey');
+    const paymentType = t.paymentType === 'cash' ? 'Cash' : t.paymentType === 'loan' ? 'Loan' : '';
+    const stepsDone  = t.applicationJourneySteps.filter((s) => s.status === 'done').length;
+    const stepsTotal = t.applicationJourneySteps.length;
+    const conversionEntry = (t.stageHistory ?? []).find((e) => e.toStage === 'completed');
+    const conversionDate  = isoDate(conversionEntry?.timestamp ?? null);
+    return [
+      csvCell(t.taskNum),
+      csvCell(t.title),
+      csvCell(t.assignedToName),
+      csvCell(stageLabel),
+      csvCell(paymentType),
+      csvCell(stepsDone),
+      csvCell(stepsTotal),
+      csvCell(t.proposalAssignedToName ?? ''),
+      csvCell(t.backendAssignedToName ?? ''),
+      csvCell(t.droppedReason ?? ''),
+      csvCell(conversionDate),
+      csvCell(isoDate(t.submittedAt)),
+      csvCell(isoDate(t.createdAt)),
+    ].join(',');
+  });
+
+  const csv  = [header, ...body].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = `solarops_pipeline_${new Date().toISOString().slice(0, 10)}.csv`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
@@ -86,28 +149,120 @@ function SectionHeader({ title }: { title: string }) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export function ReportsPage() {
-  const { tasks } = useTaskStore();
+  const { tasks }  = useTaskStore();
+  const { config } = useAppConfig();
+  const pc         = config.pipelineCounts;
+
+  // Load status counts independently from Firestore
+  const [statusCounts, setStatusCounts] = useState<Record<string, number>>(
+    { pending: 0, in_progress: 0, completed: 0, blocked: 0 },
+  );
+  const [totalTaskCount, setTotalTaskCount] = useState(0);
+  const [reportLoading, setReportLoading] = useState(true);
+  const [allTasksForChart, setAllTasksForChart] = useState<Array<{
+    assignedToName: string;
+    status:         string;
+    pipelineStage?: string;
+    district?:      string;
+  }>>([]);
+  const [allSubmittedTasks, setAllSubmittedTasks] = useState<Array<{
+    id:             string;
+    taskNum:        string;
+    title:          string;
+    assignedToName: string;
+    status:         TaskStatus;
+    submittedAt:    Date | null;
+  }>>([]);
+
+  useEffect(() => {
+    async function loadReportData() {
+      setReportLoading(true);
+      try {
+        const [pendingSnap, inProgressSnap, completedSnap, blockedSnap] = await Promise.all([
+          getDocs(query(collection(db, 'tasks'), where('archived', '==', false), where('status', '==', 'pending'),     limit(1000))),
+          getDocs(query(collection(db, 'tasks'), where('archived', '==', false), where('status', '==', 'in_progress'), limit(1000))),
+          getDocs(query(collection(db, 'tasks'), where('archived', '==', false), where('status', '==', 'completed'),   limit(1000))),
+          getDocs(query(collection(db, 'tasks'), where('archived', '==', false), where('status', '==', 'blocked'),     limit(1000))),
+        ]);
+        const counts = {
+          pending:     pendingSnap.size,
+          in_progress: inProgressSnap.size,
+          completed:   completedSnap.size,
+          blocked:     blockedSnap.size,
+        };
+        setStatusCounts(counts);
+        const total = (pc?.total_active ?? 0) + (pc?.completed ?? 0) + (pc?.dropped ?? 0);
+        setTotalTaskCount(
+          total || counts.pending + counts.in_progress + counts.completed + counts.blocked,
+        );
+
+        // Fetch all tasks for engineer chart
+        const allSnap = await getDocs(query(
+          collection(db, 'tasks'),
+          where('archived', '==', false),
+          limit(2000),
+        ));
+        setAllTasksForChart(
+          allSnap.docs.map((d) => ({
+            assignedToName: (d.data()['assignedToName'] as string) || 'Unassigned',
+            status:         (d.data()['status']         as string) || 'pending',
+            pipelineStage:  (d.data()['pipelineStage']  as string) || 'survey',
+            district:       (d.data()['district']       as string) || '',
+          }))
+        );
+
+        // Fetch submitted tasks for recent submissions table
+        const submittedSnap = await getDocs(query(
+          collection(db, 'tasks'),
+          where('archived',    '==', false),
+          where('submittedAt', '!=', null),
+          orderBy('submittedAt', 'desc'),
+          limit(500),
+        ));
+        setAllSubmittedTasks(
+          submittedSnap.docs.map((d) => {
+            const data = d.data();
+            const raw  = data['submittedAt'];
+            const submittedAt = raw?.toDate ? raw.toDate() : null;
+            return {
+              id:             d.id,
+              taskNum:        (data['taskNum']        as string) || '',
+              title:          (data['title']          as string) || '',
+              assignedToName: (data['assignedToName'] as string) || '',
+              status:         ((data['status']        as string) || 'pending') as TaskStatus,
+              submittedAt,
+            };
+          })
+        );
+      } catch (err) {
+        console.error('[ReportsPage] loadReportData failed:', err);
+      } finally {
+        setReportLoading(false);
+      }
+    }
+    loadReportData();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Pie data ────────────────────────────────────────────────────────────────
-  const pieData = useMemo(() => {
-    const statuses: TaskStatus[] = ['pending', 'in_progress', 'completed', 'blocked'];
-    return statuses
-      .map((s) => ({
-        name:  STATUS_LABELS[s],
-        value: tasks.filter((t) => t.status === s).length,
-        color: STATUS_COLORS[s],
-      }))
-      .filter((d) => d.value > 0);
-  }, [tasks]);
+  const pieData = useMemo(() => [
+    { name: 'Pending',     value: statusCounts.pending,     color: '#94A3B8' },
+    { name: 'In Progress', value: statusCounts.in_progress, color: '#F59E0B' },
+    { name: 'Completed',   value: statusCounts.completed,   color: '#22C55E' },
+    { name: 'Blocked',     value: statusCounts.blocked,     color: '#EF4444' },
+  ].filter((d) => d.value > 0), [statusCounts]);
 
   // ── Bar data ─────────────────────────────────────────────────────────────────
   const barData = useMemo(() => {
     const map: Record<string, { assigned: number; completed: number }> = {};
-    tasks.forEach((t) => {
+    allTasksForChart.forEach((t) => {
       const name = t.assignedToName || 'Unassigned';
       if (!map[name]) map[name] = { assigned: 0, completed: 0 };
       map[name].assigned++;
-      if (t.status === 'completed') map[name].completed++;
+      if (
+        t.status === 'completed' ||
+        t.pipelineStage === 'completed'
+      ) map[name].completed++;
     });
     return Object.entries(map)
       .map(([name, { assigned, completed }]) => ({
@@ -118,15 +273,74 @@ export function ReportsPage() {
         completed,
       }))
       .sort((a, b) => b.rate - a.rate);
-  }, [tasks]);
+  }, [allTasksForChart]);
+
+  // ── Pipeline stage data ──────────────────────────────────────────────────────
+  const pipelineStageData = useMemo(() => {
+    if (!pc) return [];
+    return [
+      { name: 'Survey',       value: pc.survey       ?? 0, color: '#6B7280' },
+      { name: 'Proposal',     value: pc.proposal     ?? 0, color: '#9333EA' },
+      { name: 'Field Review', value: pc.field_review ?? 0, color: '#3B82F6' },
+      { name: 'Backend',      value: pc.backend      ?? 0, color: '#F97316' },
+      { name: 'Converted',    value: pc.completed    ?? 0, color: '#22C55E' },
+      { name: 'Dropped',      value: pc.dropped      ?? 0, color: '#EF4444' },
+    ].filter((d) => d.value > 0);
+  }, [pc]);
+
+  // ── District data ────────────────────────────────────────────────────────────
+  const districtData = useMemo(() => {
+    const map: Record<string, { total: number; completed: number }> = {};
+    allTasksForChart.forEach((t) => {
+      if (!t.district) return;
+      if (!map[t.district]) map[t.district] = { total: 0, completed: 0 };
+      map[t.district].total++;
+      if (t.status === 'completed' || t.pipelineStage === 'completed') {
+        map[t.district].completed++;
+      }
+    });
+    return Object.entries(map)
+      .map(([name, { total, completed }]) => ({
+        name,
+        total,
+        completed,
+        rate: total > 0 ? Math.round((completed / total) * 100) : 0,
+      }))
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 15);
+  }, [allTasksForChart]);
+
+  // ── Funnel data ──────────────────────────────────────────────────────────────
+  const funnelData = useMemo(() => {
+    const surveyDone = allTasksForChart.filter(
+      (t) => t.pipelineStage === 'survey' && t.status === 'completed',
+    ).length;
+    if (!pc) return {
+      total: 0, survey: surveyDone, proposal: 0,
+      fieldRev: 0, backend: 0,
+      converted: 0, dropped: 0,
+      convRate: 0, dropRate: 0,
+    };
+    const total     = (pc.total_active ?? 0) + (pc.completed ?? 0) + (pc.dropped ?? 0);
+    const converted = pc.completed ?? 0;
+    const dropped   = pc.dropped   ?? 0;
+    const convRate  = total > 0 ? Math.round((converted / total) * 100) : 0;
+    const dropRate  = total > 0 ? Math.round((dropped   / total) * 100) : 0;
+    return {
+      total,
+      survey:   surveyDone,
+      proposal: pc.proposal     ?? 0,
+      fieldRev: pc.field_review ?? 0,
+      backend:  pc.backend      ?? 0,
+      converted,
+      dropped,
+      convRate,
+      dropRate,
+    };
+  }, [pc, allTasksForChart]);
 
   // ── Recent submissions ───────────────────────────────────────────────────────
-  const allSubmitted = useMemo(() =>
-    [...tasks]
-      .filter((t) => t.submittedAt !== null)
-      .sort((a, b) => b.submittedAt!.getTime() - a.submittedAt!.getTime()),
-    [tasks],
-  );
+  const allSubmitted      = allSubmittedTasks;
   const recentSubmissions = allSubmitted.slice(0, 20);
 
   return (
@@ -134,14 +348,16 @@ export function ReportsPage() {
       <div>
         <h1 className="text-xl font-bold text-gray-900 mb-0.5">Reports</h1>
         <p className="text-sm text-gray-400">
-          {tasks.length} total task{tasks.length !== 1 ? 's' : ''} · {allSubmitted.length} submitted
+          {totalTaskCount} total task{totalTaskCount !== 1 ? 's' : ''} · {allSubmitted.length} submitted
         </p>
       </div>
 
       {/* ── Section 1: Status pie ── */}
       <div className="rounded-xl border border-gray-200 bg-white p-5 border-t-4 border-t-brand-blue overflow-hidden">
         <SectionHeader title="Tasks by Status" />
-        {pieData.length === 0 ? (
+        {reportLoading ? (
+          <p className="text-sm text-gray-400 py-4 text-center">Loading…</p>
+        ) : pieData.length === 0 ? (
           <p className="text-sm text-gray-400 py-4 text-center">No tasks yet.</p>
         ) : (
           <div className="relative" style={{ height: 260 }}>
@@ -173,7 +389,7 @@ export function ReportsPage() {
             {/* Total in centre */}
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
               <div className="text-center">
-                <p className="text-2xl font-bold text-gray-900">{tasks.length}</p>
+                <p className="text-2xl font-bold text-gray-900">{totalTaskCount}</p>
                 <p className="text-xs text-gray-400">total</p>
               </div>
             </div>
@@ -182,6 +398,8 @@ export function ReportsPage() {
       </div>
 
       {/* ── Section 2: Engineer bar chart ── */}
+      {/* Note: engineer chart shows data from current loaded tasks only.
+          For full accuracy across all engineers, a separate query is needed. */}
       <div className="rounded-xl border border-gray-200 bg-white p-5 border-t-4 border-t-brand-blue overflow-hidden">
         <SectionHeader title="Completion Rate by Engineer" />
         {barData.length === 0 ? (
@@ -222,21 +440,150 @@ export function ReportsPage() {
         )}
       </div>
 
-      {/* ── Section 3: Recent submissions ── */}
+      {/* ── Section 3: Pipeline Stage Distribution ── */}
+      <div className="rounded-xl border border-gray-200 bg-white p-5 border-t-4 border-t-brand-blue overflow-hidden">
+        <SectionHeader title="Pipeline Stage Distribution" />
+        {pipelineStageData.length === 0 ? (
+          <p className="text-sm text-gray-400 py-4 text-center">No pipeline data yet.</p>
+        ) : (
+          <div style={{ height: 220 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={pipelineStageData} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
+                <XAxis
+                  dataKey="name"
+                  tick={{ fontSize: 10, fill: '#6B7280' }}
+                  tickLine={false}
+                  axisLine={false}
+                />
+                <YAxis
+                  allowDecimals={false}
+                  tick={{ fontSize: 11, fill: '#6B7280' }}
+                  tickLine={false}
+                  axisLine={false}
+                />
+                <Tooltip formatter={(v: number) => [`${v} tasks`, 'Count']} cursor={{ fill: 'rgba(0,119,182,0.06)' }} />
+                <Bar dataKey="value" radius={[4, 4, 0, 0]} maxBarSize={48}>
+                  {pipelineStageData.map((entry) => (
+                    <Cell key={entry.name} fill={entry.color} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </div>
+
+      {/* ── District Breakdown ── */}
+      {districtData.length > 0 && (
+        <div className="rounded-xl border border-gray-200 bg-white p-5 border-t-4 border-t-blue-400 overflow-hidden">
+          <SectionHeader title="Tasks by District" />
+          <div className="flex flex-col gap-2 mt-2">
+            {districtData.map(({ name, total }) => {
+              const allTotal = allTasksForChart.length || 1;
+              const pct      = Math.round((total / allTotal) * 100);
+              return (
+                <div key={name} className="flex items-center gap-3">
+                  <span className="text-xs text-gray-600 w-32 truncate shrink-0">{name}</span>
+                  <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                    <div className="h-full bg-blue-400 rounded-full" style={{ width: `${pct}%` }} />
+                  </div>
+                  <span className="text-xs text-gray-500 w-14 text-right shrink-0">{total} ({pct}%)</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {districtData.length > 0 && (
+        <div className="rounded-xl border border-gray-200 bg-white p-5 border-t-4 border-t-green-500 overflow-hidden">
+          <SectionHeader title="Conversion Rate by District (%)" />
+          <div className="flex flex-col gap-2 mt-2">
+            {districtData.map(({ name, rate, completed, total }) => (
+              <div key={name} className="flex items-center gap-3">
+                <span className="text-xs text-gray-600 w-32 truncate shrink-0">{name}</span>
+                <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                  <div className="h-full bg-green-500 rounded-full" style={{ width: `${rate}%` }} />
+                </div>
+                <span className="text-xs text-gray-500 w-20 text-right shrink-0">{completed}/{total} ({rate}%)</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Section 4: Pipeline Funnel ── */}
+      <div className="rounded-xl border border-gray-200 bg-white p-5 border-t-4 border-t-green-500 overflow-hidden">
+        <SectionHeader title="Pipeline Funnel" />
+        <div className="flex flex-col gap-2 mt-2">
+          {[
+            { label: 'Total Leads',    value: funnelData.total,    color: 'bg-gray-400',    width: 100 },
+            { label: 'Survey Done',    value: funnelData.survey + funnelData.proposal + funnelData.fieldRev + funnelData.backend + funnelData.converted, color: 'bg-blue-400',    width: funnelData.total > 0 ? Math.round(((funnelData.survey + funnelData.proposal + funnelData.fieldRev + funnelData.backend + funnelData.converted) / funnelData.total) * 100) : 0 },
+            { label: 'In Proposal',    value: funnelData.proposal + funnelData.fieldRev + funnelData.backend + funnelData.converted, color: 'bg-purple-400',  width: funnelData.total > 0 ? Math.round(((funnelData.proposal + funnelData.fieldRev + funnelData.backend + funnelData.converted) / funnelData.total) * 100) : 0 },
+            { label: 'In Field Review', value: funnelData.fieldRev + funnelData.backend + funnelData.converted, color: 'bg-blue-500',    width: funnelData.total > 0 ? Math.round(((funnelData.fieldRev + funnelData.backend + funnelData.converted) / funnelData.total) * 100) : 0 },
+            { label: 'In Backend',     value: funnelData.backend + funnelData.converted,  color: 'bg-orange-400',  width: funnelData.total > 0 ? Math.round(((funnelData.backend + funnelData.converted) / funnelData.total) * 100) : 0 },
+            { label: '✅ Converted',   value: funnelData.converted, color: 'bg-green-500',  width: funnelData.total > 0 ? Math.round((funnelData.converted / funnelData.total) * 100) : 0 },
+          ].map(({ label, value, color, width }) => (
+            <div key={label} className="flex items-center gap-3">
+              <p className="text-xs text-gray-500 w-28 shrink-0 text-right">{label}</p>
+              <div className="flex-1 bg-gray-100 rounded-full h-6 overflow-hidden">
+                <div
+                  className={`h-6 rounded-full ${color} flex items-center justify-end pr-2 transition-all`}
+                  style={{ width: `${Math.max(width, value > 0 ? 4 : 0)}%` }}
+                >
+                  <span className="text-[10px] text-white font-bold">{value}</span>
+                </div>
+              </div>
+              <p className="text-xs text-gray-400 w-8 shrink-0">{width}%</p>
+            </div>
+          ))}
+        </div>
+        <div className="flex gap-4 mt-4 pt-4 border-t border-gray-100">
+          <div className="flex-1 text-center">
+            <p className="text-2xl font-extrabold text-green-600">{funnelData.convRate}%</p>
+            <p className="text-xs text-gray-400 mt-0.5">Conversion Rate</p>
+          </div>
+          <div className="w-px bg-gray-100" />
+          <div className="flex-1 text-center">
+            <p className="text-2xl font-extrabold text-red-500">{funnelData.dropRate}%</p>
+            <p className="text-xs text-gray-400 mt-0.5">Drop Rate</p>
+          </div>
+          <div className="w-px bg-gray-100" />
+          <div className="flex-1 text-center">
+            <p className="text-2xl font-extrabold text-gray-700">{funnelData.total}</p>
+            <p className="text-xs text-gray-400 mt-0.5">Total Leads</p>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Section 5: Recent submissions ── */}
       <div className="rounded-xl border border-gray-200 bg-white p-5 border-t-4 border-t-brand-blue overflow-hidden">
         <div className="flex items-center justify-between mb-3">
           <SectionHeader title={`Recent Submissions${recentSubmissions.length > 0 ? ` (${allSubmitted.length})` : ''}`} />
-          {allSubmitted.length > 0 && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => exportCsv(allSubmitted)}
-              className="flex items-center gap-1.5 text-xs h-8 shrink-0 -mt-1"
-            >
-              <Download className="h-3.5 w-3.5" />
-              Export CSV
-            </Button>
-          )}
+          <div className="flex items-center gap-2 -mt-1 shrink-0">
+            {tasks.length > 0 && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => exportPipelineCsv(tasks)}
+                className="flex items-center gap-1.5 text-xs h-8"
+              >
+                <Download className="h-3.5 w-3.5" />
+                Export Pipeline CSV
+              </Button>
+            )}
+            {allSubmitted.length > 0 && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => exportSubmissionsCsv(allSubmitted)}
+                className="flex items-center gap-1.5 text-xs h-8"
+              >
+                <Download className="h-3.5 w-3.5" />
+                Export Submissions CSV
+              </Button>
+            )}
+          </div>
         </div>
 
         {recentSubmissions.length === 0 ? (

@@ -15,6 +15,7 @@ export async function uploadToCloudinary(
     engineerCode?: string;
     engineerName?: string;
     fieldLabel?:   string;
+    uploadType?:   'proposal';
   },
 ): Promise<UploadResult> {
   const cloudName    = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME    as string;
@@ -28,7 +29,9 @@ export async function uploadToCloudinary(
     ? `${options.engineerCode}_${options.engineerName.replace(/\s+/g, '_')}`
     : 'unassigned';
 
-  const folder = taskNum
+  const folder = options?.uploadType === 'proposal' && taskNum
+    ? `solarops/${taskNum}/proposal`
+    : taskNum
     ? `solarops/${taskNum}/${engineerSegment}`
     : 'solarops';
 
@@ -50,12 +53,13 @@ export async function uploadToCloudinary(
   formData.append('folder',        folder);
   if (isPdf)    formData.append('resource_type', 'raw');
 
-  return uploadWithRetry(formData, cloudName, onProgress);
+  return uploadWithRetry(formData, cloudName, isPdf, onProgress);
 }
 
 async function uploadWithRetry(
   formData:    FormData,
   cloudName:   string,
+  isPdf:       boolean,
   onProgress?: (percent: number) => void,
   attempt      = 1,
 ): Promise<UploadResult> {
@@ -79,13 +83,16 @@ async function uploadWithRetry(
     xhr.addEventListener('error',   () => reject(new Error('Upload network error')));
     xhr.addEventListener('timeout', () => reject(new Error('Upload timed out')));
 
-    xhr.open('POST', `https://api.cloudinary.com/v1_1/${cloudName}/auto/upload`);
+    const endpoint = isPdf
+      ? `https://api.cloudinary.com/v1_1/${cloudName}/raw/upload`
+      : `https://api.cloudinary.com/v1_1/${cloudName}/auto/upload`;
+    xhr.open('POST', endpoint);
     xhr.send(formData);
   }).catch(async (err: Error) => {
     if (attempt < 2) {
       console.warn(`Upload attempt ${attempt} failed (${err.message}), retrying…`);
       await new Promise<void>((r) => setTimeout(r, 2000));
-      return uploadWithRetry(formData, cloudName, onProgress, attempt + 1);
+      return uploadWithRetry(formData, cloudName, isPdf, onProgress, attempt + 1);
     }
     throw err;
   });

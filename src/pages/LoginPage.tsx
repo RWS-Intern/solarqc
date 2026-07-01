@@ -40,9 +40,15 @@ export function LoginPage() {
 
   const { showToast } = useToast();
 
+  function getHomeRoute(role?: string): string {
+    if (role === 'proposal') return '/proposal';
+    if (role === 'backend')  return '/backend';
+    return '/dashboard';
+  }
+
   useEffect(() => {
     if (currentUser) {
-      navigate('/dashboard', { replace: true });
+      navigate(getHomeRoute(currentUser.role), { replace: true });
     }
   }, [currentUser, navigate]);
 
@@ -54,7 +60,7 @@ export function LoginPage() {
     setLoading(true);
     try {
       await signInWithEmailAndPassword(auth, email, password);
-      navigate('/dashboard', { replace: true });
+      // Role-based redirect handled by the useEffect above once currentUser is set
     } catch (err: unknown) {
       const code = (err as { code?: string }).code ?? '';
       setError(mapAuthError(code));

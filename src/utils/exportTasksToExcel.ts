@@ -9,19 +9,46 @@ export function exportTasksToExcel(tasks: Task[]): void {
 
   // ── Sheet 1: Tasks Summary ────────────────────────────────────────────────────
   const summaryRows = sorted.map((t) => ({
-    'Task #':            t.taskNum,
-    'Title':             t.title,
-    'Description':       t.description ?? '',
-    'Status':            t.status,
-    'Assigned To':       t.assignedToName ?? '',
-    'Engineer Code':     t.assignedToCode ?? '',
-    'Due Date':          dateStr(t.dueDate),
-    'Created Date':      dateStr(t.createdAt),
-    'Submitted Date':    dateStr(t.submittedAt),
-    'Follow-up Date':    dateStr(t.followUpDate),
-    'Blocked Reason':    t.blockedReason ?? '',
-    'GPS Latitude':      t.location?.lat ?? '',
-    'GPS Longitude':     t.location?.lng ?? '',
+    'Task #':              t.taskNum,
+    'Title':               t.title,
+    'Description':         t.description ?? '',
+    'District':            t.district    ?? '',
+    'Status':              t.status,
+    'Assigned To':         t.assignedToName ?? '',
+    'Engineer Code':       t.assignedToCode ?? '',
+    'Due Date':            dateStr(t.dueDate),
+    'Created Date':        dateStr(t.createdAt),
+    'Submitted Date':      dateStr(t.submittedAt),
+    'Follow-up Date':      dateStr(t.followUpDate),
+    'Blocked Reason':      t.blockedReason ?? '',
+    'GPS Latitude':        t.location?.lat ?? '',
+    'GPS Longitude':       t.location?.lng ?? '',
+    'Pipeline Stage':      (() => {
+                             const stage = t.pipelineStage ?? 'survey';
+                             const labels: Record<string, string> = {
+                               survey:       'Survey',
+                               proposal:     'Proposal',
+                               field_review: 'Field Review',
+                               backend:      'Backend',
+                               completed:    'CONVERTED',
+                               dropped:      'Dropped',
+                             };
+                             return labels[stage] ?? stage;
+                           })(),
+    'Payment Type':        t.paymentType
+                             ? (t.paymentType === 'cash' ? 'Cash' : 'Loan')
+                             : '',
+    'Journey Steps Done':  t.applicationJourneySteps
+                             ? t.applicationJourneySteps.filter((s) => s.status === 'done').length
+                             : '',
+    'Journey Total Steps': t.applicationJourneySteps?.length ?? '',
+    'Dropped Reason':      t.droppedReason ?? '',
+    'Conversion Date':     t.pipelineStage === 'completed' && t.updatedAt
+                             ? t.updatedAt.toLocaleDateString('en-IN', {
+                                 day: '2-digit', month: 'short', year: 'numeric',
+                                 timeZone: 'Asia/Kolkata',
+                               })
+                             : '',
   }));
 
   // ── Sheet 2: Field Answers ────────────────────────────────────────────────────
@@ -119,9 +146,10 @@ export function exportTasksToExcel(tasks: Task[]): void {
 
   const ws1 = XLSX.utils.json_to_sheet(summaryRows);
   ws1['!cols'] = [
-    { wch: 8 }, { wch: 40 }, { wch: 30 }, { wch: 12 }, { wch: 20 },
+    { wch: 8 }, { wch: 40 }, { wch: 30 }, { wch: 18 }, { wch: 12 }, { wch: 20 },
     { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 12 },
-    { wch: 12 }, { wch: 16 }, { wch: 14 },
+    { wch: 12 }, { wch: 16 }, { wch: 14 }, { wch: 16 }, { wch: 12 },
+    { wch: 18 }, { wch: 18 }, { wch: 30 }, { wch: 12 }, { wch: 14 },
   ];
   XLSX.utils.book_append_sheet(wb, ws1, 'Tasks Summary');
 

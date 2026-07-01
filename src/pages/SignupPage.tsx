@@ -200,7 +200,13 @@ export function SignupPage() {
           <p className="text-xs text-gray-500 mb-5 text-center">
             You've been invited as a{' '}
             <span className="font-semibold text-brand-blue capitalize">
-              {inviteRole === 'admin' ? 'Admin' : 'Field Engineer'}
+              {inviteRole === 'admin'        ? 'Admin' :
+               inviteRole === 'field'        ? 'Field Engineer' :
+               inviteRole === 'proposal'     ? 'Proposal Engineer' :
+               inviteRole === 'backend'      ? 'Backend Engineer' :
+               inviteRole === 'logistics'    ? 'Logistics' :
+               inviteRole === 'installation' ? 'Installation Engineer' :
+               inviteRole}
             </span>
             . Create your account below.
           </p>

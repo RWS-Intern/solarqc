@@ -10,7 +10,21 @@ import { DashboardPage } from '@/pages/DashboardPage';
 import { TasksPage }   from '@/pages/TasksPage';
 import { TeamPage }    from '@/pages/TeamPage';
 import { TemplatePage } from '@/pages/TemplatePage';
-import { ReportsPage } from '@/pages/ReportsPage';
+import { ReportsPage }  from '@/pages/ReportsPage';
+import { ProposalPage }    from '@/pages/ProposalPage';
+import { BackendPage }     from '@/pages/BackendPage';
+
+function ComingSoonPage() {
+  return (
+    <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 px-6 text-center">
+      <p className="text-5xl">🚧</p>
+      <h1 className="text-2xl font-bold text-gray-800">Coming Soon</h1>
+      <p className="text-sm text-gray-500 max-w-xs">
+        This section is under construction. Check back soon!
+      </p>
+    </div>
+  );
+}
 
 function AuthInit({ children }: { children: React.ReactNode }) {
   useAuth();
@@ -18,11 +32,13 @@ function AuthInit({ children }: { children: React.ReactNode }) {
 }
 
 interface ProtectedRouteProps {
-  requireAdmin?: boolean;
-  children: React.ReactNode;
+  requireAdmin?:       boolean;
+  requireRole?:        string;
+  requireAdminOrField?: boolean;
+  children:            React.ReactNode;
 }
 
-function ProtectedRoute({ requireAdmin = false, children }: ProtectedRouteProps) {
+function ProtectedRoute({ requireAdmin = false, requireRole, requireAdminOrField = false, children }: ProtectedRouteProps) {
   const { currentUser, loading } = useAuthStore();
 
   if (loading) {
@@ -33,8 +49,19 @@ function ProtectedRoute({ requireAdmin = false, children }: ProtectedRouteProps)
     );
   }
 
-  if (!currentUser)                                 return <Navigate to="/login" replace />;
+  if (!currentUser) return <Navigate to="/login" replace />;
   if (requireAdmin && currentUser.role !== 'admin') return <Navigate to="/dashboard" replace />;
+  if (requireRole && currentUser.role !== requireRole && currentUser.role !== 'admin') {
+    return <Navigate to="/dashboard" replace />;
+  }
+  if (requireAdminOrField) {
+    const role = currentUser.role;
+    if (role === 'proposal') return <Navigate to="/proposal" replace />;
+    if (role === 'backend') return <Navigate to="/backend" replace />;
+    if (role === 'logistics' || role === 'installation') {
+      return <Navigate to="/coming-soon" replace />;
+    }
+  }
   return <>{children}</>;
 }
 
@@ -60,8 +87,27 @@ export default function App() {
 
           <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
             <Route path="/dashboard" element={<DashboardPage />} />
-            <Route path="/tasks"     element={<TasksPage />} />
+            <Route path="/tasks"     element={<ProtectedRoute requireAdminOrField><TasksPage /></ProtectedRoute>} />
 
+            <Route
+              path="/proposal"
+              element={
+                <ProtectedRoute requireRole="proposal">
+                  <ProposalPage />
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/backend"
+              element={
+                <ProtectedRoute requireRole="backend">
+                  <BackendPage />
+                </ProtectedRoute>
+              }
+            />
+
+            <Route path="/coming-soon" element={<ComingSoonPage />} />
             <Route path="/team"     element={<ProtectedRoute requireAdmin><TeamPage /></ProtectedRoute>} />
             <Route path="/template" element={<ProtectedRoute requireAdmin><TemplatePage /></ProtectedRoute>} />
             <Route path="/reports"  element={<ProtectedRoute requireAdmin><ReportsPage /></ProtectedRoute>} />

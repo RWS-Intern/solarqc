@@ -1,8 +1,9 @@
 import {
   doc, setDoc, updateDoc, serverTimestamp, runTransaction, getDoc,
-  getDocs, query, collection, where, writeBatch,
+  getDocs, query, collection, where, writeBatch, deleteField,
 } from 'firebase/firestore';
 import { initializeApp, getApps } from 'firebase/app';
+import { initMemberInCounts } from '@/firebase/initAppConfig';
 import {
   getAuth,
   createUserWithEmailAndPassword,
@@ -19,6 +20,26 @@ const secondaryApp =
   initializeApp(firebaseConfig, 'secondary');
 const secondaryAuth = getAuth(secondaryApp);
 
+// Scans the users collection for the highest existing code with the given
+// prefix BEFORE entering a transaction, so the transaction itself only needs
+// tx.get() (the only read allowed inside runTransaction in Firebase 10).
+async function resolveActualMax(prefix: string): Promise<number> {
+  const usersSnap = await getDocs(query(
+    collection(db, 'users'),
+    where('engineerCode', '>=', `${prefix}-000`),
+    where('engineerCode', '<=', `${prefix}-999`),
+  ));
+  let actualMax = 0;
+  usersSnap.forEach((d) => {
+    const code = d.data()['engineerCode'] as string | undefined;
+    if (code && code.startsWith(`${prefix}-`)) {
+      const num = parseInt(code.split('-')[1], 10);
+      if (!Number.isNaN(num) && num > actualMax) actualMax = num;
+    }
+  });
+  return actualMax;
+}
+
 export function useUserActions() {
   const { currentUser } = useAuthStore();
   const { showToast }   = useToast();
@@ -30,7 +51,7 @@ export function useUserActions() {
   }
 
   async function createUser(
-    name: string, email: string, role: UserRole,
+    name: string, email: string, role: UserRole, district?: string,
   ): Promise<void> {
     const tempPassword =
       Math.random().toString(36).slice(-10) +
@@ -46,12 +67,23 @@ export function useUserActions() {
       const configRef = doc(db, 'appConfig', 'global');
       let engineerCode: string | null = null;
 
-      if (role === 'field') {
+      const roleCodeMap: Record<string, { prefix: string; counterKey: string }> = {
+        field:        { prefix: 'ENG',  counterKey: 'engineerNumCounter'      },
+        proposal:     { prefix: 'PROP', counterKey: 'proposalNumCounter'      },
+        backend:      { prefix: 'BACK', counterKey: 'backendNumCounter'       },
+        logistics:    { prefix: 'LOG',  counterKey: 'logisticsNumCounter'     },
+        installation: { prefix: 'INST', counterKey: 'installationNumCounter'  },
+      };
+
+      if (roleCodeMap[role]) {
+        const { prefix, counterKey } = roleCodeMap[role];
+        const actualMax = await resolveActualMax(prefix);
         await runTransaction(db, async (tx) => {
-          const configSnap = await tx.get(configRef);
-          const next = ((configSnap.data()?.['engineerNumCounter'] as number | undefined) ?? 0) + 1;
-          engineerCode = `ENG-${String(next).padStart(3, '0')}`;
-          tx.update(configRef, { engineerNumCounter: next });
+          const configSnap    = await tx.get(configRef);
+          const storedCounter = (configSnap.data()?.[counterKey] as number | undefined) ?? 0;
+          const next          = Math.max(storedCounter, actualMax) + 1;
+          engineerCode        = `${prefix}-${String(next).padStart(3, '0')}`;
+          tx.update(configRef, { [counterKey]: next });
         });
       }
 
@@ -60,13 +92,21 @@ export function useUserActions() {
         email:             email.toLowerCase().trim(),
         role,
         active:            true,
-        engineerCode:      role === 'field' ? engineerCode : null,
+        engineerCode:      roleCodeMap[role] ? engineerCode : null,
         createdAt:         serverTimestamp(),
         createdBy:         currentUser?.uid ?? '',
+        district:          district?.trim() ?? '',
         fcmToken:          null,
         fcmTokenUpdatedAt: null,
         photoURL:          null,
       });
+
+      // Initialize member in counts if proposal/backend
+      if (role === 'proposal' || role === 'backend') {
+        initMemberInCounts(uid, role).catch(
+          (err) => console.error('[createUser] initMemberInCounts failed:', err)
+        );
+      }
 
       await sendPasswordResetEmail(secondaryAuth, email.toLowerCase().trim());
       showToast(`Account created. Password setup email sent to ${email}.`, 'success');
@@ -126,6 +166,30 @@ export function useUserActions() {
       showToast('Failed to update account. Try again.', 'error');
       throw err;
     }
+
+    // Recount member tasks when re-enabling a proposal/backend user
+    try {
+      const userSnap = await getDoc(doc(db, 'users', userId));
+      const role = userSnap.data()?.['role'] as string;
+
+      if (active && (role === 'proposal' || role === 'backend')) {
+        const field = role === 'proposal' ? 'proposalAssignedTo' : 'backendAssignedTo';
+        const stage = role === 'proposal' ? 'proposal' : 'backend';
+
+        const taskSnap = await getDocs(query(
+          collection(db, 'tasks'),
+          where(field,            '==', userId),
+          where('pipelineStage',  '==', stage),
+          where('archived',       '==', false),
+        ));
+
+        await updateDoc(doc(db, 'appConfig', 'global'), {
+          [`memberCounts.${userId}`]: taskSnap.size,
+        });
+      }
+    } catch (err) {
+      console.error('[setUserActive] memberCounts recount failed:', err);
+    }
   }
 
   async function changeRole(
@@ -148,7 +212,7 @@ export function useUserActions() {
     }
 
     // Guard 3: Cannot demote the last admin
-    if (targetCurrentRole === 'admin' && newRole === 'field') {
+    if (targetCurrentRole === 'admin' && newRole !== 'admin') {
       const activeAdmins = allUsers.filter(
         (u) => u.role === 'admin' && u.active && !u.deletedAt,
       );
@@ -158,33 +222,20 @@ export function useUserActions() {
       }
     }
 
+    const roleCodeMap: Record<string, { prefix: string; counterKey: string; label: string }> = {
+      field:        { prefix: 'ENG',  counterKey: 'engineerNumCounter',     label: 'Field Engineer'        },
+      proposal:     { prefix: 'PROP', counterKey: 'proposalNumCounter',     label: 'Proposal Engineer'     },
+      backend:      { prefix: 'BACK', counterKey: 'backendNumCounter',      label: 'Backend Engineer'      },
+      logistics:    { prefix: 'LOG',  counterKey: 'logisticsNumCounter',    label: 'Logistics'             },
+      installation: { prefix: 'INST', counterKey: 'installationNumCounter', label: 'Installation Engineer' },
+    };
+
     try {
       const configRef = doc(db, 'appConfig', 'global');
       const userRef   = doc(db, 'users', targetUserId);
 
-      if (newRole === 'field' && targetCurrentRole === 'admin') {
-        // Admin → Field: assign a new engineerCode atomically
-        let engineerCode = '';
-        await runTransaction(db, async (tx) => {
-          const configSnap = await tx.get(configRef);
-          const next =
-            ((configSnap.data()?.['engineerNumCounter'] as number) ?? 0) + 1;
-          engineerCode = `ENG-${String(next).padStart(3, '0')}`;
-          tx.update(configRef, { engineerNumCounter: next });
-          tx.update(userRef, {
-            role:         'field',
-            engineerCode: engineerCode,
-            updatedAt:    serverTimestamp(),
-          });
-        });
-        // Sync new engineerCode to all tasks assigned to this user
-        await syncTasksForUser(targetUserId, { assignedToCode: engineerCode });
-        showToast(
-          `Role changed to Field Engineer. Assigned ${engineerCode}. User must log out and back in.`,
-          'success',
-        );
-      } else if (newRole === 'admin' && targetCurrentRole === 'field') {
-        // Field → Admin: keep engineerCode for history
+      if (newRole === 'admin') {
+        // Any role → Admin: keep engineerCode for history
         await updateDoc(userRef, {
           role:      'admin',
           updatedAt: serverTimestamp(),
@@ -193,11 +244,59 @@ export function useUserActions() {
           'Role changed to Admin. User must log out and back in for full effect.',
           'success',
         );
+      } else if (roleCodeMap[newRole]) {
+        // Admin or any role → non-admin: assign role-specific code atomically
+        const { prefix, counterKey, label } = roleCodeMap[newRole];
+        const actualMax = await resolveActualMax(prefix);
+        let engineerCode = '';
+        await runTransaction(db, async (tx) => {
+          const configSnap    = await tx.get(configRef);
+          const storedCounter = (configSnap.data()?.[counterKey] as number) ?? 0;
+          const next          = Math.max(storedCounter, actualMax) + 1;
+          engineerCode        = `${prefix}-${String(next).padStart(3, '0')}`;
+          tx.update(configRef, { [counterKey]: next });
+          tx.update(userRef, {
+            role:         newRole,
+            engineerCode: engineerCode,
+            updatedAt:    serverTimestamp(),
+          });
+        });
+        await syncTasksForUser(targetUserId, { assignedToCode: engineerCode });
+        showToast(
+          `Role changed to ${label}. Assigned ${engineerCode}. User must log out and back in.`,
+          'success',
+        );
       }
     } catch (err) {
       console.error('[changeRole] failed:', err);
       showToast('Failed to change role. Try again.', 'error');
       throw err;
+    }
+
+    // Update memberCounts when role changes
+    try {
+      const appConfigRef = doc(db, 'appConfig', 'global');
+      const updates: Record<string, unknown> = {};
+
+      // Remove from memberCounts if leaving proposal/backend
+      if (targetCurrentRole === 'proposal' || targetCurrentRole === 'backend') {
+        updates[`memberCounts.${targetUserId}`] = deleteField();
+      }
+
+      // Add to memberCounts if joining proposal/backend
+      if (newRole === 'proposal' || newRole === 'backend') {
+        const configSnap = await getDoc(appConfigRef);
+        const existing = (configSnap.data()?.['memberCounts'] ?? {}) as Record<string, number>;
+        if (!(targetUserId in existing)) {
+          updates[`memberCounts.${targetUserId}`] = 0;
+        }
+      }
+
+      if (Object.keys(updates).length > 0) {
+        await updateDoc(appConfigRef, updates);
+      }
+    } catch (err) {
+      console.error('[changeRole] memberCounts update failed:', err);
     }
   }
 
@@ -253,8 +352,22 @@ export function useUserActions() {
     }
   }
 
+  async function updateUserDistrict(userId: string, district: string): Promise<void> {
+    try {
+      await updateDoc(doc(db, 'users', userId), {
+        district: district.trim(),
+        updatedAt: serverTimestamp(),
+      });
+      showToast('District updated', 'success');
+    } catch (err) {
+      console.error('[updateUserDistrict] failed:', err);
+      showToast('Failed to update district. Try again.', 'error');
+      throw err;
+    }
+  }
+
   return {
-    createUser, updateUserName, setUserActive,
+    createUser, updateUserName, updateUserDistrict, setUserActive,
     changeRole, transferSuperAdmin,
   };
 }

@@ -1,0 +1,277 @@
+import { useState, useEffect } from 'react';
+import { Download, CheckCircle2, XCircle, RefreshCw } from 'lucide-react';
+import {
+  Sheet, SheetContent, SheetHeader, SheetTitle,
+} from '@/components/ui/sheet';
+import { Button }             from '@/components/ui/button';
+import { Textarea }           from '@/components/ui/textarea';
+import { cn }                 from '@/lib/utils';
+import { usePipelineActions } from '@/hooks/usePipelineActions';
+import { doc, getDoc }        from 'firebase/firestore';
+import { db }                 from '@/firebase/config';
+import type { Task, ProposalStageData } from '@/types';
+
+interface FieldReviewDrawerProps {
+  task:    Task | null;
+  onClose: () => void;
+}
+
+type DecisionType = 'accepted' | 'rejected' | 'revision' | null;
+
+function formatDate(d: Date | null | undefined): string {
+  if (!d) return '—';
+  return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+export function FieldReviewDrawer({ task, onClose }: FieldReviewDrawerProps) {
+  const { submitFieldReviewDecision } = usePipelineActions();
+
+  const [proposalData,    setProposalData]    = useState<ProposalStageData | null>(null);
+  const [loadingProposal, setLoadingProposal] = useState(false);
+  const [decision,        setDecision]        = useState<DecisionType>(null);
+  const [revisionNote,    setRevisionNote]    = useState('');
+  const [confirming,      setConfirming]      = useState(false);
+  const [submitting,      setSubmitting]      = useState(false);
+
+  // Load proposal stage data when drawer opens
+  useEffect(() => {
+    if (!task) {
+      setProposalData(null);
+      setDecision(null);
+      setRevisionNote('');
+      setConfirming(false);
+      return;
+    }
+    setLoadingProposal(true);
+    getDoc(doc(db, 'tasks', task.id, 'stages', 'proposal'))
+      .then((snap) => {
+        if (snap.exists()) setProposalData(snap.data() as ProposalStageData);
+        else setProposalData(null);
+      })
+      .catch(() => setProposalData(null))
+      .finally(() => setLoadingProposal(false));
+  }, [task?.id]);
+
+  async function handleConfirm() {
+    if (!task || !decision) return;
+    if (decision === 'revision' && !revisionNote.trim()) return;
+    setSubmitting(true);
+    try {
+      await submitFieldReviewDecision(
+        task.id,
+        decision,
+        revisionNote.trim(),
+        {
+          fieldAnswers: task.fieldAnswers,
+          fieldPhotos:  task.fieldPhotos,
+          location:     task.location,
+          fields:       task.fields,
+          submittedAt:  task.submittedAt,
+        },
+      );
+      onClose();
+    } catch {
+      // error toast handled in usePipelineActions
+    } finally {
+      setSubmitting(false);
+      setConfirming(false);
+    }
+  }
+
+  const isOpen = !!task;
+  const proposalAvailable = !!proposalData?.documentUrl;
+
+  return (
+    <Sheet open={isOpen} onOpenChange={(open) => { if (!open) onClose(); }}>
+      <SheetContent
+        side="right"
+        className="w-full sm:max-w-lg overflow-y-auto flex flex-col gap-0 p-0"
+      >
+        <SheetHeader className="px-5 py-4 border-b border-gray-100 bg-white sticky top-0 z-10">
+          <div>
+            <p className="text-xs font-mono text-gray-400">{task?.taskNum}</p>
+            <SheetTitle className="text-lg font-bold text-gray-900 mt-0.5">
+              {task?.title}
+            </SheetTitle>
+          </div>
+          <span className="inline-flex w-fit items-center rounded-full bg-blue-100 text-blue-700 px-2.5 py-0.5 text-xs font-semibold">
+            👁️ Awaiting Your Review
+          </span>
+        </SheetHeader>
+
+        <div className="flex flex-col gap-5 px-5 py-5">
+
+          {/* Proposal document */}
+          <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+              Proposal Document
+            </p>
+            {loadingProposal ? (
+              <div className="h-8 animate-pulse rounded bg-gray-200" />
+            ) : proposalAvailable ? (
+              <div className="flex flex-col gap-2">
+                <a
+                  href={proposalData!.documentUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  download
+                  className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 hover:bg-blue-100 px-3 py-2 text-sm font-medium text-blue-700 transition-colors"
+                >
+                  <Download className="h-4 w-4 shrink-0" />
+                  <span className="truncate">{proposalData!.documentName}</span>
+                </a>
+                {(task?.proposalRevisionCount ?? 0) > 0 && (
+                  <p className="text-xs text-orange-600">
+                    Revision {task?.proposalRevisionCount} — updated proposal
+                  </p>
+                )}
+              </div>
+            ) : (
+              <p className="text-sm text-gray-400 italic">
+                No proposal document available yet.
+              </p>
+            )}
+          </div>
+
+          {/* Decision buttons — only show if proposal is available */}
+          {proposalAvailable && !confirming && (
+            <div className="flex flex-col gap-3">
+              <p className="text-sm font-semibold text-gray-700">
+                Consumer's Decision:
+              </p>
+
+              <button
+                type="button"
+                onClick={() => { setDecision('accepted'); setConfirming(true); }}
+                className={cn(
+                  'flex items-center gap-3 rounded-xl border-2 px-4 py-3 text-left transition-all',
+                  decision === 'accepted'
+                    ? 'border-green-500 bg-green-50'
+                    : 'border-gray-200 bg-white hover:border-green-300 hover:bg-green-50',
+                )}
+              >
+                <CheckCircle2 className="h-5 w-5 text-green-600 shrink-0" />
+                <div>
+                  <p className="font-semibold text-gray-800">Accept Proposal</p>
+                  <p className="text-xs text-gray-500">Consumer agreed — move to Backend</p>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => { setDecision('revision'); setConfirming(true); }}
+                className={cn(
+                  'flex items-center gap-3 rounded-xl border-2 px-4 py-3 text-left transition-all',
+                  decision === 'revision'
+                    ? 'border-orange-400 bg-orange-50'
+                    : 'border-gray-200 bg-white hover:border-orange-300 hover:bg-orange-50',
+                )}
+              >
+                <RefreshCw className="h-5 w-5 text-orange-500 shrink-0" />
+                <div>
+                  <p className="font-semibold text-gray-800">Request Revision</p>
+                  <p className="text-xs text-gray-500">Consumer wants changes</p>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => { setDecision('rejected'); setConfirming(true); }}
+                className={cn(
+                  'flex items-center gap-3 rounded-xl border-2 px-4 py-3 text-left transition-all',
+                  decision === 'rejected'
+                    ? 'border-red-500 bg-red-50'
+                    : 'border-gray-200 bg-white hover:border-red-300 hover:bg-red-50',
+                )}
+              >
+                <XCircle className="h-5 w-5 text-red-500 shrink-0" />
+                <div>
+                  <p className="font-semibold text-gray-800">Reject Proposal</p>
+                  <p className="text-xs text-gray-500">Consumer declined — drop this lead</p>
+                </div>
+              </button>
+            </div>
+          )}
+
+          {/* Confirmation step */}
+          {confirming && decision && (
+            <div className={cn(
+              'flex flex-col gap-3 rounded-xl border-2 p-4',
+              decision === 'accepted' ? 'border-green-400 bg-green-50'  :
+              decision === 'rejected' ? 'border-red-400   bg-red-50'    :
+                                        'border-orange-400 bg-orange-50',
+            )}>
+              <p className="font-semibold text-gray-800">
+                {decision === 'accepted' ? '✅ Confirm: Accept Proposal'   :
+                 decision === 'rejected' ? '❌ Confirm: Reject Proposal'   :
+                                           '🔄 Confirm: Request Revision'}
+              </p>
+
+              {(decision === 'revision' || decision === 'rejected') && (
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-medium text-gray-600">
+                    {decision === 'revision' ? 'What needs to change? *' : 'Reason for rejection (optional)'}
+                  </label>
+                  <Textarea
+                    value={revisionNote}
+                    onChange={(e) => setRevisionNote(e.target.value)}
+                    placeholder={
+                      decision === 'revision'
+                        ? 'e.g. Consumer wants 10kW system instead of 5kW...'
+                        : 'e.g. Consumer went with another vendor...'
+                    }
+                    className="text-sm min-h-[80px]"
+                  />
+                </div>
+              )}
+
+              <div className="flex gap-2">
+                <Button
+                  onClick={handleConfirm}
+                  disabled={submitting || (decision === 'revision' && !revisionNote.trim())}
+                  className={cn(
+                    'flex-1',
+                    decision === 'accepted' ? 'bg-green-600 hover:bg-green-700 text-white' :
+                    decision === 'rejected' ? 'bg-red-600   hover:bg-red-700   text-white' :
+                                              'bg-orange-500 hover:bg-orange-600 text-white',
+                  )}
+                >
+                  {submitting ? 'Submitting...' : 'Confirm'}
+                </Button>
+                <Button
+                  onClick={() => { setConfirming(false); setDecision(null); setRevisionNote(''); }}
+                  disabled={submitting}
+                  variant="outline"
+                  className="flex-1"
+                >
+                  Back
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Survey reference */}
+          <div className="rounded-lg border border-gray-100 bg-gray-50 px-4 py-3">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
+              Survey Reference
+            </p>
+            <div className="flex flex-col gap-1 text-xs text-gray-500">
+              <p>Survey completed: {formatDate(task?.submittedAt)}</p>
+              {task?.location && (
+                <a
+                  href={`https://maps.google.com/?q=${task.location.lat},${task.location.lng}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-brand-blue underline"
+                >
+                  Open survey location in Maps
+                </a>
+              )}
+            </div>
+          </div>
+
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}

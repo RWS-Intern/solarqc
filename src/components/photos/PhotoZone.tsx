@@ -131,14 +131,24 @@ export function PhotoZone({
         setPendingUploads((prev) => prev.filter((p) => p.tempId !== tempId));
         URL.revokeObjectURL(previewUrl);
         if (!navigator.onLine) {
-          // Offline: keep blob URL so offline queue can handle it
-          const updated = [...latestPhotosRef.current, previewUrl];
-          latestPhotosRef.current = updated;
-          onChangeRef.current(updated);
+          // Offline: convert to base64 so the offline queue can
+          // upload it after reconnect — base64 survives tab close,
+          // unlike a blob URL which becomes invalid immediately.
+          const reader = new FileReader();
+          reader.onload = () => {
+            const base64 = reader.result as string;
+            const updated = [...latestPhotosRef.current, base64];
+            latestPhotosRef.current = updated;
+            onChangeRef.current(updated);
+          };
+          reader.onerror = () => {
+            // FileReader failed — nothing we can do, just warn
+            _emitToast('Could not save photo offline. Please retake when reconnected.', 'error');
+          };
+          reader.readAsDataURL(file);
           _emitToast('Saved locally — will upload when reconnected', 'success');
         } else {
-          // Online but upload failed: do NOT save blob URL
-          // Show clear error so engineer retries
+          // Online but upload failed: show clear error so engineer retries
           _emitToast('Upload failed. Please try uploading the photo again.', 'error');
         }
       });

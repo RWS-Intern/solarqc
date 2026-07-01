@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { AlertTriangle, Plus, Trash2, ChevronUp, ChevronDown, Save, Check, X, ChevronRight, Pencil } from 'lucide-react';
+import { AlertTriangle, Plus, Trash2, ChevronUp, ChevronDown, Save, Check, X, ChevronRight, Pencil, Route } from 'lucide-react';
 import { useAppConfig }       from '@/hooks/useAppConfig';
 import { useTemplateActions } from '@/hooks/useTemplateActions';
 import { _emitToast }         from '@/components/ui/toast';
@@ -7,7 +7,7 @@ import { Button }  from '@/components/ui/button';
 import { Input }   from '@/components/ui/input';
 import { Label }   from '@/components/ui/label';
 import { cn }      from '@/lib/utils';
-import type { FieldDefinition, FieldType } from '@/types';
+import type { FieldDefinition, FieldType, JourneyStepDefinition } from '@/types';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -344,16 +344,266 @@ function FieldRow({
   );
 }
 
+// ─── Application Journey Editor ───────────────────────────────────────────────
+
+function newStepId() {
+  return `step_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function ApplicationJourneyEditor() {
+  const { config, loading }          = useAppConfig();
+  const { saveBackendJourneySteps }  = useTemplateActions();
+
+  const [journeyTab,  setJourneyTab]  = useState<'cash' | 'loan'>('cash');
+  const [cashFields,  setCashFields]  = useState<JourneyStepDefinition[]>([]);
+  const [loanFields,  setLoanFields]  = useState<JourneyStepDefinition[]>([]);
+  const [dirty,       setDirty]       = useState(false);
+  const [saving,      setSaving]      = useState(false);
+
+  useEffect(() => {
+    if (!loading) {
+      setCashFields([...(config.backendCashSteps ?? [])].sort((a, b) => a.sortOrder - b.sortOrder));
+      setLoanFields([...(config.backendLoanSteps ?? [])].sort((a, b) => a.sortOrder - b.sortOrder));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [config.backendCashSteps?.length, config.backendLoanSteps?.length, loading]);
+
+  function handleStepLabelChange(idx: number, value: string, isLoan: boolean) {
+    const setter = isLoan ? setLoanFields : setCashFields;
+    setter((prev) => { const next = [...prev]; next[idx] = { ...next[idx], label: value }; return next; });
+    setDirty(true);
+  }
+
+  function handleMoveStepUp(idx: number, isLoan: boolean) {
+    if (idx === 0) return;
+    const setter = isLoan ? setLoanFields : setCashFields;
+    setter((prev) => { const next = [...prev]; [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]]; return next; });
+    setDirty(true);
+  }
+
+  function handleMoveStepDown(idx: number, isLoan: boolean) {
+    const setter = isLoan ? setLoanFields : setCashFields;
+    setter((prev) => {
+      if (idx >= prev.length - 1) return prev;
+      const next = [...prev]; [next[idx], next[idx + 1]] = [next[idx + 1], next[idx]]; return next;
+    });
+    setDirty(true);
+  }
+
+  function handleDeleteStep(idx: number, isLoan: boolean) {
+    const setter = isLoan ? setLoanFields : setCashFields;
+    setter((prev) => prev.filter((_, i) => i !== idx));
+    setDirty(true);
+  }
+
+  function handleAddStep(isLoan: boolean) {
+    const setter = isLoan ? setLoanFields : setCashFields;
+    setter((prev) => [
+      ...prev,
+      { stepId: newStepId(), label: '', type: 'yesno', sortOrder: prev.length },
+    ]);
+    setDirty(true);
+  }
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      await saveBackendJourneySteps(
+        cashFields.map((f, i) => ({ ...f, sortOrder: i })),
+        loanFields.map((f, i) => ({ ...f, sortOrder: i })),
+      );
+      setDirty(false);
+    } catch {
+      // error toasted in saveBackendJourneySteps
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex flex-col gap-3">
+        {[...Array(3)].map((_, i) => (
+          <div key={i} className="h-12 animate-pulse rounded-xl bg-gray-200" />
+        ))}
+      </div>
+    );
+  }
+
+  const fields   = journeyTab === 'loan' ? loanFields : cashFields;
+  const isLoan   = journeyTab === 'loan';
+
+  return (
+    <div>
+      {/* Header row */}
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-4">
+        <p className="text-sm text-gray-500 flex-1">
+          Define the step-by-step journey shown to the backend team for each payment type.
+        </p>
+        <Button
+          onClick={handleSave}
+          disabled={!dirty || saving}
+          className="w-full sm:w-auto flex items-center justify-center gap-1.5 h-11"
+        >
+          {saving ? (
+            <><span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />Saving…</>
+          ) : (
+            <><Save className="h-4 w-4" />Save</>
+          )}
+        </Button>
+      </div>
+
+      {/* Sub-tabs */}
+      <div className="flex gap-1 rounded-lg bg-gray-100 p-1 w-fit mb-4">
+        <button
+          type="button"
+          onClick={() => setJourneyTab('cash')}
+          className={cn(
+            'rounded-md px-4 py-1.5 text-sm font-medium transition-all',
+            journeyTab === 'cash'
+              ? 'bg-white text-gray-900 shadow-sm'
+              : 'text-gray-500 hover:text-gray-700',
+          )}
+        >
+          💵 Cash ({cashFields.length} steps)
+        </button>
+        <button
+          type="button"
+          onClick={() => setJourneyTab('loan')}
+          className={cn(
+            'rounded-md px-4 py-1.5 text-sm font-medium transition-all',
+            journeyTab === 'loan'
+              ? 'bg-white text-gray-900 shadow-sm'
+              : 'text-gray-500 hover:text-gray-700',
+          )}
+        >
+          🏦 Loan ({loanFields.length} steps)
+        </button>
+      </div>
+
+      {/* Step list */}
+      {fields.length === 0 ? (
+        <div className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-gray-200 bg-white py-12 text-center text-sm text-gray-400 mb-4">
+          <p className="mb-1 font-medium">No steps yet</p>
+          <p>Add steps to build the {isLoan ? 'loan' : 'cash'} journey.</p>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-2 mb-4">
+          {fields.map((step, idx) => (
+            <div
+              key={step.stepId}
+              className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2.5"
+            >
+              <span className="text-xs font-mono text-gray-400 w-6 shrink-0">
+                {idx + 1}.
+              </span>
+              <input
+                type="text"
+                value={step.label}
+                onChange={(e) => handleStepLabelChange(idx, e.target.value, isLoan)}
+                className="flex-1 text-sm text-gray-800 bg-transparent border-none outline-none min-w-0"
+                placeholder="Step label..."
+              />
+              <span className={cn(
+                'shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold border',
+                step.type === 'photo'
+                  ? 'bg-green-50 text-green-700 border-green-200'
+                  : 'bg-blue-50 text-blue-700 border-blue-200',
+              )}>
+                {step.type === 'photo' ? '📷 Photo + Date' : '✓ Yes/No + Date'}
+              </span>
+              <button
+                type="button"
+                onClick={() => handleMoveStepUp(idx, isLoan)}
+                disabled={idx === 0}
+                className="text-gray-400 hover:text-gray-600 disabled:opacity-30"
+                aria-label="Move up"
+              >
+                <ChevronUp className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => handleMoveStepDown(idx, isLoan)}
+                disabled={idx === fields.length - 1}
+                className="text-gray-400 hover:text-gray-600 disabled:opacity-30"
+                aria-label="Move down"
+              >
+                <ChevronDown className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDeleteStep(idx, isLoan)}
+                className="text-red-400 hover:text-red-600"
+                aria-label="Delete step"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <Button
+        variant="outline"
+        onClick={() => handleAddStep(isLoan)}
+        className="w-full flex items-center gap-2 border-dashed"
+      >
+        <Plus className="h-4 w-4" />
+        Add Step
+      </Button>
+    </div>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export function TemplatePage() {
   const { config, loading }  = useAppConfig();
-  const { saveTemplate }     = useTemplateActions();
+  const { saveTemplate, saveDistricts } = useTemplateActions();
+
+  const [activeTab, setActiveTab] = useState<'survey' | 'backend'>('survey');
 
   const [fields,      setFields]      = useState<FieldDefinition[]>([]);
   const [dirty,       setDirty]       = useState(false);
   const [saving,      setSaving]      = useState(false);
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
+
+  const [districts,       setDistricts]       = useState<string[]>([]);
+  const [newDistrict,     setNewDistrict]      = useState('');
+  const [districtsDirty,  setDistrictsDirty]  = useState(false);
+  const [savingDistricts, setSavingDistricts]  = useState(false);
+
+  useEffect(() => {
+    if (!loading && !districtsDirty) {
+      setDistricts(config.districts ?? []);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [config.districts, loading]);
+
+  function handleAddDistrict() {
+    const val = newDistrict.trim();
+    if (!val || districts.includes(val)) return;
+    setDistricts((prev) => [...prev, val]);
+    setNewDistrict('');
+    setDistrictsDirty(true);
+  }
+
+  function handleRemoveDistrict(d: string) {
+    setDistricts((prev) => prev.filter((x) => x !== d));
+    setDistrictsDirty(true);
+  }
+
+  async function handleSaveDistricts() {
+    setSavingDistricts(true);
+    try {
+      await saveDistricts(districts);
+      setDistrictsDirty(false);
+    } catch {
+      // toast shown by saveDistricts
+    } finally {
+      setSavingDistricts(false);
+    }
+  }
 
   useEffect(() => {
     if (!loading && !dirty) {
@@ -437,7 +687,7 @@ export function TemplatePage() {
   if (loading) {
     return (
       <div className="w-full max-w-2xl mx-auto">
-        <h1 className="text-xl font-bold text-gray-900 mb-4">Task Template</h1>
+        <h1 className="text-xl font-bold text-gray-900 mb-4">Template</h1>
         <div className="flex flex-col gap-3">
           {[...Array(3)].map((_, i) => (
             <div key={i} className="h-12 animate-pulse rounded-xl bg-gray-200" />
@@ -449,75 +699,177 @@ export function TemplatePage() {
 
   return (
     <div className="w-full max-w-2xl mx-auto">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-start gap-3 mb-4">
-        <div>
-          <h1 className="text-xl font-bold text-gray-900">Task Template</h1>
-          <p className="text-sm text-gray-500 mt-0.5">
-            {fields.length} field{fields.length !== 1 ? 's' : ''} — applied to all new tasks
-          </p>
-        </div>
-        <Button
-          onClick={handleSave}
-          disabled={!dirty || saving}
-          className="w-full sm:w-auto sm:ml-auto flex items-center justify-center gap-1.5 h-11"
-        >
-          {saving ? (
-            <>
-              <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-              Saving…
-            </>
-          ) : (
-            <>
-              <Save className="h-4 w-4" />
-              Save
-            </>
+      {/* Page header */}
+      <h1 className="text-xl font-bold text-gray-900 mb-4">Template</h1>
+
+      {/* Tabs */}
+      <div className="flex gap-1 rounded-xl bg-gray-100 p-1 mb-5">
+        <button
+          type="button"
+          onClick={() => setActiveTab('survey')}
+          className={cn(
+            'flex-1 flex items-center justify-center gap-1.5 rounded-lg py-2 text-sm font-medium transition-colors',
+            activeTab === 'survey'
+              ? 'bg-white text-gray-900 shadow-sm'
+              : 'text-gray-500 hover:text-gray-700',
           )}
-        </Button>
+        >
+          <AlertTriangle className="h-4 w-4" />
+          Survey Checklist
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('backend')}
+          className={cn(
+            'flex-1 flex items-center justify-center gap-1.5 rounded-lg py-2 text-sm font-medium transition-colors',
+            activeTab === 'backend'
+              ? 'bg-white text-gray-900 shadow-sm'
+              : 'text-gray-500 hover:text-gray-700',
+          )}
+        >
+          <Route className="h-4 w-4" />
+          Application Journey
+        </button>
       </div>
 
-      {/* Warning banner */}
-      <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 mb-5 text-sm text-amber-800">
-        <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-amber-500" />
-        <span>
-          Saving updates all <strong>active tasks</strong> (pending, in progress, blocked) automatically. Completed tasks are never changed.
-        </span>
-      </div>
+      {/* Survey tab */}
+      {activeTab === 'survey' && (
+        <>
+          {/* Header row */}
+          <div className="flex flex-col sm:flex-row sm:items-start gap-3 mb-4">
+            <p className="text-sm text-gray-500">
+              {fields.length} field{fields.length !== 1 ? 's' : ''} — applied to all new tasks
+            </p>
+            <Button
+              onClick={handleSave}
+              disabled={!dirty || saving}
+              className="w-full sm:w-auto sm:ml-auto flex items-center justify-center gap-1.5 h-11"
+            >
+              {saving ? (
+                <><span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />Saving…</>
+              ) : (
+                <><Save className="h-4 w-4" />Save</>
+              )}
+            </Button>
+          </div>
 
-      {/* Field list */}
-      {fields.length === 0 ? (
-        <div className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-gray-200 bg-white py-12 text-center text-sm text-gray-400 mb-4">
-          <p className="mb-1 font-medium">No fields yet</p>
-          <p>Add the first field below to start building the template.</p>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-2 mb-4">
-          {fields.map((field, index) => (
-            <FieldRow
-              key={field.fieldId}
-              field={field}
-              index={index}
-              total={fields.length}
-              expanded={expandedIdx === index}
-              onExpand={handleExpand}
-              onChange={handleChange}
-              onDelete={handleDelete}
-              onMoveUp={handleMoveUp}
-              onMoveDown={handleMoveDown}
-            />
-          ))}
-        </div>
+          {/* Warning banner */}
+          <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 mb-5 text-sm text-amber-800">
+            <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-amber-500" />
+            <span>
+              Saving updates all <strong>active tasks</strong> (pending, in progress, blocked) automatically. Completed tasks are never changed.
+            </span>
+          </div>
+
+          {/* Field list */}
+          {fields.length === 0 ? (
+            <div className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-gray-200 bg-white py-12 text-center text-sm text-gray-400 mb-4">
+              <p className="mb-1 font-medium">No fields yet</p>
+              <p>Add the first field below to start building the template.</p>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2 mb-4">
+              {fields.map((field, index) => (
+                <FieldRow
+                  key={field.fieldId}
+                  field={field}
+                  index={index}
+                  total={fields.length}
+                  expanded={expandedIdx === index}
+                  onExpand={handleExpand}
+                  onChange={handleChange}
+                  onDelete={handleDelete}
+                  onMoveUp={handleMoveUp}
+                  onMoveDown={handleMoveDown}
+                />
+              ))}
+            </div>
+          )}
+
+          <Button
+            variant="outline"
+            onClick={handleAddField}
+            className="w-full flex items-center gap-2 border-dashed"
+          >
+            <Plus className="h-4 w-4" />
+            Add Field
+          </Button>
+        </>
       )}
 
-      {/* Add field */}
-      <Button
-        variant="outline"
-        onClick={handleAddField}
-        className="w-full flex items-center gap-2 border-dashed"
-      >
-        <Plus className="h-4 w-4" />
-        Add Field
-      </Button>
+      {/* Application journey tab */}
+      {activeTab === 'backend' && <ApplicationJourneyEditor />}
+
+      {/* Districts */}
+      <div className="mt-8 border-t border-gray-200 pt-6">
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <h2 className="text-base font-semibold text-gray-900">Districts</h2>
+            <p className="text-xs text-gray-500 mt-0.5">Manage district options for tasks and engineers</p>
+          </div>
+          {districtsDirty && (
+            <Button
+              size="sm"
+              onClick={handleSaveDistricts}
+              disabled={savingDistricts}
+              className="flex items-center gap-1.5"
+            >
+              {savingDistricts ? (
+                <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+              ) : (
+                <Save className="h-3.5 w-3.5" />
+              )}
+              Save Districts
+            </Button>
+          )}
+        </div>
+
+        <div className="flex flex-wrap gap-2 mb-3 min-h-[2rem]">
+          {districts.length === 0 ? (
+            <p className="text-sm text-gray-400">No districts added yet.</p>
+          ) : (
+            districts.map((d) => (
+              <span
+                key={d}
+                className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700"
+              >
+                {d}
+                <button
+                  type="button"
+                  onClick={() => handleRemoveDistrict(d)}
+                  className="ml-0.5 rounded-full hover:bg-blue-100 p-0.5"
+                  aria-label={`Remove ${d}`}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            ))
+          )}
+        </div>
+
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={newDistrict}
+            onChange={(e) => setNewDistrict(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddDistrict(); } }}
+            placeholder="New district name…"
+            className="flex-1 h-9 rounded-md border border-gray-200 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/30 focus:border-brand-blue"
+          />
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleAddDistrict}
+            disabled={!newDistrict.trim()}
+            className="h-9 flex items-center gap-1.5"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Add
+          </Button>
+        </div>
+      </div>
+
     </div>
   );
 }

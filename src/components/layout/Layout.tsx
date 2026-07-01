@@ -8,7 +8,22 @@ import { SideNav }           from './SideNav';
 import { OfflineBanner }     from '@/components/offline/OfflineBanner';
 import { TaskQueueProcessor } from '@/components/offline/TaskQueueProcessor';
 
-function TasksListener()  { useTasks();  return null; }
+function TasksListener() {
+  const { currentUser } = useAuthStore();
+  // Admins use subscribeToFilter from TasksPage
+  // Pipeline roles have their own hooks
+  // Only field engineers need this listener
+  if (!currentUser || currentUser.role !== 'field') {
+    return null;
+  }
+  return <FieldTasksListener />;
+}
+
+function FieldTasksListener() {
+  useTasks();
+  return null;
+}
+
 function UsersListener()  { useUsers();  return null; }
 
 export function Layout() {

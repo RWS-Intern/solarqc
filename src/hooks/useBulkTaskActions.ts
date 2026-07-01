@@ -4,6 +4,7 @@ import type { FieldEngineer } from '@/hooks/useFieldEngineers';
 export interface BulkTaskRow {
   title:       string;
   description: string;
+  district?:   string;
   engineer:    FieldEngineer | null;
   dueDate:     Date | null;
 }
@@ -15,7 +16,7 @@ export function useBulkTaskActions() {
     rows: BulkTaskRow[],
     onProgress: (current: number, total: number) => void,
   ): Promise<{ succeeded: number; failed: number }> {
-    const MAX_ROWS = 100;
+    const MAX_ROWS = 500;
     if (rows.length > MAX_ROWS) {
       throw new Error(`Maximum ${MAX_ROWS} rows per upload. Please split your file.`);
     }
@@ -30,6 +31,7 @@ export function useBulkTaskActions() {
         await createTask({
           title:          row.title,
           description:    row.description || undefined,
+          district:       row.district || undefined,
           assignedTo:     row.engineer?.uid     ?? null,
           assignedToName: row.engineer?.displayName  ?? '',
           assignedToCode: row.engineer?.engineerCode ?? '',

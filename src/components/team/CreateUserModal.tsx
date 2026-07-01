@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { CheckCircle2 } from 'lucide-react';
-import { useUserActions } from '@/hooks/useUserActions';
+import { useUserActions }   from '@/hooks/useUserActions';
+import { DistrictCombobox } from '@/components/ui/DistrictCombobox';
 import {
   Dialog,
   DialogContent,
@@ -30,6 +31,7 @@ export function CreateUserModal({ open, onClose }: CreateUserModalProps) {
   const [name,        setName]        = useState('');
   const [email,       setEmail]       = useState('');
   const [role,        setRole]        = useState<UserRole>('field');
+  const [district,    setDistrict]    = useState('');
   const [submitting,  setSubmitting]  = useState(false);
   const [createdEmail, setCreatedEmail] = useState<string | null>(null);
 
@@ -37,6 +39,7 @@ export function CreateUserModal({ open, onClose }: CreateUserModalProps) {
     setName('');
     setEmail('');
     setRole('field');
+    setDistrict('');
     setSubmitting(false);
     setCreatedEmail(null);
   }
@@ -50,7 +53,7 @@ export function CreateUserModal({ open, onClose }: CreateUserModalProps) {
     if (!name.trim() || !email.trim()) return;
     setSubmitting(true);
     try {
-      await createUser(name.trim(), email.trim(), role);
+      await createUser(name.trim(), email.trim(), role, district || undefined);
       setCreatedEmail(email.trim());
     } catch {
       // Error toast already shown inside createUser
@@ -110,10 +113,19 @@ export function CreateUserModal({ open, onClose }: CreateUserModalProps) {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="field">Field Engineer</SelectItem>
+                  <SelectItem value="proposal">Proposal Engineer</SelectItem>
+                  <SelectItem value="backend">Backend Engineer</SelectItem>
                   <SelectItem value="admin">Admin</SelectItem>
                 </SelectContent>
               </Select>
             </div>
+
+            {role === 'field' && (
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="cu-district">District</Label>
+                <DistrictCombobox id="cu-district" value={district} onChange={setDistrict} />
+              </div>
+            )}
 
             <div className="flex gap-3 pt-1">
               <Button

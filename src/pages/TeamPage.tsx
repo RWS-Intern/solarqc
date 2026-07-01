@@ -43,13 +43,15 @@ function exportEngineersCsv(users: User[]): void {
   URL.revokeObjectURL(url);
 }
 
-type FilterTab = 'all' | 'admin' | 'field' | 'disabled';
+type FilterTab = 'all' | 'admin' | 'field' | 'proposal' | 'backend' | 'disabled';
 
 const TABS: { key: FilterTab; label: string }[] = [
-  { key: 'all',      label: 'All'             },
-  { key: 'admin',    label: 'Admins'          },
-  { key: 'field',    label: 'Field Engineers' },
-  { key: 'disabled', label: 'Disabled'        },
+  { key: 'all',          label: 'All'             },
+  { key: 'admin',        label: 'Admins'           },
+  { key: 'field',        label: 'Field Engineers'  },
+  { key: 'proposal',     label: 'Proposal Team'    },
+  { key: 'backend',      label: 'Backend Team'     },
+  { key: 'disabled',     label: 'Disabled'         },
 ];
 
 export function TeamPage() {
@@ -59,6 +61,7 @@ export function TeamPage() {
   const { setUserActive, changeRole } = useUserActions();
 
   const [search,         setSearch]         = useState('');
+  const [districtFilter, setDistrictFilter] = useState('');
   const [activeTab,      setActiveTab]      = useState<FilterTab>('all');
   const [editUser,       setEditUser]       = useState<User | null>(null);
   const [showCreateUser, setShowCreateUser] = useState(false);
@@ -69,10 +72,14 @@ export function TeamPage() {
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim();
     return users.filter((u) => {
-      if (activeTab === 'admin'    && u.role !== 'admin') return false;
-      if (activeTab === 'field'    && u.role !== 'field') return false;
+      if (activeTab === 'admin'        && u.role !== 'admin')        return false;
+      if (activeTab === 'field'        && u.role !== 'field')        return false;
+      if (activeTab === 'proposal'     && u.role !== 'proposal')     return false;
+      if (activeTab === 'backend'      && u.role !== 'backend')      return false;
       if (activeTab === 'disabled' && u.active)           return false;
       if (activeTab !== 'disabled' && !u.active)          return false;
+      if (districtFilter &&
+          (u.district ?? '') !== districtFilter) return false;
       if (q) {
         return (
           u.name.toLowerCase().includes(q) ||
@@ -81,13 +88,15 @@ export function TeamPage() {
       }
       return true;
     });
-  }, [users, activeTab, search]);
+  }, [users, activeTab, search, districtFilter]);
 
   const counts = useMemo(() => ({
-    all:      users.filter((u) => u.active).length,
-    admin:    users.filter((u) => u.role === 'admin' && u.active).length,
-    field:    users.filter((u) => u.role === 'field' && u.active).length,
-    disabled: users.filter((u) => !u.active).length,
+    all:          users.filter((u) => u.active).length,
+    admin:        users.filter((u) => u.role === 'admin'        && u.active).length,
+    field:        users.filter((u) => u.role === 'field'        && u.active).length,
+    proposal:     users.filter((u) => u.role === 'proposal'     && u.active).length,
+    backend:      users.filter((u) => u.role === 'backend'      && u.active).length,
+    disabled:     users.filter((u) => !u.active).length,
   }), [users]);
 
   function requestToggleActive(user: User) { setConfirmUser(user); }
@@ -144,6 +153,21 @@ export function TeamPage() {
           className="w-full rounded-lg border border-gray-200 bg-white pl-9 pr-4 py-2 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-blue/30 focus:border-brand-blue"
         />
       </div>
+
+      {(config.districts ?? []).length > 0 && (activeTab === 'all' || activeTab === 'field') && (
+        <div className="mb-3">
+          <select
+            value={districtFilter}
+            onChange={(e) => setDistrictFilter(e.target.value)}
+            className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/30 focus:border-brand-blue text-gray-700 min-w-[160px]"
+          >
+            <option value="">All Districts</option>
+            {(config.districts ?? []).map((d) => (
+              <option key={d} value={d}>{d}</option>
+            ))}
+          </select>
+        </div>
+      )}
 
       <div className="flex gap-1.5 mb-4 overflow-x-auto pb-1">
         {TABS.map(({ key, label }) => (

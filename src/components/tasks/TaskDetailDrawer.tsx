@@ -6,15 +6,97 @@ import {
   MapPin, Calendar, User, Archive, ArchiveRestore, ChevronDown, ChevronUp, ExternalLink, Pencil,
 } from 'lucide-react';
 import { db } from '@/firebase/config';
-import { useAuthStore }      from '@/store/authStore';
-import { useTaskActions }    from '@/hooks/useTaskActions';
-import { useFieldEngineers } from '@/hooks/useFieldEngineers';
+import { useAuthStore }       from '@/store/authStore';
+import { useTaskActions }     from '@/hooks/useTaskActions';
+import { useFieldEngineers }  from '@/hooks/useFieldEngineers';
+import { usePipelineActions } from '@/hooks/usePipelineActions';
+import { useUserStore }       from '@/store/userStore';
+import { useToast }           from '@/components/ui/toast';
+import { useAppConfig }       from '@/hooks/useAppConfig';
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle,
 } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { cn }     from '@/lib/utils';
+import { PipelineTracker } from '@/components/pipeline/PipelineTracker';
 import type { Task, TaskStatus, TaskUpdate } from '@/types';
+
+// ─── Inline Title Edit ────────────────────────────────────────────────────────
+
+function InlineTitleEdit({ task }: { task: Task }) {
+  const { updateTaskTitle } = useTaskActions();
+  const { currentUser }     = useAuthStore();
+  const [editing, setEditing] = useState(false);
+  const [value,   setValue]   = useState(task.title);
+  const [saving,  setSaving]  = useState(false);
+  const isAdmin = currentUser?.role === 'admin';
+
+  if (!isAdmin) return (
+    <SheetTitle className="text-base leading-snug line-clamp-2 text-white">
+      {task.title}
+    </SheetTitle>
+  );
+
+  if (!editing) return (
+    <div className="flex items-start gap-2 group">
+      <SheetTitle className="text-base leading-snug text-white flex-1">
+        {task.title}
+      </SheetTitle>
+      <button
+        type="button"
+        onClick={() => { setValue(task.title); setEditing(true); }}
+        className="shrink-0 opacity-0 group-hover:opacity-100 rounded p-1 text-white/50 hover:text-white hover:bg-white/10 transition-all mt-0.5"
+        title="Edit title"
+      >
+        <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round"
+            d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+        </svg>
+      </button>
+    </div>
+  );
+
+  return (
+    <div className="flex flex-col gap-2">
+      <textarea
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        rows={2}
+        autoFocus
+        className="w-full rounded-lg border border-white/30 bg-white/10 text-white px-3 py-2 text-sm font-semibold resize-none focus:outline-none focus:ring-2 focus:ring-white/40 placeholder:text-white/40"
+      />
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={async () => {
+            if (!value.trim() || value.trim() === task.title) { setEditing(false); return; }
+            setSaving(true);
+            try {
+              await updateTaskTitle(task.id, value.trim());
+              setEditing(false);
+            } catch {
+              // handled in hook
+            } finally {
+              setSaving(false);
+            }
+          }}
+          disabled={saving || !value.trim()}
+          className="flex-1 rounded-lg bg-white/20 hover:bg-white/30 text-white font-semibold py-1.5 text-xs disabled:opacity-50 transition-colors"
+        >
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+        <button
+          type="button"
+          onClick={() => setEditing(false)}
+          disabled={saving}
+          className="flex-1 rounded-lg border border-white/20 bg-transparent text-white/70 font-medium py-1.5 text-xs disabled:opacity-50 transition-colors hover:bg-white/10"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -41,7 +123,22 @@ function formatDate(d: Date | null | undefined): string {
 
 function formatDateTime(d: Date | null | undefined): string {
   if (!d) return '—';
-  return d.toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return d.toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' });
+}
+
+function daysInStage(task: Task): number | null {
+  if (!task.pipelineStage || task.pipelineStage === 'survey') return null;
+  if (task.pipelineStage === 'completed' || task.pipelineStage === 'dropped') return null;
+  if (!task.stageHistory || task.stageHistory.length === 0) return null;
+  const lastEntry = [...task.stageHistory]
+    .reverse()
+    .find((e) => e.toStage === task.pipelineStage);
+  if (!lastEntry?.timestamp) return null;
+  const enteredAt = lastEntry.timestamp instanceof Date
+    ? lastEntry.timestamp
+    : new Date((lastEntry.timestamp as unknown as { toDate?: () => Date })?.toDate?.() ?? lastEntry.timestamp);
+  const diffMs = Date.now() - enteredAt.getTime();
+  return Math.floor(diffMs / (1000 * 60 * 60 * 24));
 }
 
 // ─── Photo grid ───────────────────────────────────────────────────────────────
@@ -218,6 +315,310 @@ function HistorySection({
   );
 }
 
+// ─── Proposal assign section ─────────────────────────────────────────────────
+
+function ProposalAssignSection({ task }: { task: Task }) {
+  const { users }                  = useUserStore();
+  const { assignStageTeamMember }  = usePipelineActions();
+  const { config }                 = useAppConfig();
+  const memberCounts               = config.memberCounts ?? {};
+  const [assigning, setAssigning]  = useState(false);
+
+  const proposalUsers = users.filter((u) => u.role === 'proposal' && u.active);
+  const isEditable = task.pipelineStage === 'proposal';
+
+  async function handleAssign(uid: string, name: string) {
+    setAssigning(true);
+    try {
+      await assignStageTeamMember(task.id, 'proposal', uid, name);
+    } finally {
+      setAssigning(false);
+    }
+  }
+
+  if (!isEditable) {
+    return (
+      <div className="flex flex-col gap-2">
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+          Proposal Assignment
+        </p>
+        {task.proposalAssignedTo ? (
+          <div className="rounded-lg bg-purple-50 border border-purple-200 px-3 py-2">
+            <p className="text-[10px] text-purple-500 uppercase tracking-wide font-semibold">Handled by</p>
+            <p className="text-sm font-medium text-gray-800">{task.proposalAssignedToName}</p>
+          </div>
+        ) : (
+          <p className="text-xs text-gray-400 italic">No proposal member assigned</p>
+        )}
+      </div>
+    );
+  }
+
+  if (proposalUsers.length === 0) {
+    return (
+      <div className="px-5 py-3 rounded-lg bg-yellow-50 border border-yellow-200">
+        <p className="text-xs text-yellow-700">
+          No proposal team members found. Add a user with Proposal Team role first.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+        Proposal Assignment
+      </p>
+      {task.proposalAssignedTo ? (
+        <div className="flex items-center justify-between rounded-lg bg-purple-50 border border-purple-200 px-3 py-2">
+          <div>
+            <p className="text-sm font-medium text-gray-800">{task.proposalAssignedToName}</p>
+            <p className="text-xs text-purple-600">Assigned</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => handleAssign('', '')}
+            className="text-xs text-gray-400 hover:text-red-500"
+            disabled={assigning}
+          >
+            Unassign
+          </button>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-1.5">
+          <p className="text-xs text-gray-400">Select proposal team member:</p>
+          <div className="flex flex-col gap-1">
+            {proposalUsers.map((u) => (
+              <button
+                key={u.id}
+                type="button"
+                onClick={() => handleAssign(u.id, u.name)}
+                disabled={assigning}
+                className="text-left rounded-lg border border-gray-200 bg-white hover:bg-purple-50 hover:border-purple-300 px-3 py-2 text-sm text-gray-700 transition-colors"
+              >
+                {u.name}
+                <span className="ml-1.5 text-xs text-gray-400">
+                  ({memberCounts[u.id] ?? 0} active)
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Backend assign dropdown ─────────────────────────────────────────────────
+
+function BackendAssignDropdown({ task }: { task: Task }) {
+  const { assignStageTeamMember } = usePipelineActions();
+  const { users }                 = useUserStore();
+  const { config }                = useAppConfig();
+  const memberCounts              = config.memberCounts ?? {};
+  const [saving, setSaving]       = useState(false);
+
+  const backendUsers = users.filter((u) => u.role === 'backend' && u.active);
+
+  if (backendUsers.length === 0) {
+    return (
+      <p className="text-xs text-gray-400">
+        No backend team members found. Add a user with Backend Team role first.
+      </p>
+    );
+  }
+
+  async function handleAssign(uid: string) {
+    const user = backendUsers.find((u) => u.id === uid);
+    if (!user) return;
+    setSaving(true);
+    try {
+      await assignStageTeamMember(task.id, 'backend', uid, user.name);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <select
+      className="w-full rounded-lg border border-orange-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300"
+      value={task.backendAssignedTo ?? ''}
+      onChange={(e) => handleAssign(e.target.value)}
+      disabled={saving}
+    >
+      <option value="">
+        {saving ? 'Assigning...' : 'Assign backend team member...'}
+      </option>
+      {backendUsers.map((u) => (
+        <option key={u.id} value={u.id}>
+          {u.name} ({memberCounts[u.id] ?? 0} active)
+        </option>
+      ))}
+    </select>
+  );
+}
+
+// ─── Re-engage button ─────────────────────────────────────────────────────────
+
+function ReEngageButton({ task }: { task: Task }) {
+  const { reEngageLead }      = usePipelineActions();
+  const [loading, setLoading] = useState(false);
+  const [showNote, setShowNote] = useState(false);
+  const [note, setNote]       = useState('');
+
+  async function handleReEngage() {
+    setLoading(true);
+    try {
+      await reEngageLead(task.id, note);
+      setShowNote(false);
+      setNote('');
+    } catch {
+      // handled in hook
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (!showNote) {
+    return (
+      <button
+        type="button"
+        onClick={() => setShowNote(true)}
+        className="w-full flex items-center justify-center gap-2 rounded-xl border-2 border-blue-300 bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold py-3 text-sm transition-all"
+      >
+        🔄 Re-engage Lead
+      </button>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-2 rounded-xl border-2 border-blue-300 bg-blue-50 p-4">
+      <p className="text-sm font-semibold text-blue-700">
+        Re-engage this dropped lead?
+      </p>
+      <p className="text-xs text-blue-600">
+        This will move the lead back to Proposal stage.
+      </p>
+      <textarea
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        placeholder="Add a note (optional)..."
+        rows={2}
+        className="w-full rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-300"
+      />
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={handleReEngage}
+          disabled={loading}
+          className="flex-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 text-sm disabled:opacity-50 transition-all"
+        >
+          {loading ? 'Re-engaging...' : 'Confirm Re-engage'}
+        </button>
+        <button
+          type="button"
+          onClick={() => { setShowNote(false); setNote(''); }}
+          disabled={loading}
+          className="flex-1 rounded-lg border border-blue-200 bg-white text-blue-600 font-medium py-2 text-sm disabled:opacity-50 transition-all"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Admin Stage Override ─────────────────────────────────────────────────────
+
+function AdminStageOverride({ task }: { task: Task }) {
+  const { adminOverrideStage } = usePipelineActions();
+  const [open,    setOpen]    = useState(false);
+  const [stage,   setStage]   = useState<string>('');
+  const [note,    setNote]    = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const STAGES = [
+    { value: 'survey',       label: 'Survey'       },
+    { value: 'proposal',     label: 'Proposal'     },
+    { value: 'field_review', label: 'Field Review' },
+    { value: 'backend',      label: 'Backend'      },
+    { value: 'completed',    label: 'Converted'    },
+    { value: 'dropped',      label: 'Dropped'      },
+  ];
+
+  async function handleOverride() {
+    if (!stage || stage === task.pipelineStage) return;
+    if (!window.confirm(
+      `Move this lead from ${task.pipelineStage} to ${stage}? This is an admin override.`
+    )) return;
+    setLoading(true);
+    try {
+      await adminOverrideStage(task.id, stage as import('@/types').PipelineStage, note);
+      setOpen(false);
+      setStage('');
+      setNote('');
+    } catch {
+      // handled in hook
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="text-xs text-gray-400 hover:text-gray-600 underline transition-colors"
+      >
+        🔧 Override Pipeline Stage
+      </button>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-2 rounded-xl border border-amber-200 bg-amber-50 p-4">
+      <p className="text-sm font-semibold text-amber-700">
+        ⚠️ Admin Override — Change Pipeline Stage
+      </p>
+      <select
+        value={stage}
+        onChange={(e) => setStage(e.target.value)}
+        className="w-full rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm"
+      >
+        <option value="">Select new stage...</option>
+        {STAGES.filter((s) => s.value !== task.pipelineStage).map((s) => (
+          <option key={s.value} value={s.value}>{s.label}</option>
+        ))}
+      </select>
+      <textarea
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        placeholder="Reason for override (optional)..."
+        rows={2}
+        className="w-full rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm resize-none"
+      />
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={handleOverride}
+          disabled={!stage || loading}
+          className="flex-1 rounded-lg bg-amber-500 hover:bg-amber-600 text-white font-semibold py-2 text-sm disabled:opacity-50"
+        >
+          {loading ? 'Moving...' : 'Confirm Override'}
+        </button>
+        <button
+          type="button"
+          onClick={() => { setOpen(false); setStage(''); setNote(''); }}
+          className="flex-1 rounded-lg border border-amber-200 bg-white text-amber-700 font-medium py-2 text-sm"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 interface TaskDetailDrawerProps {
@@ -231,13 +632,33 @@ export function TaskDetailDrawer({ task, onClose, onUpdate, onAdminUpdate }: Tas
   const { currentUser }                    = useAuthStore();
   const { assignTask, archiveTask, unarchiveTask } = useTaskActions();
   const { engineers }                      = useFieldEngineers();
+  const { showToast }                      = useToast();
   const [history, setHistory]              = useState<TaskUpdate[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [archiving,   setArchiving]   = useState(false);
   const [unarchiving, setUnarchiving] = useState(false);
   const [showAssignPicker, setShowAssignPicker] = useState(false);
+  const [proposalDoc, setProposalDoc] = useState<{ url: string; name: string } | null>(null);
 
   const isAdmin = currentUser?.role === 'admin';
+
+  useEffect(() => {
+    if (!task) { setProposalDoc(null); return; }
+    if (!['proposal','field_review','backend','logistics','installation','completed','dropped']
+      .includes(task.pipelineStage ?? '')) { setProposalDoc(null); return; }
+    import('firebase/firestore').then(({ doc, getDoc }) => {
+      import('@/firebase/config').then(({ db }) => {
+        getDoc(doc(db, 'tasks', task.id, 'stages', 'proposal')).then((snap) => {
+          if (snap.exists()) {
+            const d = snap.data();
+            setProposalDoc({ url: d['documentUrl'] as string, name: d['documentName'] as string });
+          } else {
+            setProposalDoc(null);
+          }
+        }).catch(() => setProposalDoc(null));
+      });
+    });
+  }, [task?.id, task?.pipelineStage]);
 
   useEffect(() => {
     if (!task) { setHistory([]); return; }
@@ -312,10 +733,27 @@ export function TaskDetailDrawer({ task, onClose, onUpdate, onAdminUpdate }: Tas
           <div className="flex items-start gap-3">
             <div className="flex flex-col gap-1.5 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="font-mono text-xs text-white/60 shrink-0">{task.taskNum}</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(task.taskNum);
+                    showToast(`Copied ${task.taskNum}`, 'success');
+                  }}
+                  className="font-mono text-xs text-white/60 hover:text-white transition-colors flex items-center gap-1 group"
+                  title="Copy task number"
+                >
+                  {task.taskNum}
+                  <svg
+                    className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity"
+                    fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round"
+                      d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                  </svg>
+                </button>
                 <StatusBadge status={task.status} />
               </div>
-              <SheetTitle className="text-base leading-snug line-clamp-2 text-white">{task.title}</SheetTitle>
+              <InlineTitleEdit task={task} />
             </div>
           </div>
         </SheetHeader>
@@ -402,6 +840,16 @@ export function TaskDetailDrawer({ task, onClose, onUpdate, onAdminUpdate }: Tas
                 <Calendar className="h-4 w-4 text-orange-400 shrink-0" />
                 <span className="text-orange-600 font-medium text-sm">
                   Follow-up: {formatDate(task.followUpDate)}
+                </span>
+              </div>
+            )}
+
+            {/* District */}
+            {task.district && (
+              <div className="flex items-center gap-2 text-xs">
+                <span className="text-gray-500">District:</span>
+                <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-600">
+                  {task.district}
                 </span>
               </div>
             )}
@@ -505,6 +953,211 @@ export function TaskDetailDrawer({ task, onClose, onUpdate, onAdminUpdate }: Tas
             </div>
           )}
 
+          {/* Pipeline status */}
+          {task.pipelineStage && (
+            <div className="flex flex-col gap-2 pt-1">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Pipeline Status</p>
+              <PipelineTracker
+                pipelineStage={task.pipelineStage}
+                stageHistory={task.stageHistory ?? []}
+                droppedReason={task.droppedReason}
+              />
+              {task.pipelineStage &&
+               task.pipelineStage !== 'survey' &&
+               task.pipelineStage !== 'completed' &&
+               task.pipelineStage !== 'dropped' &&
+               (() => {
+                 const days = daysInStage(task);
+                 if (days === null) return null;
+                 const color = days > 14 ? 'text-red-600 bg-red-50 border-red-200' :
+                               days > 7  ? 'text-orange-600 bg-orange-50 border-orange-200' :
+                               'text-gray-600 bg-gray-50 border-gray-200';
+                 return (
+                   <div className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${color}`}>
+                     ⏱ {days} day{days !== 1 ? 's' : ''} in current stage
+                   </div>
+                 );
+               })()}
+              {/* FIX 4: journey progress mini-bar under tracker */}
+              {task.pipelineStage === 'backend' &&
+               task.applicationJourneySteps &&
+               task.applicationJourneySteps.length > 0 && (
+                <div className="flex items-center gap-2 mt-1">
+                  <div className="flex-1 h-1 rounded-full bg-gray-100">
+                    <div
+                      className="h-1 rounded-full bg-orange-400 transition-all"
+                      style={{
+                        width: `${(task.applicationJourneySteps.filter(
+                          (s) => s.status === 'done').length /
+                          task.applicationJourneySteps.length) * 100}%`,
+                      }}
+                    />
+                  </div>
+                  <span className="text-xs text-gray-500 shrink-0">
+                    {task.applicationJourneySteps.filter((s) => s.status === 'done').length}/
+                    {task.applicationJourneySteps.length} steps
+                    {task.paymentType && ` · ${task.paymentType === 'cash' ? '💵 Cash' : '🏦 Loan'}`}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Application Journey */}
+          {task.applicationJourneySteps && task.applicationJourneySteps.length > 0 && (
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                  Application Journey
+                </p>
+                <span className={cn(
+                  'rounded-full px-2.5 py-0.5 text-xs font-semibold',
+                  task.paymentType === 'cash'
+                    ? 'bg-green-100 text-green-700'
+                    : 'bg-blue-100 text-blue-700',
+                )}>
+                  {task.paymentType === 'cash' ? '💵 Cash' : '🏦 Loan'} ·{' '}
+                  {task.applicationJourneySteps.filter((s) => s.status === 'done').length}/
+                  {task.applicationJourneySteps.length} steps done
+                </span>
+              </div>
+
+              {/* Progress bar */}
+              <div className="h-1.5 w-full rounded-full bg-gray-100">
+                <div
+                  className="h-1.5 rounded-full bg-orange-400 transition-all"
+                  style={{
+                    width: `${(task.applicationJourneySteps.filter(
+                      (s) => s.status === 'done').length /
+                      task.applicationJourneySteps.length) * 100}%`,
+                  }}
+                />
+              </div>
+
+              {/* Steps list */}
+              <div className="flex flex-col gap-1.5 mt-1">
+                {task.applicationJourneySteps.map((step, idx) => (
+                  <div
+                    key={step.stepId}
+                    className={cn(
+                      'flex items-start gap-2.5 rounded-lg px-3 py-2 border',
+                      step.status === 'done'
+                        ? 'border-green-200 bg-green-50'
+                        : idx === task.currentStepIndex
+                        ? 'border-orange-300 bg-orange-50'
+                        : 'border-gray-100 bg-white opacity-60',
+                    )}
+                  >
+                    <div className={cn(
+                      'flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold mt-0.5',
+                      step.status === 'done'
+                        ? 'bg-green-500 text-white'
+                        : idx === task.currentStepIndex
+                        ? 'bg-orange-400 text-white'
+                        : 'bg-gray-200 text-gray-400',
+                    )}>
+                      {step.status === 'done' ? '✓' : idx + 1}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className={cn(
+                        'text-xs font-medium',
+                        step.status === 'done' ? 'text-gray-800' : 'text-gray-500',
+                      )}>
+                        {step.label}
+                      </p>
+                      {step.status === 'done' && step.realDate && (
+                        <p className="text-[10px] text-green-600 mt-0.5">
+                          {new Date(step.realDate).toLocaleDateString('en-IN', {
+                            day: '2-digit', month: 'short', year: 'numeric',
+                          })}
+                          {step.recordedBy && ` · ${step.recordedBy}`}
+                          {step.recordedAt && ` · recorded ${
+                            (step.recordedAt instanceof Date
+                              ? step.recordedAt
+                              : new Date()
+                            ).toLocaleTimeString('en-IN', {
+                              hour: '2-digit', minute: '2-digit',
+                              timeZone: 'Asia/Kolkata',
+                            })
+                          }`}
+                        </p>
+                      )}
+                      {idx === task.currentStepIndex && step.status !== 'done' && (
+                        <p className="text-[10px] text-orange-500 mt-0.5">
+                          ▶ Current step
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Converted banner */}
+          {task.pipelineStage === 'completed' && (
+            <div className="rounded-xl border-2 border-green-500 bg-green-50 px-4 py-4 text-center">
+              <p className="text-2xl font-bold text-green-700">✅ Lead Converted!</p>
+              <p className="text-sm text-green-600 mt-1">
+                All pipeline stages and journey steps completed successfully.
+              </p>
+              {task.applicationJourneySteps && task.applicationJourneySteps.length > 0 && (
+                <p className="text-xs text-green-500 mt-1">
+                  {task.applicationJourneySteps.length} steps completed ·{' '}
+                  {task.paymentType === 'cash' ? '💵 Cash' : '🏦 Loan'}
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Proposal document (admin, any stage past proposal) */}
+          {proposalDoc && (
+            <div className="flex flex-col gap-2">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                Proposal Document
+              </p>
+              <a
+                href={proposalDoc.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                download
+                className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 hover:bg-blue-100 px-3 py-2.5 text-sm font-medium text-blue-700 transition-colors"
+              >
+                <span>📄</span>
+                <span className="truncate">{proposalDoc.name}</span>
+                <span className="ml-auto text-xs text-blue-400 shrink-0">Download</span>
+              </a>
+            </div>
+          )}
+
+          {/* Proposal assignment (admin only, any stage past survey) */}
+          {isAdmin && task.pipelineStage && task.pipelineStage !== 'survey' && (
+            <ProposalAssignSection task={task} />
+          )}
+
+          {/* Backend assignment (admin only, backend stage) */}
+          {isAdmin && task.pipelineStage === 'backend' && (
+            <div className="flex flex-col gap-2 rounded-lg border border-orange-200 bg-orange-50 px-4 py-3">
+              <p className="text-xs font-semibold text-orange-700 uppercase tracking-wide">
+                Backend Team Assignment
+              </p>
+              {task.backendAssignedTo ? (
+                <div className="flex items-center gap-2">
+                  <span className="text-orange-500">⚙️</span>
+                  <p className="text-sm font-medium text-gray-800">
+                    {task.backendAssignedToName}
+                  </p>
+                  <span className="text-xs text-gray-400">(assigned)</span>
+                </div>
+              ) : (
+                <p className="text-xs text-red-500 font-medium">
+                  ⚠️ No backend team member assigned yet
+                </p>
+              )}
+              <BackendAssignDropdown task={task} />
+            </div>
+          )}
+
           {/* Submission history */}
           <HistorySection history={history} historyLoading={historyLoading} />
         </div>
@@ -532,6 +1185,12 @@ export function TaskDetailDrawer({ task, onClose, onUpdate, onAdminUpdate }: Tas
                   Edit
                 </Button>
               </div>
+            )}
+            {isAdmin && task.pipelineStage === 'dropped' && (
+              <ReEngageButton task={task} />
+            )}
+            {isAdmin && (
+              <AdminStageOverride task={task} />
             )}
             {isAdmin && (
               task.archived ? (

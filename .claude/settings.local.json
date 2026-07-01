@@ -8,7 +8,20 @@
       "Bash(cmd.exe /c \"dir D:\\\\SolarOps\")",
       "Bash(cmd.exe /c \"dir E:\\\\FieldOps-RiteSolar\\\\src\\\\components\\\\ui\")",
       "Bash(npx tsc *)",
-      "PowerShell(cd D:\\\\SolarOps ; npm run build 2>&1 | Select-String \"built|error|precache|kB\" | ForEach-Object { $_.Line })"
+      "PowerShell(cd D:\\\\SolarOps ; npm run build 2>&1 | Select-String \"built|error|precache|kB\" | ForEach-Object { $_.Line })",
+      "Bash(npm run *)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5173)",
+      "Bash(firebase deploy *)",
+      "Bash(echo \"exit:$?\")",
+      "Bash(python -c ' *)",
+      "Bash(python -c \"import json,sys; data=json.load\\(sys.stdin\\); print\\(f'Total indexes: {len\\(data[\\\\\"indexes\\\\\"]\\)}'\\)\")",
+      "Bash(python -c \"import json; data=json.load\\(open\\('firestore.indexes.json'\\)\\); print\\('Total indexes:', len\\(data['indexes']\\)\\)\")",
+      "Bash(python3 -c \"import json; d=json.load\\(open\\('firestore.indexes.json'\\)\\); print\\('Total indexes:', len\\(d['indexes']\\)\\)\")",
+      "Bash(node -e \"const d=require\\('./firestore.indexes.json'\\); console.log\\('Total indexes:', d.indexes.length\\)\")",
+      "Bash(node -e ' *)",
+      "Bash(node -e \"const d=JSON.parse\\(require\\('fs'\\).readFileSync\\('firestore.indexes.json','utf8'\\)\\); console.log\\('Total indexes:', d.indexes.length\\)\")",
+      "Bash(node -e \"const d=JSON.parse\\(require\\('fs'\\).readFileSync\\('firestore.indexes.json','utf8'\\)\\); d.indexes.filter\\(i=>i.fields.some\\(f=>f.fieldPath==='district'\\)\\).forEach\\(i=>console.log\\(JSON.stringify\\(i.fields\\)\\)\\)\")",
+      "Bash(npm ls *)"
     ]
   }
 }

@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { X, ChevronRight } from 'lucide-react';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
-import { useTaskStore }        from '@/store/taskStore';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '@/firebase/config';
+import { useEngineerTaskStats } from '@/hooks/useEngineerTaskStats';
 import { TaskDetailDrawer }    from '@/components/tasks/TaskDetailDrawer';
 import { cn }                  from '@/lib/utils';
 import type { User, Task, TaskStatus } from '@/types';
@@ -15,11 +17,34 @@ const STATUS_META: Record<TaskStatus, { label: string; className: string }> = {
   blocked:     { label: 'Blocked',     className: 'bg-red-100 text-red-600'     },
 };
 
+const STAGE_META: Record<string, { label: string; className: string }> = {
+  survey:    { label: 'Survey',    className: 'bg-blue-100 text-blue-700'     },
+  proposal:  { label: 'Proposal',  className: 'bg-violet-100 text-violet-700' },
+  backend:   { label: 'Backend',   className: 'bg-orange-100 text-orange-700' },
+  completed: { label: 'Converted', className: 'bg-green-100 text-green-700'   },
+  dropped:   { label: 'Dropped',   className: 'bg-red-100 text-red-600'       },
+};
+
+const ROLE_LABEL: Record<string, string> = {
+  field:    'Field Engineer',
+  proposal: 'Proposal Engineer',
+  backend:  'Backend Engineer',
+};
+
 function StatusBadge({ status }: { status: TaskStatus }) {
-  const { label, className } = STATUS_META[status];
+  const { label, className } = STATUS_META[status] ?? STATUS_META.pending;
   return (
     <span className={cn('inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold', className)}>
       {label}
+    </span>
+  );
+}
+
+function StageBadge({ stage }: { stage: string }) {
+  const meta = STAGE_META[stage] ?? { label: stage, className: 'bg-gray-100 text-gray-600' };
+  return (
+    <span className={cn('inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold', meta.className)}>
+      {meta.label}
     </span>
   );
 }
@@ -42,12 +67,13 @@ function StatBox({ value, label }: { value: number | string; label: string }) {
 
 // ─── Task row ─────────────────────────────────────────────────────────────────
 
-function TaskRow({ task, onClick }: { task: Task; onClick: () => void }) {
+function TaskRow({ task, role, onClick, disabled }: { task: Task; role: string; onClick: () => void; disabled?: boolean }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="w-full text-left px-4 py-3 border-b border-gray-100 hover:bg-gray-50 transition-colors flex items-center gap-3"
+      disabled={disabled}
+      className="w-full text-left px-4 py-3 border-b border-gray-100 hover:bg-gray-50 transition-colors flex items-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
     >
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-0.5">
@@ -59,7 +85,10 @@ function TaskRow({ task, onClick }: { task: Task; onClick: () => void }) {
         )}
       </div>
       <div className="flex items-center gap-2 shrink-0">
-        <StatusBadge status={task.status} />
+        {(role === 'proposal' || role === 'backend')
+          ? <StageBadge stage={task.pipelineStage ?? ''} />
+          : <StatusBadge status={task.status} />
+        }
         <ChevronRight className="h-4 w-4 text-gray-300" />
       </div>
     </button>
@@ -74,20 +103,35 @@ interface EngineerDetailDrawerProps {
 }
 
 export function EngineerDetailDrawer({ engineer, onClose }: EngineerDetailDrawerProps) {
-  const { tasks }                        = useTaskStore();
-  const [selectedTask, setSelectedTask]  = useState<Task | null>(null);
+  const { tasks: engineerTasks, loading: statsLoading } =
+    useEngineerTaskStats(engineer?.id ?? '', engineer?.role ?? '');
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [taskLoading,  setTaskLoading]  = useState(false);
 
   if (!engineer) return null;
 
-  const engineerTasks = [...tasks]
-    .filter((t) => t.assignedTo === engineer.id)
-    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  const sortedTasks = [...engineerTasks].sort(
+    (a, b) => (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0),
+  );
 
-  const assignedCount  = engineerTasks.length;
-  const completedCount = engineerTasks.filter((t) => t.status === 'completed').length;
-  const completionPct  = assignedCount > 0
+  const assignedCount = engineerTasks.length;
+  const completedCount =
+    engineer.role === 'backend'
+      ? engineerTasks.filter((t) => t.pipelineStage === 'completed').length
+      : engineer.role === 'proposal'
+      ? engineerTasks.filter((t) =>
+          t.pipelineStage === 'completed' || t.pipelineStage === 'dropped'
+        ).length
+      : engineerTasks.filter((t) => t.status === 'completed').length;
+
+  const completionPct = assignedCount > 0
     ? Math.round((completedCount / assignedCount) * 100)
     : 0;
+
+  const completedLabel =
+    engineer.role === 'backend'  ? 'Converted'
+    : engineer.role === 'proposal' ? 'Done'
+    : 'Completed';
 
   const initial = engineer.name.trim().charAt(0).toUpperCase() || '?';
 
@@ -122,16 +166,24 @@ export function EngineerDetailDrawer({ engineer, onClose }: EngineerDetailDrawer
                     </span>
                   )}
                 </div>
-                <p className="text-sm text-white/70 mt-0.5">Field Engineer</p>
+                <p className="text-sm text-white/70 mt-0.5">
+                  {ROLE_LABEL[engineer.role] ?? engineer.role}
+                </p>
               </div>
             </div>
           </div>
 
           {/* ── Stats row ── */}
           <div className="flex border-b border-gray-100 bg-white shrink-0 divide-x divide-gray-100">
-            <StatBox value={assignedCount}        label="Assigned"    />
-            <StatBox value={completedCount}        label="Completed"   />
-            <StatBox value={`${completionPct}%`}  label="Completion"  />
+            {statsLoading ? (
+              <div className="flex-1 flex items-center justify-center py-4 text-xs text-gray-400">Loading…</div>
+            ) : (
+              <>
+                <StatBox value={assignedCount}       label="Assigned"       />
+                <StatBox value={completedCount}      label={completedLabel} />
+                <StatBox value={`${completionPct}%`} label="Completion"     />
+              </>
+            )}
           </div>
 
           {/* ── Task list ── */}
@@ -145,18 +197,86 @@ export function EngineerDetailDrawer({ engineer, onClose }: EngineerDetailDrawer
           </div>
 
           <div className="flex-1 overflow-y-auto">
-            {engineerTasks.length === 0 ? (
+            {sortedTasks.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-16 text-gray-400 text-sm">
-                No tasks assigned yet.
+                {statsLoading ? 'Loading…' : 'No tasks assigned yet.'}
               </div>
             ) : (
-              engineerTasks.map((task) => (
+              sortedTasks.map((task) => (
                 <TaskRow
                   key={task.id}
                   task={task}
-                  onClick={() => setSelectedTask(task)}
+                  role={engineer.role}
+                  disabled={taskLoading}
+                  onClick={async () => {
+                    setTaskLoading(true);
+                    try {
+                      const snap = await getDoc(doc(db, 'tasks', task.id));
+                      if (snap.exists()) {
+                        const data = snap.data();
+                        setSelectedTask({
+                          id:               snap.id,
+                          taskNum:          (data['taskNum']          as string)  ?? '',
+                          title:            (data['title']            as string)  ?? '',
+                          description:      (data['description']      as string)  ?? undefined,
+                          assignedTo:       (data['assignedTo']       as string | null) ?? null,
+                          assignedToName:   (data['assignedToName']   as string)  ?? '',
+                          assignedToCode:   (data['assignedToCode']   as string)  ?? '',
+                          status:           (data['status']           as Task['status']) ?? 'pending',
+                          dueDate:          (data['dueDate'] as { toDate?: () => Date } | null)?.toDate?.() ?? null,
+                          followUpDate:     (data['followUpDate'] as { toDate?: () => Date } | null)?.toDate?.() ?? null,
+                          fields:           (data['fields']           as Task['fields'])  ?? [],
+                          fieldAnswers:     (data['fieldAnswers']      as Task['fieldAnswers'])  ?? {},
+                          fieldPhotos:      (data['fieldPhotos']       as Task['fieldPhotos'])   ?? {},
+                          completionPhotos: (data['completionPhotos']  as string[]) ?? [],
+                          blockedReason:    (data['blockedReason']     as string | null)  ?? null,
+                          location:         (data['location']          as Task['location'])      ?? null,
+                          submittedBy:      (data['submittedBy']       as string | null)  ?? null,
+                          submittedAt:      (data['submittedAt'] as { toDate?: () => Date } | null)?.toDate?.() ?? null,
+                          createdBy:        (data['createdBy']         as string)  ?? '',
+                          createdAt:        (data['createdAt'] as { toDate?: () => Date } | null)?.toDate?.() ?? new Date(),
+                          updatedAt:        (data['updatedAt'] as { toDate?: () => Date } | null)?.toDate?.() ?? new Date(),
+                          archived:         (data['archived']          as boolean) ?? false,
+                          archivedAt:       (data['archivedAt'] as { toDate?: () => Date } | null)?.toDate?.() ?? null,
+                          pipelineStage:    (data['pipelineStage']     as Task['pipelineStage']) ?? 'survey',
+                          stageHistory:     ((data['stageHistory'] as Task['stageHistory']) ?? []).map((e) => ({
+                                              ...e,
+                                              timestamp: (e.timestamp as unknown as { toDate?: () => Date })?.toDate?.() ?? new Date(),
+                                            })),
+                          proposalAssignedTo:      (data['proposalAssignedTo']      as string | null) ?? null,
+                          proposalAssignedToName:  (data['proposalAssignedToName']  as string) ?? '',
+                          backendAssignedTo:       (data['backendAssignedTo']       as string | null) ?? null,
+                          backendAssignedToName:   (data['backendAssignedToName']   as string) ?? '',
+                          logisticsAssignedTo:     (data['logisticsAssignedTo']     as string | null) ?? null,
+                          logisticsAssignedToName: (data['logisticsAssignedToName'] as string) ?? '',
+                          installationAssignedTo:      (data['installationAssignedTo']      as string | null) ?? null,
+                          installationAssignedToName:  (data['installationAssignedToName']  as string) ?? '',
+                          proposalRevisionCount:   (data['proposalRevisionCount']   as number) ?? 0,
+                          droppedReason:           (data['droppedReason']           as string | null) ?? null,
+                          paymentType:             (data['paymentType']             as Task['paymentType']) ?? null,
+                          applicationJourneySteps: ((data['applicationJourneySteps'] as Task['applicationJourneySteps']) ?? []).map((s) => ({
+                                                     ...s,
+                                                     recordedAt: (s.recordedAt as unknown as { toDate?: () => Date })?.toDate?.() ?? null,
+                                                     inputValue: (s as unknown as { inputValue?: string }).inputValue,
+                                                   })),
+                          currentStepIndex: (data['currentStepIndex']  as number)  ?? 0,
+                          journeyCompleted: (data['journeyCompleted']   as boolean) ?? false,
+                          titleLower:       (data['titleLower']         as string)  ?? '',
+                        } as Task);
+                      }
+                    } catch (err) {
+                      console.error('[EngineerDetailDrawer] fetch task failed:', err);
+                    } finally {
+                      setTaskLoading(false);
+                    }
+                  }}
                 />
               ))
+            )}
+            {taskLoading && (
+              <div className="flex items-center justify-center py-4">
+                <div className="h-5 w-5 animate-spin rounded-full border-2 border-brand-blue border-t-transparent" />
+              </div>
             )}
           </div>
 

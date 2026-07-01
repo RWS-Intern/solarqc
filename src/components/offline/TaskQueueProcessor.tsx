@@ -8,8 +8,10 @@ import { uploadToCloudinary } from '@/utils/uploadToCloudinary';
 import { _emitToast }         from '@/components/ui/toast';
 import {
   doc, updateDoc, addDoc, collection, serverTimestamp,
+  getDoc, setDoc, arrayUnion, increment, Timestamp,
 } from 'firebase/firestore';
 import { db }                 from '@/firebase/config';
+import { assignLeastLoaded }  from '@/utils/findLeastLoadedUser';
 import type { QueuedTaskUpdate } from '@/types';
 
 function base64ToFile(base64: string, filename: string): File {
@@ -98,7 +100,7 @@ export function TaskQueueProcessor() {
         const message = err instanceof Error ? err.message : 'Unknown error';
         await updateQueueItem(item.id!, { attempts: item.attempts + 1, lastError: message });
         failed++;
-        break;
+        continue;
       }
     }
 
@@ -119,12 +121,23 @@ export function TaskQueueProcessor() {
 
     const finalFieldPhotos = await uploadFieldPhotos(item.payload.fieldPhotos, item.taskNum, engineerCode, engineerName);
 
+    const finalCompletionPhotos = await Promise.all(
+      (item.payload.completionPhotos ?? []).map(async (url, i) => {
+        try {
+          return await uploadIfBase64(url, item.taskNum, 'completion', i, undefined, engineerCode, engineerName);
+        } catch {
+          return url;
+        }
+      })
+    );
+
     const taskRef = doc(db, 'tasks', item.taskId);
     await updateDoc(taskRef, {
       status:           item.payload.status,
       blockedReason:    item.payload.blockedReason ?? null,
       fieldAnswers:     item.payload.fieldAnswers,
       fieldPhotos:      finalFieldPhotos,
+      completionPhotos: finalCompletionPhotos,
       location:         item.payload.location,
       followUpDate:     item.payload.followUpDate
         ? new Date(item.payload.followUpDate as string)
@@ -134,18 +147,102 @@ export function TaskQueueProcessor() {
       updatedAt:        serverTimestamp(),
     });
 
-    await addDoc(collection(db, 'tasks', item.taskId, 'updates'), {
-      submittedBy:      currentUser?.uid ?? '',
-      submittedByName:  currentUser?.name ?? '',
-      submittedAt:      serverTimestamp(),
-      status:           item.payload.status,
-      location:         item.payload.location,
-      blockedReason:    item.payload.blockedReason ?? null,
-      fieldAnswers:     item.payload.fieldAnswers,
-      fieldPhotos:      finalFieldPhotos,
-      taskNum:          item.taskNum,
-      title:            item.title,
-    });
+    if (!item.historyWritten) {
+      await addDoc(collection(db, 'tasks', item.taskId, 'updates'), {
+        submittedBy:      currentUser?.uid ?? '',
+        submittedByName:  currentUser?.name ?? '',
+        submittedAt:      serverTimestamp(),
+        status:           item.payload.status,
+        location:         item.payload.location,
+        blockedReason:    item.payload.blockedReason ?? null,
+        fieldAnswers:     item.payload.fieldAnswers,
+        fieldPhotos:      finalFieldPhotos,
+        completionPhotos: finalCompletionPhotos,
+        taskNum:          item.taskNum,
+        title:            item.title,
+      });
+      await updateQueueItem(item.id!, { historyWritten: true });
+    }
+
+    // ── Pipeline transition for completed survey ──────────────
+    // If engineer submitted as completed while offline,
+    // the pipeline transition (survey → proposal) was not
+    // queued. Trigger it now if still needed.
+    if (item.payload.status === 'completed') {
+      try {
+        const freshSnap = await getDoc(taskRef);
+        if (!freshSnap.exists()) return;
+
+        const freshData = freshSnap.data();
+        const stage     = freshData['pipelineStage'] as string;
+
+        // Only trigger if still at survey stage
+        // (avoid re-triggering if already moved)
+        if (stage !== 'survey') return;
+
+        const stageHistoryEntry = {
+          fromStage: 'survey'   as const,
+          toStage:   'proposal' as const,
+          timestamp: Timestamp.now(),
+          actorUid:  currentUser?.uid   ?? '',
+          actorName: currentUser?.name  ?? '',
+          actorRole: 'field',
+          note:      '(synced from offline queue)',
+        };
+
+        // Write stages/survey subcollection
+        const surveyStageRef = doc(
+          db, 'tasks', item.taskId, 'stages', 'survey'
+        );
+        await setDoc(surveyStageRef, {
+          fieldAnswers:       item.payload.fieldAnswers,
+          fieldPhotos:        finalFieldPhotos,
+          location:           item.payload.location,
+          submittedAt:        serverTimestamp(),
+          submittedBy:        currentUser?.uid ?? '',
+          surveyFormSnapshot: item.payload.fields ?? [],
+        });
+
+        // Move to proposal stage
+        await updateDoc(taskRef, {
+          pipelineStage: 'proposal',
+          stageHistory:  arrayUnion(stageHistoryEntry),
+          updatedAt:     serverTimestamp(),
+        });
+
+        // Update pipelineCounts
+        await updateDoc(doc(db, 'appConfig', 'global'), {
+          'pipelineCounts.survey':              increment(-1),
+          'pipelineCounts.proposal':            increment(1),
+          'pipelineCounts.unassigned_proposal': increment(1),
+        }).catch((err) =>
+          console.error('[Queue] pipelineCounts update failed:', err)
+        );
+
+        // Auto-assign to least loaded proposal member
+        try {
+          const assigned = await assignLeastLoaded(
+            item.taskId,
+            'proposal',
+            'proposalAssignedTo',
+            'proposalAssignedToName',
+          );
+          if (assigned) {
+            await updateDoc(doc(db, 'appConfig', 'global'), {
+              'pipelineCounts.unassigned_proposal': increment(-1),
+            }).catch(console.error);
+          }
+        } catch (assignErr) {
+          console.error('[Queue] offline auto-assign failed:', assignErr);
+        }
+
+        console.warn('[Queue] Pipeline transition triggered for offline survey completion:', item.taskId);
+      } catch (pipelineErr) {
+        // Non-fatal — log but don't fail the queue item
+        // The main task data was already saved successfully
+        console.error('[Queue] Pipeline transition failed for offline item:', pipelineErr);
+      }
+    }
   }
 
   useEffect(() => {

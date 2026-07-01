@@ -8,6 +8,7 @@ import { Label }    from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useTaskActions }    from '@/hooks/useTaskActions';
 import { useFieldEngineers } from '@/hooks/useFieldEngineers';
+import { DistrictCombobox }  from '@/components/ui/DistrictCombobox';
 
 interface CreateTaskModalProps {
   open:    boolean;
@@ -22,6 +23,7 @@ export function CreateTaskModal({ open, onClose }: CreateTaskModalProps) {
 
   const [title,       setTitle]       = useState('');
   const [description, setDescription] = useState('');
+  const [district,    setDistrict]    = useState('');
   const [assigneeUid, setAssigneeUid] = useState('');
   const [dueDate,     setDueDate]     = useState('');
   const [submitting,  setSubmitting]  = useState(false);
@@ -29,6 +31,7 @@ export function CreateTaskModal({ open, onClose }: CreateTaskModalProps) {
   function reset() {
     setTitle('');
     setDescription('');
+    setDistrict('');
     setAssigneeUid('');
     setDueDate('');
     setSubmitting(false);
@@ -51,6 +54,7 @@ export function CreateTaskModal({ open, onClose }: CreateTaskModalProps) {
       await createTask({
         title,
         description: description || undefined,
+        district:    district || undefined,
         assignedTo:     engineer?.uid     ?? null,
         assignedToName: engineer?.displayName  ?? '',
         assignedToCode: engineer?.engineerCode ?? '',
@@ -104,6 +108,12 @@ export function CreateTaskModal({ open, onClose }: CreateTaskModalProps) {
               placeholder="Optional details…"
               rows={3}
             />
+          </div>
+
+          {/* District */}
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="ct-district">District</Label>
+            <DistrictCombobox id="ct-district" value={district} onChange={setDistrict} />
           </div>
 
           <div className="border-t border-gray-100" />
