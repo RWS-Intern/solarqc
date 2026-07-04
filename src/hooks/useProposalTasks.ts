@@ -50,6 +50,9 @@ function docToProposalTask(d: { id: string; data: () => Record<string, unknown> 
     installationAssignedToName:  (data['installationAssignedToName']  as string) ?? '',
     proposalRevisionCount:   (data['proposalRevisionCount']   as number) ?? 0,
     droppedReason:           (data['droppedReason']           as string | null) ?? null,
+    documentAnswers:         (data['documentAnswers']         as Task['documentAnswers']) ?? {},
+    documentPhotos:          (data['documentPhotos']          as Task['documentPhotos'])  ?? {},
+    documentsCompleted:      (data['documentsCompleted']      as boolean) ?? false,
     paymentType:             ((data['paymentType'] as string) ?? null) as 'cash' | 'loan' | null,
     applicationJourneySteps: ((data['applicationJourneySteps'] as JourneyStepAnswer[]) ?? []).map((s) => ({
                                ...s,
@@ -68,7 +71,7 @@ function buildHistoryQuery(
   uid: string,
   afterDoc?: DocumentSnapshot,
 ) {
-  const stages = ['field_review', 'backend', 'completed', 'dropped'] as const;
+  const stages = ['field_review', 'documents', 'backend', 'completed', 'dropped'] as const;
   if (role === 'admin') {
     return query(
       collection(db, 'tasks'),

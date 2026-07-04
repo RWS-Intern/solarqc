@@ -9,7 +9,7 @@ import { useTaskStore } from '@/store/taskStore';
 import { useAuthStore } from '@/store/authStore';
 import type { Task, TaskStatus, PipelineStage, StageHistoryEntry, JourneyStepAnswer } from '@/types';
 
-function docToTask(d: { id: string; data: () => Record<string, unknown> }): Task {
+export function docToTask(d: { id: string; data: () => Record<string, unknown> }): Task {
   const data = d.data();
   return {
     id:               d.id,
@@ -51,6 +51,9 @@ function docToTask(d: { id: string; data: () => Record<string, unknown> }): Task
     installationAssignedToName:  (data['installationAssignedToName']  as string) ?? '',
     proposalRevisionCount:   (data['proposalRevisionCount']   as number) ?? 0,
     droppedReason:           (data['droppedReason']           as string | null) ?? null,
+    documentAnswers:         (data['documentAnswers']         as Task['documentAnswers']) ?? {},
+    documentPhotos:          (data['documentPhotos']          as Task['documentPhotos'])  ?? {},
+    documentsCompleted:      (data['documentsCompleted']      as boolean) ?? false,
     paymentType:             ((data['paymentType'] as string) ?? null) as 'cash' | 'loan' | null,
     applicationJourneySteps: ((data['applicationJourneySteps'] as JourneyStepAnswer[]) ?? []).map((s) => ({
                                ...s,
@@ -129,6 +132,7 @@ export type AdminFilter =
   | 'converted'
   | 'pipeline_proposal'
   | 'pipeline_field_review'
+  | 'pipeline_documents'
   | 'pipeline_backend'
   | 'unassigned'
   | 'unassigned_backend'
@@ -286,6 +290,12 @@ export function useTasks() {
           where('pipelineStage', '==', 'field_review'),
           orderBy('createdAt', 'desc'), limit(PAGE_SIZE));
         break;
+      case 'pipeline_documents':
+        q = query(base,
+          where('archived',      '==', false),
+          where('pipelineStage', '==', 'documents'),
+          orderBy('createdAt', 'desc'), limit(PAGE_SIZE));
+        break;
       case 'pipeline_backend':
         q = query(base,
           where('archived',      '==', false),
@@ -440,12 +450,18 @@ export function useTasks() {
               return [where('archived','==',false), where('pipelineStage','==','proposal'), orderBy('createdAt','desc')];
             case 'pipeline_field_review':
               return [where('archived','==',false), where('pipelineStage','==','field_review'), orderBy('createdAt','desc')];
+            case 'pipeline_documents':
+              return [where('archived','==',false), where('pipelineStage','==','documents'), orderBy('createdAt','desc')];
             case 'pipeline_backend':
               return [where('archived','==',false), where('pipelineStage','==','backend'), orderBy('createdAt','desc')];
             case 'converted':
               return [where('archived','==',false), where('pipelineStage','==','completed'), orderBy('createdAt','desc')];
             case 'dropped':
               return [where('archived','==',false), where('pipelineStage','==','dropped'), orderBy('createdAt','desc')];
+            case 'unassigned':
+              return [where('archived','==',false), where('pipelineStage','==','proposal'), orderBy('createdAt','desc')];
+            case 'unassigned_backend':
+              return [where('archived','==',false), where('pipelineStage','==','backend'), orderBy('createdAt','desc')];
             case 'my_tasks':
               return [where('archived','==',false), where('createdBy','==',currentUser!.uid), orderBy('createdAt','desc')];
             default:
@@ -459,8 +475,13 @@ export function useTasks() {
           limit(PAGE_SIZE),
         ));
         const moreTasks = moreSnap.docs.map(docToTask);
-        const existing  = useTaskStore.getState().tasks;
-        setTasks([...existing, ...moreTasks]);
+        const filteredMore = filter === 'unassigned'
+          ? moreTasks.filter((t) => !t.proposalAssignedTo)
+          : filter === 'unassigned_backend'
+          ? moreTasks.filter((t) => !t.backendAssignedTo)
+          : moreTasks;
+        const existing = useTaskStore.getState().tasks;
+        setTasks([...existing, ...filteredMore]);
         lastDocRef.current = moreSnap.docs[moreSnap.docs.length - 1] ?? null;
         setHasMore(moreSnap.docs.length === PAGE_SIZE);
       } catch (err) {

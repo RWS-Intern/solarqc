@@ -253,7 +253,7 @@ export function DashboardPage() {
   const counts = useMemo(() => {
     if (isAdmin) {
       return {
-        total:       (pc?.total_active ?? 0),
+        total:       statusCounts.pending + statusCounts.in_progress + statusCounts.completed + statusCounts.blocked,
         pending:     statusCounts.pending,
         in_progress: statusCounts.in_progress,
         completed:   statusCounts.completed,
@@ -310,6 +310,7 @@ export function DashboardPage() {
     survey:       pc?.survey       ?? 0,
     proposal:     pc?.proposal     ?? 0,
     field_review: pc?.field_review ?? 0,
+    documents:    pc?.documents    ?? 0,
     backend:      pc?.backend      ?? 0,
     completed:    pc?.completed    ?? 0,
     dropped:      pc?.dropped      ?? 0,
@@ -457,6 +458,7 @@ export function DashboardPage() {
                 { stage: 'survey',       label: 'Survey',        icon: '📋', color: 'border-l-gray-400'   },
                 { stage: 'proposal',     label: 'Proposal',      icon: '📄', color: 'border-l-purple-400' },
                 { stage: 'field_review', label: 'Field Review',  icon: '👁️', color: 'border-l-blue-400'   },
+                { stage: 'documents',    label: 'Documents',     icon: '📎', color: 'border-l-teal-400'   },
                 { stage: 'backend',      label: 'Backend',       icon: '⚙️', color: 'border-l-orange-400' },
                 { stage: 'completed',    label: 'Converted',     icon: '✅', color: 'border-l-green-600'  },
                 { stage: 'dropped',      label: 'Dropped',       icon: '❌', color: 'border-l-red-400'    },
@@ -576,7 +578,7 @@ export function DashboardPage() {
         {todayActivity.length > 0 && (() => {
           const STAGE_LABEL: Record<string, string> = {
             survey: 'Survey', proposal: 'Proposal', field_review: 'Field Review',
-            backend: 'Backend', completed: 'Converted', dropped: 'Dropped',
+            documents: 'Documents', backend: 'Backend', completed: 'Converted', dropped: 'Dropped',
           };
           return (
             <div className="rounded-xl border border-gray-100 bg-white overflow-hidden mb-6">

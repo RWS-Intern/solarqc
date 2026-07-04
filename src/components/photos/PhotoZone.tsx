@@ -18,6 +18,7 @@ interface PhotoZoneProps {
   engineerCode?:   string;
   engineerName?:   string;
   fieldLabel?:     string;
+  uploadType?:     'documents';
 }
 
 function isPdfUrl(url: string): boolean {
@@ -59,6 +60,7 @@ export function PhotoZone({
   engineerCode,
   engineerName,
   fieldLabel,
+  uploadType,
 }: PhotoZoneProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [pendingUploads, setPendingUploads] = useState<PendingUpload[]>([]);
@@ -119,6 +121,7 @@ export function PhotoZone({
       engineerCode,
       engineerName,
       fieldLabel,
+      uploadType,
     })
       .then(({ url }) => {
         setPendingUploads((prev) => prev.filter((p) => p.tempId !== tempId));

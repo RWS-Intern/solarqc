@@ -20,11 +20,12 @@ interface ChecklistItemProps {
   disabled?:      boolean;
   engineerCode?:  string;
   engineerName?:  string;
+  uploadType?:    'documents';
 }
 
 export function ChecklistItem({
   field, answer, photos, onAnswerChange, onPhotosChange, showError, taskNum, disabled,
-  engineerCode, engineerName,
+  engineerCode, engineerName, uploadType,
 }: ChecklistItemProps) {
   const isPhotoOnly  = field.type === 'photo_only';
   const isHeaderOnly = field.type === 'section_header';
@@ -110,6 +111,7 @@ export function ChecklistItem({
             engineerCode={engineerCode}
             engineerName={engineerName}
             fieldLabel={field.label}
+            uploadType={uploadType}
           />
         </div>
       )}

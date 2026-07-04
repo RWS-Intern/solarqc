@@ -29,6 +29,7 @@ export function exportTasksToExcel(tasks: Task[]): void {
                                survey:       'Survey',
                                proposal:     'Proposal',
                                field_review: 'Field Review',
+                               documents:    'Documents',
                                backend:      'Backend',
                                completed:    'CONVERTED',
                                dropped:      'Dropped',

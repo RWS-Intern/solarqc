@@ -196,7 +196,7 @@ export function usePipelineActions() {
       fields:        Task['fields'];
       submittedAt:   Date | null;
     },
-  ): Promise<void> {
+  ): Promise<'documents' | 'backend' | undefined> {
     if (!currentUser) throw new Error('Not authenticated');
 
     const taskRef          = doc(db, 'tasks', taskId);
@@ -204,9 +204,19 @@ export function usePipelineActions() {
 
     try {
       if (decision === 'accepted') {
-        await runTransaction(db, async (tx) => {
-          const taskSnap = await tx.get(taskRef);
+        const appConfigRef = doc(db, 'appConfig', 'global');
+
+        const targetStage = await runTransaction(db, async (tx): Promise<'documents' | 'backend'> => {
+          const [taskSnap, configSnap] = await Promise.all([
+            tx.get(taskRef),
+            tx.get(appConfigRef),
+          ]);
           if (!taskSnap.exists()) throw new Error('Task not found');
+
+          // Skip the Documents stage entirely if the admin hasn't configured
+          // any document fields — nothing for the field engineer to fill in.
+          const documentTemplate = (configSnap.data()?.['documentTemplate'] ?? []) as unknown[];
+          const targetStage: 'documents' | 'backend' = documentTemplate.length > 0 ? 'documents' : 'backend';
 
           const existingHistory = (taskSnap.data()?.['stageHistory'] ?? []) as Array<Record<string, unknown>>;
           const cappedHistory = existingHistory.slice(-49).map((e) => ({
@@ -221,7 +231,7 @@ export function usePipelineActions() {
 
           const entry = {
             fromStage: 'field_review' as const,
-            toStage:   'backend' as const,
+            toStage:   targetStage,
             timestamp: Timestamp.now(),
             actorUid:  currentUser.uid,
             actorName: currentUser.name,
@@ -238,35 +248,53 @@ export function usePipelineActions() {
           });
 
           tx.update(taskRef, {
-            pipelineStage: 'backend',
+            pipelineStage: targetStage,
             stageHistory:  [...cappedHistory, entry],
             updatedAt:     serverTimestamp(),
           });
 
-          tx.update(doc(db, 'appConfig', 'global'), {
-            'pipelineCounts.field_review':       increment(-1),
-            'pipelineCounts.backend':            increment(1),
-            'pipelineCounts.unassigned_backend': increment(1),
-          });
+          if (targetStage === 'documents') {
+            tx.update(appConfigRef, {
+              'pipelineCounts.field_review': increment(-1),
+              'pipelineCounts.documents':    increment(1),
+            });
+          } else {
+            tx.update(appConfigRef, {
+              'pipelineCounts.field_review':       increment(-1),
+              'pipelineCounts.backend':             increment(1),
+              'pipelineCounts.unassigned_backend':  increment(1),
+            });
+          }
+
+          return targetStage;
         });
 
-        try {
-          const assigned = await assignLeastLoaded(
-            taskId,
-            'backend',
-            'backendAssignedTo',
-            'backendAssignedToName',
-          );
-          if (assigned) {
-            await updateDoc(doc(db, 'appConfig', 'global'), {
-              'pipelineCounts.unassigned_backend': increment(-1),
-            }).catch(console.error);
+        if (targetStage === 'backend') {
+          try {
+            const assigned = await assignLeastLoaded(
+              taskId,
+              'backend',
+              'backendAssignedTo',
+              'backendAssignedToName',
+            );
+            if (assigned) {
+              await updateDoc(appConfigRef, {
+                'pipelineCounts.unassigned_backend': increment(-1),
+              }).catch(console.error);
+            }
+          } catch (assignErr) {
+            console.error('[Pipeline] auto-assign backend failed:', assignErr);
           }
-        } catch (assignErr) {
-          console.error('[Pipeline] auto-assign backend failed:', assignErr);
         }
 
-        showToast('Proposal accepted. Task moved to Backend.', 'success');
+        showToast(
+          targetStage === 'documents'
+            ? 'Proposal accepted. Task moved to Documents.'
+            : 'Proposal accepted. Task moved to Backend.',
+          'success',
+        );
+
+        return targetStage;
 
       } else if (decision === 'rejected') {
         await runTransaction(db, async (tx) => {
@@ -387,6 +415,91 @@ export function usePipelineActions() {
     } catch (err) {
       console.error('[submitFieldReviewDecision] failed:', err);
       showToast('Failed to submit decision. Try again.', 'error');
+      throw err;
+    }
+  }
+
+  // ── Submit Documents (documents → backend) ──────────────────────
+  async function submitDocuments(taskId: string): Promise<void> {
+    if (!currentUser) throw new Error('Not authenticated');
+
+    const taskRef           = doc(db, 'tasks', taskId);
+    const documentsStageRef = doc(db, 'tasks', taskId, 'stages', 'documents');
+
+    try {
+      let documentAnswers: Task['documentAnswers'] = {};
+      let documentPhotos:  Task['documentPhotos']  = {};
+
+      await runTransaction(db, async (tx) => {
+        const taskSnap = await tx.get(taskRef);
+        if (!taskSnap.exists()) throw new Error('Task not found');
+
+        documentAnswers = (taskSnap.data()?.['documentAnswers'] ?? {}) as Task['documentAnswers'];
+        documentPhotos  = (taskSnap.data()?.['documentPhotos']  ?? {}) as Task['documentPhotos'];
+
+        const existingHistory = (taskSnap.data()?.['stageHistory'] ?? []) as Array<Record<string, unknown>>;
+        const cappedHistory = existingHistory.slice(-49).map((e) => ({
+          fromStage: e['fromStage'] ?? null,
+          toStage:   e['toStage']   ?? '',
+          timestamp: e['timestamp'] ?? Timestamp.now(),
+          actorUid:  e['actorUid']  ?? '',
+          actorName: e['actorName'] ?? '',
+          actorRole: e['actorRole'] ?? '',
+          note:      e['note']      ?? '',
+        }));
+
+        const entry = {
+          fromStage: 'documents' as const,
+          toStage:   'backend'   as const,
+          timestamp: Timestamp.now(),
+          actorUid:  currentUser.uid,
+          actorName: currentUser.name,
+          actorRole: currentUser.role,
+          note:      'Documents submitted',
+        };
+
+        tx.set(documentsStageRef, {
+          documentAnswers,
+          documentPhotos,
+          submittedAt:     serverTimestamp(),
+          submittedByUid:  currentUser.uid,
+          submittedByName: currentUser.name,
+        });
+
+        tx.update(taskRef, {
+          documentsCompleted: true,
+          pipelineStage:      'backend',
+          stageHistory:       [...cappedHistory, entry],
+          updatedAt:          serverTimestamp(),
+        });
+
+        tx.update(doc(db, 'appConfig', 'global'), {
+          'pipelineCounts.documents':           increment(-1),
+          'pipelineCounts.backend':             increment(1),
+          'pipelineCounts.unassigned_backend':  increment(1),
+        });
+      });
+
+      try {
+        const assigned = await assignLeastLoaded(
+          taskId,
+          'backend',
+          'backendAssignedTo',
+          'backendAssignedToName',
+        );
+        if (assigned) {
+          await updateDoc(doc(db, 'appConfig', 'global'), {
+            'pipelineCounts.unassigned_backend': increment(-1),
+          }).catch(console.error);
+        }
+      } catch (assignErr) {
+        console.error('[Pipeline] auto-assign backend failed:', assignErr);
+      }
+
+      showToast('Documents submitted. Task moved to Backend.', 'success');
+    } catch (err) {
+      console.error('[submitDocuments] failed:', err);
+      showToast('Failed to submit documents. Try again.', 'error');
       throw err;
     }
   }
@@ -774,5 +887,5 @@ export function usePipelineActions() {
     }
   }
 
-  return { submitProposal, assignStageTeamMember, submitFieldReviewDecision, submitBackendChecklist, initializeJourneySteps, completeJourneyStep, markLeadConverted, saveJourneyStepDraft, reEngageLead, adminOverrideStage };
+  return { submitProposal, assignStageTeamMember, submitFieldReviewDecision, submitDocuments, submitBackendChecklist, initializeJourneySteps, completeJourneyStep, markLeadConverted, saveJourneyStepDraft, reEngageLead, adminOverrideStage };
 }

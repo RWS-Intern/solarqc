@@ -135,6 +135,25 @@ export function useTemplateActions() {
     }
   }
 
+  async function saveDocumentTemplate(fields: FieldDefinition[]): Promise<void> {
+    try {
+      const configRef = doc(db, 'appConfig', 'global');
+      await runTransaction(db, async (tx) => {
+        const snap = await tx.get(configRef);
+        if (!snap.exists()) throw new Error('Config not found');
+        tx.update(configRef, {
+          documentTemplate: fields,
+          updatedAt:        serverTimestamp(),
+        });
+      });
+      showToast('Document template saved successfully', 'success');
+    } catch (err) {
+      console.error('[saveDocumentTemplate] failed:', err);
+      showToast('Failed to save document template. Try again.', 'error');
+      throw err;
+    }
+  }
+
   async function saveBackendJourneySteps(
     cashSteps: JourneyStepDefinition[],
     loanSteps: JourneyStepDefinition[],
@@ -172,5 +191,5 @@ export function useTemplateActions() {
     }
   }
 
-  return { saveTemplate, saveBackendJourneySteps, saveDistricts };
+  return { saveTemplate, saveDocumentTemplate, saveBackendJourneySteps, saveDistricts };
 }

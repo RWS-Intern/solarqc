@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
-  collection, query, orderBy, getDocs,
+  collection, query, orderBy, getDocs, doc, getDoc,
 } from 'firebase/firestore';
 import {
   MapPin, Calendar, User, Archive, ArchiveRestore, ChevronDown, ChevronUp, ExternalLink, Pencil,
@@ -13,13 +13,14 @@ import { usePipelineActions } from '@/hooks/usePipelineActions';
 import { useUserStore }       from '@/store/userStore';
 import { useToast }           from '@/components/ui/toast';
 import { useAppConfig }       from '@/hooks/useAppConfig';
+import { useDrawerBackButton } from '@/hooks/useDrawerBackButton';
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle,
 } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { cn }     from '@/lib/utils';
 import { PipelineTracker } from '@/components/pipeline/PipelineTracker';
-import type { Task, TaskStatus, TaskUpdate } from '@/types';
+import type { Task, TaskStatus, TaskUpdate, DocumentsStageData } from '@/types';
 
 // ─── Inline Title Edit ────────────────────────────────────────────────────────
 
@@ -541,6 +542,7 @@ function AdminStageOverride({ task }: { task: Task }) {
     { value: 'survey',       label: 'Survey'       },
     { value: 'proposal',     label: 'Proposal'     },
     { value: 'field_review', label: 'Field Review' },
+    { value: 'documents',    label: 'Documents'    },
     { value: 'backend',      label: 'Backend'      },
     { value: 'completed',    label: 'Converted'    },
     { value: 'dropped',      label: 'Dropped'      },
@@ -633,18 +635,20 @@ export function TaskDetailDrawer({ task, onClose, onUpdate, onAdminUpdate }: Tas
   const { assignTask, archiveTask, unarchiveTask } = useTaskActions();
   const { engineers }                      = useFieldEngineers();
   const { showToast }                      = useToast();
+  const { config }                         = useAppConfig();
   const [history, setHistory]              = useState<TaskUpdate[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [archiving,   setArchiving]   = useState(false);
   const [unarchiving, setUnarchiving] = useState(false);
   const [showAssignPicker, setShowAssignPicker] = useState(false);
   const [proposalDoc, setProposalDoc] = useState<{ url: string; name: string } | null>(null);
+  const [documentsData, setDocumentsData] = useState<DocumentsStageData | null>(null);
 
   const isAdmin = currentUser?.role === 'admin';
 
   useEffect(() => {
     if (!task) { setProposalDoc(null); return; }
-    if (!['proposal','field_review','backend','logistics','installation','completed','dropped']
+    if (!['proposal','field_review','documents','backend','logistics','installation','completed','dropped']
       .includes(task.pipelineStage ?? '')) { setProposalDoc(null); return; }
     import('firebase/firestore').then(({ doc, getDoc }) => {
       import('@/firebase/config').then(({ db }) => {
@@ -658,6 +662,20 @@ export function TaskDetailDrawer({ task, onClose, onUpdate, onAdminUpdate }: Tas
         }).catch(() => setProposalDoc(null));
       });
     });
+  }, [task?.id, task?.pipelineStage]);
+
+  useEffect(() => {
+    if (!task) { setDocumentsData(null); return; }
+    if (!['documents', 'backend', 'completed', 'dropped'].includes(task.pipelineStage ?? '')) {
+      setDocumentsData(null);
+      return;
+    }
+    getDoc(doc(db, 'tasks', task.id, 'stages', 'documents'))
+      .then((snap) => {
+        if (snap.exists()) setDocumentsData(snap.data() as DocumentsStageData);
+        else setDocumentsData(null);
+      })
+      .catch(() => setDocumentsData(null));
   }, [task?.id, task?.pipelineStage]);
 
   useEffect(() => {
@@ -692,6 +710,8 @@ export function TaskDetailDrawer({ task, onClose, onUpdate, onAdminUpdate }: Tas
       setHistoryLoading(false);
     });
   }, [task?.id]);
+
+  useDrawerBackButton(!!task, onClose);
 
   async function handleArchive() {
     if (!task) return;
@@ -1129,6 +1149,52 @@ export function TaskDetailDrawer({ task, onClose, onUpdate, onAdminUpdate }: Tas
               </a>
             </div>
           )}
+
+          {/* Submitted documents (any stage from Documents onward) */}
+          {['documents', 'backend', 'completed', 'dropped'].includes(task.pipelineStage ?? '') && (() => {
+            const answers    = documentsData?.documentAnswers ?? {};
+            const photos     = documentsData?.documentPhotos  ?? {};
+            const template   = config.documentTemplate ?? [];
+            const hasAnswers = Object.keys(answers).length > 0;
+            const hasPhotos  = Object.values(photos).flat().length > 0;
+            return (
+              <div className="flex flex-col gap-2">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                  Submitted Documents
+                </p>
+                {!hasAnswers && !hasPhotos ? (
+                  <p className="text-sm text-gray-400 italic">No documents were collected for this lead.</p>
+                ) : (
+                  <>
+                    {hasAnswers && (
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
+                        {template
+                          .filter((f) => f.type !== 'section_header' && f.type !== 'photo_only')
+                          .sort((a, b) => a.sortOrder - b.sortOrder)
+                          .map((field) => {
+                            const val = answers[field.fieldId];
+                            if (!val) return null;
+                            return (
+                              <div key={field.fieldId} className="rounded-lg bg-gray-50 px-3 py-2 border-l-4 border-l-brand-green">
+                                <p className="text-xs font-semibold text-gray-800">{field.label}</p>
+                                <p className="text-sm text-gray-700">
+                                  {field.type === 'yesno'
+                                    ? val === 'yes' ? '✅ Yes' : '❌ No'
+                                    : val}
+                                </p>
+                              </div>
+                            );
+                          })}
+                      </div>
+                    )}
+                    {hasPhotos && (
+                      <PhotoGrid urls={Object.values(photos).flat()} label="Documents" />
+                    )}
+                  </>
+                )}
+              </div>
+            );
+          })()}
 
           {/* Proposal assignment (admin only, any stage past survey) */}
           {isAdmin && task.pipelineStage && task.pipelineStage !== 'survey' && (

@@ -20,6 +20,7 @@ const STATUS_META: Record<TaskStatus, { label: string; className: string }> = {
 const STAGE_META: Record<string, { label: string; className: string }> = {
   survey:    { label: 'Survey',    className: 'bg-blue-100 text-blue-700'     },
   proposal:  { label: 'Proposal',  className: 'bg-violet-100 text-violet-700' },
+  documents: { label: 'Documents', className: 'bg-teal-100 text-teal-700'     },
   backend:   { label: 'Backend',   className: 'bg-orange-100 text-orange-700' },
   completed: { label: 'Converted', className: 'bg-green-100 text-green-700'   },
   dropped:   { label: 'Dropped',   className: 'bg-red-100 text-red-600'       },
@@ -253,6 +254,9 @@ export function EngineerDetailDrawer({ engineer, onClose }: EngineerDetailDrawer
                           installationAssignedToName:  (data['installationAssignedToName']  as string) ?? '',
                           proposalRevisionCount:   (data['proposalRevisionCount']   as number) ?? 0,
                           droppedReason:           (data['droppedReason']           as string | null) ?? null,
+                          documentAnswers:         (data['documentAnswers']         as Task['documentAnswers']) ?? {},
+                          documentPhotos:          (data['documentPhotos']          as Task['documentPhotos'])  ?? {},
+                          documentsCompleted:      (data['documentsCompleted']      as boolean) ?? false,
                           paymentType:             (data['paymentType']             as Task['paymentType']) ?? null,
                           applicationJourneySteps: ((data['applicationJourneySteps'] as Task['applicationJourneySteps']) ?? []).map((s) => ({
                                                      ...s,

@@ -80,6 +80,7 @@ export interface AppConfig {
   proposalNumCounter?:     number;
   backendNumCounter?:      number;
   taskTemplate:                FieldDefinition[];
+  documentTemplate?:           FieldDefinition[];
   backendChecklistTemplate?:   FieldDefinition[];
   backendCashSteps?:           JourneyStepDefinition[];
   backendLoanSteps?:           JourneyStepDefinition[];
@@ -88,6 +89,7 @@ export interface AppConfig {
     survey:              number;
     proposal:            number;
     field_review:        number;
+    documents:           number;
     backend:             number;
     completed:           number;
     dropped:             number;
@@ -105,6 +107,7 @@ export type PipelineStage =
   | 'survey'
   | 'proposal'
   | 'field_review'
+  | 'documents'
   | 'backend'
   | 'completed'
   | 'dropped';
@@ -150,6 +153,14 @@ export interface FieldReviewStageData {
   reviewerName?: string;
   approved?:     boolean;
   notes?:        string;
+}
+
+export interface DocumentsStageData {
+  documentAnswers?: Record<string, string>;
+  documentPhotos?:  Record<string, string[]>;
+  submittedAt?:     Date;
+  submittedByUid?:  string;
+  submittedByName?: string;
 }
 
 export interface BackendStageData {
@@ -225,6 +236,9 @@ export interface Task {
   installationAssignedToName?: string;
   proposalRevisionCount?:      number;
   droppedReason?:              string | null;
+  documentAnswers?:            Record<string, string>;
+  documentPhotos?:             Record<string, string[]>;
+  documentsCompleted?:         boolean;
   paymentType:                 'cash' | 'loan' | null;
   applicationJourneySteps:     JourneyStepAnswer[];
   currentStepIndex:            number;

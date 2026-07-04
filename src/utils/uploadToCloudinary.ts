@@ -15,7 +15,7 @@ export async function uploadToCloudinary(
     engineerCode?: string;
     engineerName?: string;
     fieldLabel?:   string;
-    uploadType?:   'proposal';
+    uploadType?:   'proposal' | 'documents';
   },
 ): Promise<UploadResult> {
   const cloudName    = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME    as string;
@@ -31,6 +31,8 @@ export async function uploadToCloudinary(
 
   const folder = options?.uploadType === 'proposal' && taskNum
     ? `solarops/${taskNum}/proposal`
+    : options?.uploadType === 'documents' && taskNum
+    ? `solarops/${taskNum}/documents`
     : taskNum
     ? `solarops/${taskNum}/${engineerSegment}`
     : 'solarops';

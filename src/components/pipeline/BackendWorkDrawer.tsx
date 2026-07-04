@@ -13,7 +13,7 @@ import { useToast }           from '@/components/ui/toast';
 import { doc, getDoc }        from 'firebase/firestore';
 import { db }                 from '@/firebase/config';
 import type {
-  Task, JourneyStepAnswer, SurveyStageData,
+  Task, JourneyStepAnswer, SurveyStageData, DocumentsStageData,
 } from '@/types';
 
 interface BackendWorkDrawerProps {
@@ -36,6 +36,7 @@ export function BackendWorkDrawer({ task, onClose }: BackendWorkDrawerProps) {
   // Survey data
   const [surveyData,      setSurveyData]      = useState<SurveyStageData | null>(null);
   const [proposalDoc,     setProposalDoc]     = useState<{ url: string; name: string } | null>(null);
+  const [documentsData,   setDocumentsData]   = useState<DocumentsStageData | null>(null);
   const [showSurvey,      setShowSurvey]      = useState(false);
 
   // Step state
@@ -58,6 +59,7 @@ export function BackendWorkDrawer({ task, onClose }: BackendWorkDrawerProps) {
       initialisedForTaskId.current = null;
       setSurveyData(null);
       setProposalDoc(null);
+      setDocumentsData(null);
       setLoadingStageData(false);
       setStepDoneValue(null);
       setStepDate('');
@@ -70,12 +72,13 @@ export function BackendWorkDrawer({ task, onClose }: BackendWorkDrawerProps) {
     if (initialisedForTaskId.current === task.id) return;
     initialisedForTaskId.current = task.id;
 
-    // Load survey + proposal data in parallel
+    // Load survey + proposal + documents data in parallel
     setLoadingStageData(true);
     Promise.all([
       getDoc(doc(db, 'tasks', task.id, 'stages', 'survey')),
       getDoc(doc(db, 'tasks', task.id, 'stages', 'proposal')),
-    ]).then(([surveySnap, proposalSnap]) => {
+      getDoc(doc(db, 'tasks', task.id, 'stages', 'documents')),
+    ]).then(([surveySnap, proposalSnap, documentsSnap]) => {
       if (surveySnap.exists()) {
         setSurveyData(surveySnap.data() as SurveyStageData);
       }
@@ -84,6 +87,9 @@ export function BackendWorkDrawer({ task, onClose }: BackendWorkDrawerProps) {
           url:  proposalSnap.data()['documentUrl']  as string,
           name: proposalSnap.data()['documentName'] as string,
         });
+      }
+      if (documentsSnap.exists()) {
+        setDocumentsData(documentsSnap.data() as DocumentsStageData);
       }
     }).catch(() => {}).finally(() => {
       setLoadingStageData(false);
@@ -364,6 +370,70 @@ export function BackendWorkDrawer({ task, onClose }: BackendWorkDrawerProps) {
               </a>
             </div>
           )}
+
+          {/* ── Submitted Documents ── */}
+          <div className="rounded-lg border border-teal-200 bg-teal-50 px-4 py-3">
+            <p className="text-xs font-semibold text-teal-700 uppercase tracking-wide mb-2">
+              Submitted Documents
+            </p>
+            {(() => {
+              const answers    = documentsData?.documentAnswers ?? {};
+              const photos     = documentsData?.documentPhotos  ?? {};
+              const template   = config.documentTemplate ?? [];
+              const hasAnswers = Object.keys(answers).length > 0;
+              const hasPhotos  = Object.values(photos).flat().length > 0;
+              if (!hasAnswers && !hasPhotos) {
+                return <p className="text-sm text-gray-400 italic">No documents were collected for this lead.</p>;
+              }
+              return (
+                <>
+                  {hasAnswers && (
+                    <div className="flex flex-col gap-2 mb-3">
+                      {template
+                        .filter((f) => f.type !== 'section_header' && f.type !== 'photo_only')
+                        .sort((a, b) => a.sortOrder - b.sortOrder)
+                        .map((field) => {
+                          const val = answers[field.fieldId];
+                          if (!val) return null;
+                          return (
+                            <div key={field.fieldId}>
+                              <p className="text-xs text-gray-500">{field.label}</p>
+                              <p className="text-sm font-medium text-gray-800">
+                                {field.type === 'yesno'
+                                  ? val === 'yes' ? '✅ Yes' : '❌ No'
+                                  : val}
+                              </p>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  )}
+                  {hasPhotos && (
+                    <div className="grid grid-cols-3 gap-2">
+                      {Object.values(photos).flat().map((url, i) =>
+                        isPdfUrl(url) ? (
+                          <a key={i} href={url} target="_blank"
+                             rel="noopener noreferrer" download
+                             className="flex flex-col items-center justify-center gap-1 rounded-lg border border-red-200 bg-red-50 hover:bg-red-100 p-2 min-h-[72px]">
+                            <span className="text-2xl">📄</span>
+                            <span className="text-[9px] text-red-700 font-medium text-center line-clamp-2">
+                              Document {i + 1}
+                            </span>
+                          </a>
+                        ) : (
+                          <a key={i} href={url} target="_blank"
+                             rel="noopener noreferrer" download>
+                            <img src={url} alt={`Document ${i + 1}`}
+                              className="w-full aspect-square object-cover rounded-lg border border-gray-200 hover:opacity-90 transition-opacity" />
+                          </a>
+                        )
+                      )}
+                    </div>
+                  )}
+                </>
+              );
+            })()}
+          </div>
 
           {/* ── Survey Data (collapsible) ── */}
           <div className="rounded-lg border border-gray-200 bg-gray-50">

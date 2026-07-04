@@ -9,6 +9,7 @@ import { BulkTaskModal }      from '@/components/tasks/BulkTaskModal';
 import { TaskDetailDrawer }   from '@/components/tasks/TaskDetailDrawer';
 import { UpdateTaskDrawer }     from '@/components/tasks/UpdateTaskDrawer';
 import { FieldReviewDrawer }   from '@/components/pipeline/FieldReviewDrawer';
+import { DocumentsWorkDrawer } from '@/components/pipeline/DocumentsWorkDrawer';
 import { exportTasksToExcel } from '@/utils/exportTasksToExcel';
 import { cn }                 from '@/lib/utils';
 import { useArchivedTasks, useTasks, type AdminFilter } from '@/hooks/useTasks';
@@ -29,14 +30,15 @@ const STATUS_META: Record<TaskStatus, { label: string; badge: string; border: st
 const PIPELINE_BADGE: Partial<Record<PipelineStage, { label: string; cls: string }>> = {
   proposal:     { label: '📄 With Proposal Team',     cls: 'bg-purple-100 text-purple-700' },
   field_review: { label: '👁️ Awaiting Your Review',   cls: 'bg-blue-100 text-blue-700'    },
+  documents:    { label: '📎 Upload Documents',       cls: 'bg-teal-100 text-teal-700'    },
   backend:      { label: '⚙️ With Backend Team',      cls: 'bg-orange-100 text-orange-700' },
   completed:    { label: '✅ Converted',               cls: 'bg-green-100 text-green-700'  },
   dropped:      { label: '❌ Dropped',                cls: 'bg-red-100 text-red-600'      },
 };
 
 type Filter = 'all' | TaskStatus | 'follow_up' | 'overdue' | 'archived' | 'dropped' | 'converted' |
-  'pipeline_proposal' | 'pipeline_field_review' | 'pipeline_backend' | 'unassigned' | 'my_tasks' |
-  'fe_review' | 'fe_pipeline' | 'fe_converted' | 'fe_dropped' | 'fe_survey_done';
+  'pipeline_proposal' | 'pipeline_field_review' | 'pipeline_documents' | 'pipeline_backend' | 'unassigned' | 'my_tasks' |
+  'fe_review' | 'fe_documents' | 'fe_pipeline' | 'fe_converted' | 'fe_dropped' | 'fe_survey_done';
 
 const FILTER_TABS: { key: Filter; label: string; adminOnly?: boolean; fieldOnly?: boolean }[] = [
   { key: 'all',         label: 'All'         },
@@ -50,6 +52,7 @@ const FILTER_TABS: { key: Filter; label: string; adminOnly?: boolean; fieldOnly?
   { key: 'archived',       label: 'Archived'    },
   { key: 'fe_survey_done', label: '📋 Survey Submitted', fieldOnly: true },
   { key: 'fe_review',      label: '👁️ Review',           fieldOnly: true },
+  { key: 'fe_documents',   label: '📎 Documents',        fieldOnly: true },
   { key: 'fe_pipeline',    label: '⚙️ Pipeline',          fieldOnly: true },
   { key: 'fe_converted',   label: '✅ Converted',         fieldOnly: true },
   { key: 'fe_dropped',     label: '❌ Dropped',           fieldOnly: true },
@@ -57,6 +60,7 @@ const FILTER_TABS: { key: Filter; label: string; adminOnly?: boolean; fieldOnly?
   { key: 'converted',            label: 'Converted',    adminOnly: true },
   { key: 'pipeline_proposal',     label: '📄 Proposal',     adminOnly: true },
   { key: 'pipeline_field_review', label: '👁️ Field Review', adminOnly: true },
+  { key: 'pipeline_documents',    label: '📎 Documents',    adminOnly: true },
   { key: 'pipeline_backend',      label: '⚙️ Backend',      adminOnly: true },
   { key: 'unassigned',            label: '⚠️ Unassigned',   adminOnly: true },
 ];
@@ -128,8 +132,7 @@ function TaskCard({ task, onClick }: { task: Task; onClick: () => void }) {
           : task.pipelineStage === 'backend'     ? 'border-l-orange-400'
           : task.pipelineStage === 'proposal'    ? 'border-l-purple-400'
           : task.pipelineStage === 'field_review'  ? 'border-l-blue-400'
-          : task.pipelineStage === 'logistics'    ? 'border-l-teal-400'
-          : task.pipelineStage === 'installation' ? 'border-l-green-400'
+          : task.pipelineStage === 'documents'    ? 'border-l-teal-400'
           : border,
       )}
     >
@@ -186,6 +189,7 @@ function TaskCard({ task, onClick }: { task: Task; onClick: () => void }) {
               ⏱ {days} day{days !== 1 ? 's' : ''} in{' '}
               {task.pipelineStage === 'proposal'     ? 'Proposal' :
                task.pipelineStage === 'field_review' ? 'Field Review' :
+               task.pipelineStage === 'documents'    ? 'Documents' :
                task.pipelineStage === 'backend'      ? 'Backend' :
                task.pipelineStage}
             </p>
@@ -298,6 +302,7 @@ export function TasksPage() {
   const [updateTask,       setUpdateTask]       = useState<Task | null>(null);
   const [adminUpdateTask,  setAdminUpdateTask]  = useState<Task | null>(null);
   const [fieldReviewTask,  setFieldReviewTask]  = useState<Task | null>(null);
+  const [documentsTask,    setDocumentsTask]    = useState<Task | null>(null);
 
   useEffect(() => {
     const state = location.state as { openTaskId?: string; filter?: string } | null;
@@ -339,6 +344,7 @@ export function TasksPage() {
     // Pipeline counts come from appConfig denormalized counters (accurate totals)
     c['pipeline_proposal']     = pc?.proposal     ?? 0;
     c['pipeline_field_review'] = pc?.field_review  ?? 0;
+    c['pipeline_documents']    = pc?.documents     ?? 0;
     c['pipeline_backend']      = pc?.backend       ?? 0;
     c['converted']             = pc?.completed     ?? 0;
     c['dropped']               = pc?.dropped       ?? 0;
@@ -346,14 +352,15 @@ export function TasksPage() {
     // FE-specific counts from live tasks array
     c['fe_survey_done'] = tasks.filter((t) =>
       t.status === 'completed' &&
-      (!t.pipelineStage || t.pipelineStage === 'survey') &&
       t.assignedTo === currentUser?.uid && !t.archived
     ).length;
     c['fe_review']    = tasks.filter((t) => t.pipelineStage === 'field_review' && t.assignedTo === currentUser?.uid && !t.archived).length;
+    c['fe_documents'] = tasks.filter((t) => t.pipelineStage === 'documents' && t.assignedTo === currentUser?.uid && !t.archived).length;
     c['fe_pipeline']  = tasks.filter((t) =>
       t.pipelineStage &&
       t.pipelineStage !== 'survey' &&
       t.pipelineStage !== 'field_review' &&
+      t.pipelineStage !== 'documents' &&
       t.pipelineStage !== 'completed' &&
       t.pipelineStage !== 'dropped' &&
       t.assignedTo === currentUser?.uid && !t.archived
@@ -396,6 +403,7 @@ export function TasksPage() {
       if (filter === 'converted')            return t.pipelineStage === 'completed'   && !t.archived;
       if (filter === 'pipeline_proposal')    return t.pipelineStage === 'proposal'    && !t.archived;
       if (filter === 'pipeline_field_review') return t.pipelineStage === 'field_review' && !t.archived;
+      if (filter === 'pipeline_documents')   return t.pipelineStage === 'documents'    && !t.archived;
       if (filter === 'pipeline_backend')     return t.pipelineStage === 'backend'     && !t.archived;
       if (filter === 'unassigned') return !t.archived && (
         (t.pipelineStage === 'proposal' && !t.proposalAssignedTo) ||
@@ -403,11 +411,11 @@ export function TasksPage() {
       );
       if (filter === 'fe_survey_done') return (
         t.status === 'completed' &&
-        (!t.pipelineStage || t.pipelineStage === 'survey') &&
         t.assignedTo === currentUser?.uid && !t.archived
       );
       if (filter === 'fe_review')    return t.pipelineStage === 'field_review' && t.assignedTo === currentUser?.uid && !t.archived;
-      if (filter === 'fe_pipeline')  return !!(t.pipelineStage && t.pipelineStage !== 'survey' && t.pipelineStage !== 'field_review' && t.pipelineStage !== 'completed' && t.pipelineStage !== 'dropped' && t.assignedTo === currentUser?.uid && !t.archived);
+      if (filter === 'fe_documents') return t.pipelineStage === 'documents' && t.assignedTo === currentUser?.uid && !t.archived;
+      if (filter === 'fe_pipeline')  return !!(t.pipelineStage && t.pipelineStage !== 'survey' && t.pipelineStage !== 'field_review' && t.pipelineStage !== 'documents' && t.pipelineStage !== 'completed' && t.pipelineStage !== 'dropped' && t.assignedTo === currentUser?.uid && !t.archived);
       if (filter === 'fe_converted') return t.pipelineStage === 'completed' && t.assignedTo === currentUser?.uid && !t.archived;
       if (filter === 'fe_dropped')   return t.pipelineStage === 'dropped'   && t.assignedTo === currentUser?.uid && !t.archived;
       // my_tasks — already filtered server-side
@@ -445,7 +453,7 @@ export function TasksPage() {
       // Only apply priority sort on 'all' filter and engineer filter
       // (specific pipeline filters already show one stage — no need to sort)
       const singleStageFilters = [
-        'pipeline_proposal', 'pipeline_field_review', 'pipeline_backend',
+        'pipeline_proposal', 'pipeline_field_review', 'pipeline_documents', 'pipeline_backend',
         'converted', 'dropped', 'archived', 'pending', 'in_progress',
         'completed', 'blocked', 'follow_up', 'overdue',
       ];
@@ -459,6 +467,10 @@ export function TasksPage() {
           const status = t.status;
           if (stage === 'backend')                             return 0;
           if (stage === 'field_review')                        return 1;
+          // 'documents' sits between field_review and backend in the pipeline —
+          // use a fractional score so it slots in without renumbering any
+          // other stage's existing priority value.
+          if (stage === 'documents')                           return 1.5;
           if (stage === 'proposal')                            return 2;
           if (stage === 'survey' && status === 'in_progress')  return 3;
           if (stage === 'survey' && status === 'blocked')      return 4;
@@ -494,6 +506,8 @@ export function TasksPage() {
       setDetailTask(task);
     } else if (task.pipelineStage === 'field_review' && currentUser?.role === 'field') {
       setFieldReviewTask(task);
+    } else if (task.pipelineStage === 'documents' && currentUser?.role === 'field') {
+      setDocumentsTask(task);
     } else {
       setUpdateTask(task);
     }
@@ -563,7 +577,7 @@ export function TasksPage() {
         {FILTER_TABS.filter(({ adminOnly, fieldOnly, key }) => {
           if (adminOnly && !isAdmin) return false;
           if (fieldOnly && isAdmin) return false;
-          const statusTabs = ['all','my_tasks','pending','in_progress','completed','blocked','follow_up','overdue','archived','fe_review','fe_pipeline','fe_converted','fe_dropped','fe_survey_done'];
+          const statusTabs = ['all','my_tasks','pending','in_progress','completed','blocked','follow_up','overdue','archived','fe_review','fe_documents','fe_pipeline','fe_converted','fe_dropped','fe_survey_done'];
           return statusTabs.includes(key);
         }).map(({ key, label }) => {
           const count = counts[key as string] ?? 0;
@@ -598,7 +612,7 @@ export function TasksPage() {
       {isAdmin && (
         <div className="flex gap-1 overflow-x-auto pb-1 scrollbar-none mb-3">
           {FILTER_TABS.filter(({ key }) => {
-            const pipelineTabs = ['pipeline_proposal','pipeline_field_review','pipeline_backend','unassigned','converted','dropped'];
+            const pipelineTabs = ['pipeline_proposal','pipeline_field_review','pipeline_documents','pipeline_backend','unassigned','converted','dropped'];
             return pipelineTabs.includes(key);
           }).map(({ key, label }) => {
             const count = counts[key as string] ?? 0;
@@ -720,17 +734,19 @@ export function TasksPage() {
       ) : (
         <div className="flex flex-col gap-2">
           {currentUser?.role === 'field' &&
-           !['fe_review','fe_pipeline','fe_converted','fe_dropped','fe_survey_done'].includes(filter) ? (
+           !['fe_review','fe_documents','fe_pipeline','fe_converted','fe_dropped','fe_survey_done'].includes(filter) ? (
             <>
               {(() => {
                 const reviewTasks       = sorted.filter((t) => t.pipelineStage === 'field_review');
                 const activeSurveyTasks = sorted.filter((t) =>
                   (!t.pipelineStage || t.pipelineStage === 'survey') && t.status !== 'completed'
                 );
+                const documentsTasks    = sorted.filter((t) => t.pipelineStage === 'documents');
                 const inPipelineTasks   = sorted.filter((t) =>
                   t.pipelineStage &&
                   t.pipelineStage !== 'survey' &&
                   t.pipelineStage !== 'field_review' &&
+                  t.pipelineStage !== 'documents' &&
                   t.pipelineStage !== 'completed' &&
                   t.pipelineStage !== 'dropped'
                 );
@@ -750,6 +766,20 @@ export function TasksPage() {
                           <div className="flex-1 h-px bg-blue-200" />
                         </div>
                         {reviewTasks.map((task) => (
+                          <TaskCard key={task.id} task={task} onClick={() => handleCardClick(task)} />
+                        ))}
+                      </div>
+                    )}
+                    {documentsTasks.length > 0 && (
+                      <div className="flex flex-col gap-2">
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 h-px bg-teal-200" />
+                          <span className="text-xs font-semibold text-teal-600 uppercase tracking-wide whitespace-nowrap px-2">
+                            📎 Upload Documents ({documentsTasks.length})
+                          </span>
+                          <div className="flex-1 h-px bg-teal-200" />
+                        </div>
+                        {documentsTasks.map((task) => (
                           <TaskCard key={task.id} task={task} onClick={() => handleCardClick(task)} />
                         ))}
                       </div>
@@ -882,6 +912,13 @@ export function TasksPage() {
       <FieldReviewDrawer
         task={fieldReviewTask}
         onClose={() => setFieldReviewTask(null)}
+        onAcceptedToDocuments={(task) => { setFieldReviewTask(null); setDocumentsTask(task); }}
+      />
+
+      {/* Documents upload drawer */}
+      <DocumentsWorkDrawer
+        task={documentsTask}
+        onClose={() => setDocumentsTask(null)}
       />
     </div>
   );

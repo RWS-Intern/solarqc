@@ -11,6 +11,7 @@ const STAGE_CONFIG: { key: PipelineStage; label: string; icon: string }[] = [
   { key: 'survey',       label: 'Survey',       icon: '📋' },
   { key: 'proposal',     label: 'Proposal',     icon: '📄' },
   { key: 'field_review', label: 'Field Review', icon: '👁️' },
+  { key: 'documents',    label: 'Documents',    icon: '📎' },
   { key: 'backend',      label: 'Backend',      icon: '⚙️' },
   { key: 'completed',    label: 'Completed',    icon: '✅' },
 ];

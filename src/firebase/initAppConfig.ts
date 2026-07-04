@@ -168,6 +168,7 @@ export async function initAppConfig() {
     proposalNumCounter:      0,
     backendNumCounter:       0,
     taskTemplate:            FULL_TEMPLATE,
+    documentTemplate:        [],
     backendChecklistTemplate: [],
     backendCashSteps:         DEFAULT_CASH_STEPS,
     backendLoanSteps:         DEFAULT_LOAN_STEPS,
@@ -175,6 +176,7 @@ export async function initAppConfig() {
       survey:              0,
       proposal:            0,
       field_review:        0,
+      documents:           0,
       backend:             0,
       completed:           0,
       dropped:             0,
@@ -432,6 +434,7 @@ export async function backfillPipelineCounts(): Promise<void> {
       survey:              0,
       proposal:            0,
       field_review:        0,
+      documents:           0,
       backend:             0,
       completed:           0,
       dropped:             0,
@@ -590,6 +593,25 @@ export async function reconcilePipelineCounts(): Promise<void> {
     const hasNegative = Object.values(current).some((v) => v < 0);
     if (hasNegative) {
       console.warn('[reconcile] Negative counts found — running backfill');
+      await backfillPipelineCounts();
+      return;
+    }
+
+    const EXPECTED_PIPELINE_COUNT_KEYS = [
+      'survey',
+      'proposal',
+      'field_review',
+      'documents',
+      'backend',
+      'completed',
+      'dropped',
+      'unassigned_proposal',
+      'unassigned_backend',
+      'total_active',
+    ];
+    const hasMissingKey = EXPECTED_PIPELINE_COUNT_KEYS.some((key) => !(key in current));
+    if (hasMissingKey) {
+      console.warn('[reconcile] Missing pipelineCounts key(s) found — running backfill');
       await backfillPipelineCounts();
     }
   } catch (err) {

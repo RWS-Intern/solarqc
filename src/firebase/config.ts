@@ -1,9 +1,10 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
+import { getAuth, connectAuthEmulator } from 'firebase/auth';
 import {
   initializeFirestore,
   persistentLocalCache,
   persistentMultipleTabManager,
+  connectFirestoreEmulator,
 } from 'firebase/firestore';
 
 export const firebaseConfig = {
@@ -22,3 +23,13 @@ export const db = initializeFirestore(app, {
     tabManager: persistentMultipleTabManager(),
   }),
 });
+
+// ── Local emulator support ──────────────────────────────────────────────
+// Only activates when VITE_USE_EMULATORS=true is present in .env.local.
+// This flag will never be set in the production folder's .env.local,
+// so this block can never execute against real production data.
+if (import.meta.env.VITE_USE_EMULATORS === 'true') {
+  connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
+  connectFirestoreEmulator(db, '127.0.0.1', 8080);
+  console.log('[Firebase] Connected to LOCAL EMULATORS (Auth :9099, Firestore :8080)');
+}

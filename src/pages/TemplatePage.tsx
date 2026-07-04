@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { AlertTriangle, Plus, Trash2, ChevronUp, ChevronDown, Save, Check, X, ChevronRight, Pencil, Route } from 'lucide-react';
+import { AlertTriangle, Plus, Trash2, ChevronUp, ChevronDown, Save, Check, X, ChevronRight, Pencil, Route, FileText } from 'lucide-react';
 import { useAppConfig }       from '@/hooks/useAppConfig';
 import { useTemplateActions } from '@/hooks/useTemplateActions';
 import { _emitToast }         from '@/components/ui/toast';
@@ -559,14 +559,19 @@ function ApplicationJourneyEditor() {
 
 export function TemplatePage() {
   const { config, loading }  = useAppConfig();
-  const { saveTemplate, saveDistricts } = useTemplateActions();
+  const { saveTemplate, saveDocumentTemplate, saveDistricts } = useTemplateActions();
 
-  const [activeTab, setActiveTab] = useState<'survey' | 'backend'>('survey');
+  const [activeTab, setActiveTab] = useState<'survey' | 'documents' | 'backend'>('survey');
 
   const [fields,      setFields]      = useState<FieldDefinition[]>([]);
   const [dirty,       setDirty]       = useState(false);
   const [saving,      setSaving]      = useState(false);
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
+
+  const [docFields,      setDocFields]      = useState<FieldDefinition[]>([]);
+  const [docDirty,       setDocDirty]       = useState(false);
+  const [docSaving,      setDocSaving]      = useState(false);
+  const [docExpandedIdx, setDocExpandedIdx] = useState<number | null>(null);
 
   const [districts,       setDistricts]       = useState<string[]>([]);
   const [newDistrict,     setNewDistrict]      = useState('');
@@ -684,6 +689,85 @@ export function TemplatePage() {
     }
   }
 
+  useEffect(() => {
+    if (!loading && !docDirty) {
+      setDocFields(
+        [...(config.documentTemplate ?? [])].sort((a, b) => a.sortOrder - b.sortOrder)
+      );
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [config.documentTemplate, loading]);
+
+  const handleDocChange = useCallback((index: number, patch: Partial<FieldDefinition>) => {
+    setDocFields((prev) => {
+      const next = [...prev];
+      next[index] = { ...next[index], ...patch };
+      return next;
+    });
+    setDocDirty(true);
+  }, []);
+
+  function handleDocExpand(i: number) {
+    setDocExpandedIdx(i === -1 ? null : i);
+  }
+
+  function handleDocAddField() {
+    setDocFields((prev) => {
+      const newIdx = prev.length;
+      setDocExpandedIdx(newIdx);
+      return [...prev, makeEmptyField(newIdx)];
+    });
+    setDocDirty(true);
+  }
+
+  function handleDocDelete(index: number) {
+    setDocFields((prev) => prev.filter((_, i) => i !== index));
+    setDocExpandedIdx(null);
+    setDocDirty(true);
+  }
+
+  function handleDocMoveUp(index: number) {
+    if (index === 0) return;
+    setDocFields((prev) => {
+      const next = [...prev];
+      [next[index - 1], next[index]] = [next[index], next[index - 1]];
+      return next;
+    });
+    if (docExpandedIdx === index)          setDocExpandedIdx(index - 1);
+    else if (docExpandedIdx === index - 1) setDocExpandedIdx(index);
+    setDocDirty(true);
+  }
+
+  function handleDocMoveDown(index: number) {
+    setDocFields((prev) => {
+      if (index >= prev.length - 1) return prev;
+      const next = [...prev];
+      [next[index], next[index + 1]] = [next[index + 1], next[index]];
+      return next;
+    });
+    if (docExpandedIdx === index)          setDocExpandedIdx(index + 1);
+    else if (docExpandedIdx === index + 1) setDocExpandedIdx(index);
+    setDocDirty(true);
+  }
+
+  async function handleSaveDocuments() {
+    setDocExpandedIdx(null);
+    const normalised = docFields.map((f, i) => ({ ...f, sortOrder: i }));
+    setDocSaving(true);
+    try {
+      await saveDocumentTemplate(normalised);
+      setDocDirty(false);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '';
+      if (msg.includes('Config not found')) {
+        _emitToast('Template config not found. Please refresh.', 'error');
+      }
+      // other errors already toasted by saveDocumentTemplate
+    } finally {
+      setDocSaving(false);
+    }
+  }
+
   if (loading) {
     return (
       <div className="w-full max-w-2xl mx-auto">
@@ -716,6 +800,19 @@ export function TemplatePage() {
         >
           <AlertTriangle className="h-4 w-4" />
           Survey Checklist
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('documents')}
+          className={cn(
+            'flex-1 flex items-center justify-center gap-1.5 rounded-lg py-2 text-sm font-medium transition-colors',
+            activeTab === 'documents'
+              ? 'bg-white text-gray-900 shadow-sm'
+              : 'text-gray-500 hover:text-gray-700',
+          )}
+        >
+          <FileText className="h-4 w-4" />
+          Documents
         </button>
         <button
           type="button"
@@ -789,6 +886,71 @@ export function TemplatePage() {
           <Button
             variant="outline"
             onClick={handleAddField}
+            className="w-full flex items-center gap-2 border-dashed"
+          >
+            <Plus className="h-4 w-4" />
+            Add Field
+          </Button>
+        </>
+      )}
+
+      {/* Documents tab */}
+      {activeTab === 'documents' && (
+        <>
+          {/* Header row */}
+          <div className="flex flex-col sm:flex-row sm:items-start gap-3 mb-4">
+            <p className="text-sm text-gray-500">
+              {docFields.length} field{docFields.length !== 1 ? 's' : ''} — collected during the Documents stage
+            </p>
+            <Button
+              onClick={handleSaveDocuments}
+              disabled={!docDirty || docSaving}
+              className="w-full sm:w-auto sm:ml-auto flex items-center justify-center gap-1.5 h-11"
+            >
+              {docSaving ? (
+                <><span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />Saving…</>
+              ) : (
+                <><Save className="h-4 w-4" />Save</>
+              )}
+            </Button>
+          </div>
+
+          {/* Info banner */}
+          <div className="flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 mb-5 text-sm text-blue-800">
+            <FileText className="h-4 w-4 shrink-0 mt-0.5 text-blue-500" />
+            <span>
+              This is the Document Collection template used during the Documents pipeline stage. Saving does not modify tasks already in progress.
+            </span>
+          </div>
+
+          {/* Field list */}
+          {docFields.length === 0 ? (
+            <div className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-gray-200 bg-white py-12 text-center text-sm text-gray-400 mb-4">
+              <p className="mb-1 font-medium">No fields yet</p>
+              <p>Add the first field below to start building the Document Collection template.</p>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2 mb-4">
+              {docFields.map((field, index) => (
+                <FieldRow
+                  key={field.fieldId}
+                  field={field}
+                  index={index}
+                  total={docFields.length}
+                  expanded={docExpandedIdx === index}
+                  onExpand={handleDocExpand}
+                  onChange={handleDocChange}
+                  onDelete={handleDocDelete}
+                  onMoveUp={handleDocMoveUp}
+                  onMoveDown={handleDocMoveDown}
+                />
+              ))}
+            </div>
+          )}
+
+          <Button
+            variant="outline"
+            onClick={handleDocAddField}
             className="w-full flex items-center gap-2 border-dashed"
           >
             <Plus className="h-4 w-4" />

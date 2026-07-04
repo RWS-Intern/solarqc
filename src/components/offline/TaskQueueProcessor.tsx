@@ -124,6 +124,20 @@ export function TaskQueueProcessor() {
     const finalCompletionPhotos = await Promise.all(
       (item.payload.completionPhotos ?? []).map(async (url, i) => {
         try {
+          if (url.startsWith('data:')) {
+            const isPdf         = url.startsWith('data:application/pdf');
+            const limitBytes    = isPdf ? 20 * 1024 * 1024 : 10 * 1024 * 1024;
+            const base64Data    = url.split(',')[1] ?? '';
+            const estimatedBytes = base64Data.length * 0.75;
+            if (estimatedBytes > limitBytes) {
+              console.warn(
+                `[Queue] Skipping oversized completion photo for task ${item.taskId} ` +
+                `(index ${i}): estimated ${(estimatedBytes / (1024 * 1024)).toFixed(1)}MB ` +
+                `exceeds the ${isPdf ? '20' : '10'}MB limit. Upload not attempted.`
+              );
+              return url;
+            }
+          }
           return await uploadIfBase64(url, item.taskNum, 'completion', i, undefined, engineerCode, engineerName);
         } catch {
           return url;

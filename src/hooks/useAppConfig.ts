@@ -30,6 +30,7 @@ export function useAppConfig() {
             taskNumCounter:           data['taskNumCounter']            ?? 0,
             engineerNumCounter:       data['engineerNumCounter']        ?? 0,
             taskTemplate:             (data['taskTemplate']             ?? []) as FieldDefinition[],
+            documentTemplate:         (data['documentTemplate']         ?? []) as FieldDefinition[],
             backendChecklistTemplate: (data['backendChecklistTemplate'] ?? []) as FieldDefinition[],
             backendCashSteps:         (data['backendCashSteps']         ?? []) as JourneyStepDefinition[],
             backendLoanSteps:         (data['backendLoanSteps']         ?? []) as JourneyStepDefinition[],

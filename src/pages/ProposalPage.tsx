@@ -80,6 +80,7 @@ function ProposalTaskCard({ task, onClick }: { task: Task; onClick: () => void }
 
 const HISTORY_STAGE_LABELS: Partial<Record<PipelineStage, { label: string; icon: string; color: string }>> = {
   field_review: { label: 'In Review',    icon: '👁️', color: 'text-blue-600   bg-blue-50   border-blue-200'   },
+  documents:    { label: 'Documents',    icon: '📎', color: 'text-teal-600   bg-teal-50   border-teal-200'   },
   backend:      { label: 'Backend',      icon: '⚙️', color: 'text-orange-600 bg-orange-50 border-orange-200' },
   completed:    { label: 'Converted',    icon: '✅', color: 'text-green-700  bg-green-100 border-green-200'  },
   dropped:      { label: 'Dropped',      icon: '❌', color: 'text-red-600    bg-red-50    border-red-200'    },
@@ -133,6 +134,7 @@ const DETAIL_STAGE_LABELS: Partial<Record<string, { label: string; cls: string }
   survey:       { label: 'Survey',        cls: 'bg-gray-100    text-gray-600'   },
   proposal:     { label: 'Proposal',      cls: 'bg-purple-100  text-purple-700' },
   field_review: { label: 'Field Review',  cls: 'bg-blue-100    text-blue-700'   },
+  documents:    { label: 'Documents',     cls: 'bg-teal-100    text-teal-700'   },
   backend:      { label: 'Backend',       cls: 'bg-orange-100  text-orange-700' },
   logistics:    { label: 'Logistics',     cls: 'bg-teal-100    text-teal-700'   },
   installation: { label: 'Installation',  cls: 'bg-green-100   text-green-700'  },
@@ -142,7 +144,7 @@ const DETAIL_STAGE_LABELS: Partial<Record<string, { label: string; cls: string }
 
 const STAGE_NAME_MAP: Record<string, string> = {
   survey: 'Survey', proposal: 'Proposal', field_review: 'Field Review',
-  backend: 'Backend', logistics: 'Logistics', installation: 'Installation',
+  documents: 'Documents', backend: 'Backend', logistics: 'Logistics', installation: 'Installation',
   completed: 'Completed', dropped: 'Dropped',
 };
 
@@ -319,7 +321,7 @@ export function ProposalPage() {
   const historyFilterCounts = useMemo(() => ({
     all:          proposalHistoryTasks.length,
     in_review:    proposalHistoryTasks.filter((t) =>
-                    ['field_review', 'backend'].includes(t.pipelineStage ?? '')
+                    ['field_review', 'documents', 'backend'].includes(t.pipelineStage ?? '')
                   ).length,
     completed:    proposalHistoryTasks.filter((t) => t.pipelineStage === 'completed').length,
     dropped:      proposalHistoryTasks.filter((t) => t.pipelineStage === 'dropped').length,
@@ -340,7 +342,7 @@ export function ProposalPage() {
       t.title.toLowerCase().includes(historySearch.toLowerCase()) ||
       t.taskNum.toLowerCase().includes(historySearch.toLowerCase());
     if (!matchesSearch) return false;
-    if (historyFilter === 'in_review')    return ['field_review', 'backend'].includes(t.pipelineStage ?? '');
+    if (historyFilter === 'in_review')    return ['field_review', 'documents', 'backend'].includes(t.pipelineStage ?? '');
     if (historyFilter === 'completed')    return t.pipelineStage === 'completed';
     if (historyFilter === 'dropped')      return t.pipelineStage === 'dropped';
     if (historyFilter === 'had_revision') return (t.proposalRevisionCount ?? 0) > 0;

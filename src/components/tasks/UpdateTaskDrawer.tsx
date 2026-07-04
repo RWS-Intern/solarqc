@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { MapPin, Loader2 } from 'lucide-react';
 import { useAuthStore }        from '@/store/authStore';
 import { useTaskSubmit }       from '@/hooks/useTaskSubmit';
+import { useDrawerBackButton } from '@/hooks/useDrawerBackButton';
 import { enqueueTaskUpdate }   from '@/hooks/useTaskOfflineQueue';
 import { _emitToast }          from '@/components/ui/toast';
 import {
@@ -108,6 +109,8 @@ export function UpdateTaskDrawer({ task, onClose }: UpdateTaskDrawerProps) {
     setShowErrors(false);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [task?.id, task]);
+
+  useDrawerBackButton(!!task, () => { if (!submitting) onClose(); });
 
   if (!task) return null;
 
@@ -320,6 +323,7 @@ export function UpdateTaskDrawer({ task, onClose }: UpdateTaskDrawerProps) {
             const stageMessages: Partial<Record<string, { icon: string; title: string; body: string; border: string; bg: string; titleColor: string; bodyColor: string }>> = {
               proposal:     { icon: '📄', title: 'With Proposal Team',     body: 'Proposal document is being prepared.',           border: 'border-purple-200', bg: 'bg-purple-50', titleColor: 'text-purple-800', bodyColor: 'text-purple-600' },
               field_review: { icon: '👁️', title: 'Awaiting Your Review',   body: 'Proposal is ready. Check your review tasks.',    border: 'border-blue-200',   bg: 'bg-blue-50',   titleColor: 'text-blue-800',   bodyColor: 'text-blue-600'   },
+              documents:    { icon: '📎', title: 'Awaiting Documents',     body: 'Field engineer is uploading required documents.', border: 'border-teal-200',   bg: 'bg-teal-50',   titleColor: 'text-teal-800',   bodyColor: 'text-teal-600'   },
               backend:      { icon: '⚙️', title: 'With Backend Team',      body: (() => { const steps = task_.applicationJourneySteps ?? []; if (steps.length === 0) return 'Backend processing is in progress.'; const done = steps.filter((s) => s.status === 'done').length; if (done === steps.length) return '✅ All steps completed. Awaiting next stage.'; const currentStep = steps[task_.currentStepIndex ?? 0]; return `Step ${done + 1} of ${steps.length}: ${currentStep?.label ?? ''}`; })(),             border: 'border-orange-200', bg: 'bg-orange-50', titleColor: 'text-orange-800', bodyColor: 'text-orange-600' },
 
               completed:    { icon: '✅', title: 'Lead Converted',          body: 'This lead has been successfully converted. All steps are complete.', border: 'border-green-300', bg: 'bg-green-50', titleColor: 'text-green-800', bodyColor: 'text-green-600' },

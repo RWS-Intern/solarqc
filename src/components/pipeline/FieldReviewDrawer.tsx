@@ -6,7 +6,9 @@ import {
 import { Button }             from '@/components/ui/button';
 import { Textarea }           from '@/components/ui/textarea';
 import { cn }                 from '@/lib/utils';
-import { usePipelineActions } from '@/hooks/usePipelineActions';
+import { usePipelineActions }  from '@/hooks/usePipelineActions';
+import { useAppConfig }        from '@/hooks/useAppConfig';
+import { useDrawerBackButton } from '@/hooks/useDrawerBackButton';
 import { doc, getDoc }        from 'firebase/firestore';
 import { db }                 from '@/firebase/config';
 import type { Task, ProposalStageData } from '@/types';
@@ -14,6 +16,7 @@ import type { Task, ProposalStageData } from '@/types';
 interface FieldReviewDrawerProps {
   task:    Task | null;
   onClose: () => void;
+  onAcceptedToDocuments?: (task: Task) => void;
 }
 
 type DecisionType = 'accepted' | 'rejected' | 'revision' | null;
@@ -23,8 +26,10 @@ function formatDate(d: Date | null | undefined): string {
   return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-export function FieldReviewDrawer({ task, onClose }: FieldReviewDrawerProps) {
+export function FieldReviewDrawer({ task, onClose, onAcceptedToDocuments }: FieldReviewDrawerProps) {
   const { submitFieldReviewDecision } = usePipelineActions();
+  const { config }                    = useAppConfig();
+  const hasDocumentFields = (config.documentTemplate?.length ?? 0) > 0;
 
   const [proposalData,    setProposalData]    = useState<ProposalStageData | null>(null);
   const [loadingProposal, setLoadingProposal] = useState(false);
@@ -57,7 +62,7 @@ export function FieldReviewDrawer({ task, onClose }: FieldReviewDrawerProps) {
     if (decision === 'revision' && !revisionNote.trim()) return;
     setSubmitting(true);
     try {
-      await submitFieldReviewDecision(
+      const targetStage = await submitFieldReviewDecision(
         task.id,
         decision,
         revisionNote.trim(),
@@ -69,7 +74,11 @@ export function FieldReviewDrawer({ task, onClose }: FieldReviewDrawerProps) {
           submittedAt:  task.submittedAt,
         },
       );
-      onClose();
+      if (decision === 'accepted' && targetStage === 'documents' && onAcceptedToDocuments) {
+        onAcceptedToDocuments(task);
+      } else {
+        onClose();
+      }
     } catch {
       // error toast handled in usePipelineActions
     } finally {
@@ -81,8 +90,14 @@ export function FieldReviewDrawer({ task, onClose }: FieldReviewDrawerProps) {
   const isOpen = !!task;
   const proposalAvailable = !!proposalData?.documentUrl;
 
+  function guardedClose() {
+    if (!submitting) onClose();
+  }
+
+  useDrawerBackButton(isOpen, guardedClose);
+
   return (
-    <Sheet open={isOpen} onOpenChange={(open) => { if (!open) onClose(); }}>
+    <Sheet open={isOpen} onOpenChange={(open) => { if (!open) guardedClose(); }}>
       <SheetContent
         side="right"
         className="w-full sm:max-w-lg overflow-y-auto flex flex-col gap-0 p-0"
@@ -153,7 +168,9 @@ export function FieldReviewDrawer({ task, onClose }: FieldReviewDrawerProps) {
                 <CheckCircle2 className="h-5 w-5 text-green-600 shrink-0" />
                 <div>
                   <p className="font-semibold text-gray-800">Accept Proposal</p>
-                  <p className="text-xs text-gray-500">Consumer agreed — move to Backend</p>
+                  <p className="text-xs text-gray-500">
+                    Consumer agreed — move to {hasDocumentFields ? 'Documents' : 'Backend'}
+                  </p>
                 </div>
               </button>
 
