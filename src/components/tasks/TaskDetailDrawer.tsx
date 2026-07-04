@@ -20,7 +20,9 @@ import {
 import { Button } from '@/components/ui/button';
 import { cn }     from '@/lib/utils';
 import { PipelineTracker } from '@/components/pipeline/PipelineTracker';
-import type { Task, TaskStatus, TaskUpdate, DocumentsStageData } from '@/types';
+import { getProposalDocuments } from '@/utils/proposalDocuments';
+import { ProposalDocumentList } from '@/components/pipeline/ProposalDocumentList';
+import type { Task, TaskStatus, TaskUpdate, DocumentsStageData, ProposalStageData } from '@/types';
 
 // ─── Inline Title Edit ────────────────────────────────────────────────────────
 
@@ -641,7 +643,7 @@ export function TaskDetailDrawer({ task, onClose, onUpdate, onAdminUpdate }: Tas
   const [archiving,   setArchiving]   = useState(false);
   const [unarchiving, setUnarchiving] = useState(false);
   const [showAssignPicker, setShowAssignPicker] = useState(false);
-  const [proposalDoc, setProposalDoc] = useState<{ url: string; name: string } | null>(null);
+  const [proposalDoc, setProposalDoc] = useState<ProposalStageData | null>(null);
   const [documentsData, setDocumentsData] = useState<DocumentsStageData | null>(null);
 
   const isAdmin = currentUser?.role === 'admin';
@@ -654,8 +656,7 @@ export function TaskDetailDrawer({ task, onClose, onUpdate, onAdminUpdate }: Tas
       import('@/firebase/config').then(({ db }) => {
         getDoc(doc(db, 'tasks', task.id, 'stages', 'proposal')).then((snap) => {
           if (snap.exists()) {
-            const d = snap.data();
-            setProposalDoc({ url: d['documentUrl'] as string, name: d['documentName'] as string });
+            setProposalDoc(snap.data() as ProposalStageData);
           } else {
             setProposalDoc(null);
           }
@@ -1131,22 +1132,12 @@ export function TaskDetailDrawer({ task, onClose, onUpdate, onAdminUpdate }: Tas
           )}
 
           {/* Proposal document (admin, any stage past proposal) */}
-          {proposalDoc && (
+          {getProposalDocuments(proposalDoc).length > 0 && (
             <div className="flex flex-col gap-2">
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
                 Proposal Document
               </p>
-              <a
-                href={proposalDoc.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                download
-                className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 hover:bg-blue-100 px-3 py-2.5 text-sm font-medium text-blue-700 transition-colors"
-              >
-                <span>📄</span>
-                <span className="truncate">{proposalDoc.name}</span>
-                <span className="ml-auto text-xs text-blue-400 shrink-0">Download</span>
-              </a>
+              <ProposalDocumentList documents={getProposalDocuments(proposalDoc)} />
             </div>
           )}
 

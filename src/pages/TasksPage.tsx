@@ -195,7 +195,7 @@ function TaskCard({ task, onClick }: { task: Task; onClick: () => void }) {
             </p>
           );
         })()}
-        {task.dueDate && (
+        {task.dueDate && (!task.pipelineStage || task.pipelineStage === 'survey') && task.status !== 'completed' && (
           <p className="text-xs text-gray-400 mt-0.5">Due {formatDate(task.dueDate)}</p>
         )}
         {task.followUpDate && (

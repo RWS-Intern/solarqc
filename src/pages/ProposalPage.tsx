@@ -6,7 +6,9 @@ import { useTaskStore }       from '@/store/taskStore';
 import { useProposalTasks, useLoadMoreProposalHistory } from '@/hooks/useProposalTasks';
 import { useAuthStore }       from '@/store/authStore';
 import { ProposalWorkDrawer } from '@/components/pipeline/ProposalWorkDrawer';
-import type { Task, PipelineStage, StageHistoryEntry } from '@/types';
+import { getProposalDocuments } from '@/utils/proposalDocuments';
+import { ProposalDocumentList } from '@/components/pipeline/ProposalDocumentList';
+import type { Task, PipelineStage, StageHistoryEntry, ProposalStageData } from '@/types';
 import { doc, getDoc } from 'firebase/firestore';
 import { db }          from '@/firebase/config';
 
@@ -149,17 +151,14 @@ const STAGE_NAME_MAP: Record<string, string> = {
 };
 
 function HistoryDetailContent({ task, onClose }: { task: Task | null; onClose: () => void }) {
-  const [proposalDoc, setProposalDoc] = useState<{ url: string; name: string } | null>(null);
+  const [proposalDoc, setProposalDoc] = useState<ProposalStageData | null>(null);
 
   useEffect(() => {
     if (!task) { setProposalDoc(null); return; }
     getDoc(doc(db, 'tasks', task.id, 'stages', 'proposal'))
       .then((snap) => {
         if (snap.exists()) {
-          setProposalDoc({
-            url:  snap.data()['documentUrl'] as string,
-            name: snap.data()['documentName'] as string,
-          });
+          setProposalDoc(snap.data() as ProposalStageData);
         } else {
           setProposalDoc(null);
         }
@@ -225,18 +224,10 @@ function HistoryDetailContent({ task, onClose }: { task: Task | null; onClose: (
         </div>
 
         {/* Proposal document */}
-        {proposalDoc && (
+        {getProposalDocuments(proposalDoc).length > 0 && (
           <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3">
             <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide mb-2">Proposal Document</p>
-            <a
-              href={proposalDoc.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              download
-              className="inline-flex items-center gap-2 text-sm font-medium text-blue-700 hover:underline"
-            >
-              📄 {proposalDoc.name}
-            </a>
+            <ProposalDocumentList documents={getProposalDocuments(proposalDoc)} />
           </div>
         )}
 

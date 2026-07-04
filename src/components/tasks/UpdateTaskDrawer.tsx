@@ -61,12 +61,19 @@ export function UpdateTaskDrawer({ task, onClose }: UpdateTaskDrawerProps) {
   // real-time updates from overwriting the engineer's local photo changes.
   const initialisedForTaskId = useRef<string | null>(null);
 
+  // GPS capture — tracks an in-flight watchPosition call so it can be
+  // stopped early (accurate reading found), on timeout, or if the drawer
+  // closes/unmounts mid-capture.
+  const gpsWatchId       = useRef<number | null>(null);
+  const gpsTimeoutId     = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const gpsBestReading   = useRef<{ lat: number; lng: number; accuracy: number } | null>(null);
+
   // ── Form state ──────────────────────────────────────────────────────────────
   const [status,           setStatus]           = useState<TaskStatus>('in_progress');
   const [blockedReason,    setBlockedReason]    = useState('');
   const [fieldAnswers,     setFieldAnswers]     = useState<Record<string, { value: string; type: FieldType }>>({});
   const [fieldPhotos,      setFieldPhotos]      = useState<Record<string, string[]>>({});
-  const [location,         setLocation]         = useState<{ lat: number; lng: number } | null>(null);
+  const [location,         setLocation]         = useState<{ lat: number; lng: number; accuracy?: number } | null>(null);
   const [followUpDate,     setFollowUpDate]     = useState<string>('');
   const [gpsLoading,       setGpsLoading]       = useState(false);
   const [submitting,       setSubmitting]       = useState(false);
@@ -78,6 +85,8 @@ export function UpdateTaskDrawer({ task, onClose }: UpdateTaskDrawerProps) {
   useEffect(() => {
     if (!task) {
       initialisedForTaskId.current = null;
+      stopGpsWatch();
+      setGpsLoading(false);
       return;
     }
     if (initialisedForTaskId.current === task.id) return;
@@ -111,6 +120,12 @@ export function UpdateTaskDrawer({ task, onClose }: UpdateTaskDrawerProps) {
   }, [task?.id, task]);
 
   useDrawerBackButton(!!task, () => { if (!submitting) onClose(); });
+
+  // Defensive backstop for a genuine component unmount while a GPS watch
+  // is still active (e.g. navigating away from this page mid-capture).
+  useEffect(() => {
+    return () => stopGpsWatch();
+  }, []);
 
   if (!task) return null;
 
@@ -171,23 +186,64 @@ export function UpdateTaskDrawer({ task, onClose }: UpdateTaskDrawerProps) {
     setFieldPhotos((prev) => ({ ...prev, [fieldId]: urls }));
   }
 
+  function stopGpsWatch() {
+    if (gpsWatchId.current !== null) {
+      navigator.geolocation.clearWatch(gpsWatchId.current);
+      gpsWatchId.current = null;
+    }
+    if (gpsTimeoutId.current !== null) {
+      clearTimeout(gpsTimeoutId.current);
+      gpsTimeoutId.current = null;
+    }
+  }
+
   function handleCaptureGps() {
+    if (gpsLoading) return;
     if (!navigator.geolocation) {
       _emitToast('Geolocation is not supported by your browser.', 'error');
       return;
     }
     setGpsLoading(true);
-    navigator.geolocation.getCurrentPosition(
+    gpsBestReading.current = null;
+
+    const finishWithBestReading = () => {
+      stopGpsWatch();
+      setGpsLoading(false);
+      if (gpsBestReading.current) {
+        setLocation(gpsBestReading.current);
+      } else {
+        _emitToast('Could not get location. Try again.', 'error');
+      }
+    };
+
+    gpsWatchId.current = navigator.geolocation.watchPosition(
       (pos) => {
-        setLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-        setGpsLoading(false);
+        const reading = {
+          lat:      pos.coords.latitude,
+          lng:      pos.coords.longitude,
+          accuracy: pos.coords.accuracy,
+        };
+        if (!gpsBestReading.current || reading.accuracy < gpsBestReading.current.accuracy) {
+          gpsBestReading.current = reading;
+        }
+        if (reading.accuracy < 30) {
+          finishWithBestReading();
+        }
       },
       () => {
-        _emitToast('Could not get location. Try again.', 'error');
-        setGpsLoading(false);
+        if (gpsBestReading.current) {
+          // A usable reading already arrived — keep it rather than discarding on a later error.
+          finishWithBestReading();
+        } else {
+          stopGpsWatch();
+          setGpsLoading(false);
+          _emitToast('Could not get location. Try again.', 'error');
+        }
       },
-      { timeout: 15000, enableHighAccuracy: true },
+      { enableHighAccuracy: true },
     );
+
+    gpsTimeoutId.current = setTimeout(finishWithBestReading, 8000);
   }
 
   async function handleSubmit() {
@@ -318,6 +374,14 @@ export function UpdateTaskDrawer({ task, onClose }: UpdateTaskDrawerProps) {
         {/* ── Scrollable body ── */}
         <div className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-5">
 
+          {/* Description */}
+          {task_.description && (
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Description</p>
+              <p className="text-sm text-gray-700 whitespace-pre-wrap">{task_.description}</p>
+            </div>
+          )}
+
           {/* Pipeline read-only banner */}
           {isReadOnly && (() => {
             const stageMessages: Partial<Record<string, { icon: string; title: string; body: string; border: string; bg: string; titleColor: string; bodyColor: string }>> = {
@@ -402,9 +466,16 @@ export function UpdateTaskDrawer({ task, onClose }: UpdateTaskDrawerProps) {
               {location ? (
                 <div className="flex items-center gap-2 rounded-xl border border-green-200 bg-green-50 px-3 py-2.5">
                   <MapPin className="h-4 w-4 text-green-600 shrink-0" />
-                  <span className="text-sm font-mono text-gray-700 flex-1">
-                    {location.lat.toFixed(5)}, {location.lng.toFixed(5)}
-                  </span>
+                  <div className="flex-1 min-w-0">
+                    <span className="text-sm font-mono text-gray-700 block">
+                      {location.lat.toFixed(5)}, {location.lng.toFixed(5)}
+                    </span>
+                    {location.accuracy !== undefined && (
+                      <span className="text-xs text-gray-500">
+                        Location captured (±{Math.round(location.accuracy)}m)
+                      </span>
+                    )}
+                  </div>
                   <button
                     type="button"
                     onClick={handleCaptureGps}

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Download, CheckCircle2, XCircle, RefreshCw } from 'lucide-react';
+import { CheckCircle2, XCircle, RefreshCw } from 'lucide-react';
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle,
 } from '@/components/ui/sheet';
@@ -11,6 +11,8 @@ import { useAppConfig }        from '@/hooks/useAppConfig';
 import { useDrawerBackButton } from '@/hooks/useDrawerBackButton';
 import { doc, getDoc }        from 'firebase/firestore';
 import { db }                 from '@/firebase/config';
+import { getProposalDocuments } from '@/utils/proposalDocuments';
+import { ProposalDocumentList } from '@/components/pipeline/ProposalDocumentList';
 import type { Task, ProposalStageData } from '@/types';
 
 interface FieldReviewDrawerProps {
@@ -88,7 +90,7 @@ export function FieldReviewDrawer({ task, onClose, onAcceptedToDocuments }: Fiel
   }
 
   const isOpen = !!task;
-  const proposalAvailable = !!proposalData?.documentUrl;
+  const proposalAvailable = getProposalDocuments(proposalData).length > 0;
 
   function guardedClose() {
     if (!submitting) onClose();
@@ -116,6 +118,14 @@ export function FieldReviewDrawer({ task, onClose, onAcceptedToDocuments }: Fiel
 
         <div className="flex flex-col gap-5 px-5 py-5">
 
+          {/* Description */}
+          {task?.description && (
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Description</p>
+              <p className="text-sm text-gray-700 whitespace-pre-wrap">{task.description}</p>
+            </div>
+          )}
+
           {/* Proposal document */}
           <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
@@ -125,16 +135,7 @@ export function FieldReviewDrawer({ task, onClose, onAcceptedToDocuments }: Fiel
               <div className="h-8 animate-pulse rounded bg-gray-200" />
             ) : proposalAvailable ? (
               <div className="flex flex-col gap-2">
-                <a
-                  href={proposalData!.documentUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  download
-                  className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 hover:bg-blue-100 px-3 py-2 text-sm font-medium text-blue-700 transition-colors"
-                >
-                  <Download className="h-4 w-4 shrink-0" />
-                  <span className="truncate">{proposalData!.documentName}</span>
-                </a>
+                <ProposalDocumentList documents={getProposalDocuments(proposalData)} />
                 {(task?.proposalRevisionCount ?? 0) > 0 && (
                   <p className="text-xs text-orange-600">
                     Revision {task?.proposalRevisionCount} — updated proposal

@@ -12,8 +12,10 @@ import { useAuthStore }       from '@/store/authStore';
 import { useToast }           from '@/components/ui/toast';
 import { doc, getDoc }        from 'firebase/firestore';
 import { db }                 from '@/firebase/config';
+import { getProposalDocuments } from '@/utils/proposalDocuments';
+import { ProposalDocumentList } from '@/components/pipeline/ProposalDocumentList';
 import type {
-  Task, JourneyStepAnswer, SurveyStageData, DocumentsStageData,
+  Task, JourneyStepAnswer, SurveyStageData, DocumentsStageData, ProposalStageData,
 } from '@/types';
 
 interface BackendWorkDrawerProps {
@@ -35,7 +37,7 @@ export function BackendWorkDrawer({ task, onClose }: BackendWorkDrawerProps) {
 
   // Survey data
   const [surveyData,      setSurveyData]      = useState<SurveyStageData | null>(null);
-  const [proposalDoc,     setProposalDoc]     = useState<{ url: string; name: string } | null>(null);
+  const [proposalDoc,     setProposalDoc]     = useState<ProposalStageData | null>(null);
   const [documentsData,   setDocumentsData]   = useState<DocumentsStageData | null>(null);
   const [showSurvey,      setShowSurvey]      = useState(false);
 
@@ -83,10 +85,7 @@ export function BackendWorkDrawer({ task, onClose }: BackendWorkDrawerProps) {
         setSurveyData(surveySnap.data() as SurveyStageData);
       }
       if (proposalSnap.exists()) {
-        setProposalDoc({
-          url:  proposalSnap.data()['documentUrl']  as string,
-          name: proposalSnap.data()['documentName'] as string,
-        });
+        setProposalDoc(proposalSnap.data() as ProposalStageData);
       }
       if (documentsSnap.exists()) {
         setDocumentsData(documentsSnap.data() as DocumentsStageData);
@@ -346,6 +345,14 @@ export function BackendWorkDrawer({ task, onClose }: BackendWorkDrawerProps) {
 
         <div className="flex flex-col gap-4 px-5 py-5">
 
+          {/* Description */}
+          {task?.description && (
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Description</p>
+              <p className="text-sm text-gray-700 whitespace-pre-wrap">{task.description}</p>
+            </div>
+          )}
+
           {/* ── Proposal Document + Survey Data ── */}
           {loadingStageData ? (
             <div className="flex items-center justify-center py-8">
@@ -354,20 +361,12 @@ export function BackendWorkDrawer({ task, onClose }: BackendWorkDrawerProps) {
             </div>
           ) : (
             <>
-          {proposalDoc && (
+          {getProposalDocuments(proposalDoc).length > 0 && (
             <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3">
               <p className="text-xs font-semibold text-blue-600 uppercase tracking-wide mb-2">
                 Proposal Document
               </p>
-              <a
-                href={proposalDoc.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                download
-                className="inline-flex items-center gap-2 text-sm font-medium text-blue-700 hover:underline"
-              >
-                📄 {proposalDoc.name}
-              </a>
+              <ProposalDocumentList documents={getProposalDocuments(proposalDoc)} />
             </div>
           )}
 

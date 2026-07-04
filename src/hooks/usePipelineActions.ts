@@ -7,6 +7,7 @@ import { db }           from '@/firebase/config';
 import { useAuthStore } from '@/store/authStore';
 import { useToast }     from '@/components/ui/toast';
 import { assignLeastLoaded } from '@/utils/findLeastLoadedUser';
+import { getProposalDocuments } from '@/utils/proposalDocuments';
 import type { Task, PipelineStage, ProposalStageData, JourneyStepDefinition, JourneyStepAnswer } from '@/types';
 
 function cleanStep(step: JourneyStepAnswer): Record<string, unknown> {
@@ -32,9 +33,8 @@ export function usePipelineActions() {
 
   // ── Submit Proposal (proposal → field_review) ──────────────────
   async function submitProposal(
-    taskId:       string,
-    documentUrl:  string,
-    documentName: string,
+    taskId:    string,
+    documents: { url: string; name: string }[],
   ): Promise<void> {
     if (!currentUser) throw new Error('Not authenticated');
 
@@ -48,23 +48,30 @@ export function usePipelineActions() {
 
       if (existingSnap.exists()) {
         const existing = existingSnap.data() as ProposalStageData;
-        // Move current proposal to revisions before overwriting
-        if (existing.documentUrl) {
+        const existingDocuments = getProposalDocuments(existing);
+        // Move current proposal to revisions before overwriting — works whether
+        // the existing stage doc is old-shape (documentUrl only) or new-shape
+        // (documents array), since getProposalDocuments() normalizes both.
+        if (existingDocuments.length > 0) {
           revisions.push(...(existing.revisions ?? []), {
-            documentUrl:    existing.documentUrl,
-            documentName:   existing.documentName ?? '',
+            documentUrl:    existingDocuments[0].url,
+            documentName:   existingDocuments[0].name,
             uploadedAt:     (existing.uploadedAt as unknown as { toDate?: () => Date })?.toDate?.() ?? new Date(),
             uploadedBy:     existing.uploadedBy ?? '',
             uploadedByName: existing.uploadedByName ?? '',
             revisionNote:   '',
+            documents:      existingDocuments,
           });
         }
       }
 
-      // Write stages/proposal document
+      // Write stages/proposal document. documentUrl/documentName mirror
+      // documents[0] (dual-write) so any screen not yet updated to read
+      // `documents` keeps seeing the first uploaded file exactly as before.
       await setDoc(proposalStageRef, {
-        documentUrl,
-        documentName,
+        documentUrl:    documents[0].url,
+        documentName:   documents[0].name,
+        documents,
         uploadedAt:     serverTimestamp(),
         uploadedBy:     currentUser.uid,
         uploadedByName: currentUser.name,

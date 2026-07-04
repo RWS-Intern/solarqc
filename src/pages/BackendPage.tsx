@@ -7,8 +7,10 @@ import { useTaskStore }        from '@/store/taskStore';
 import { useBackendTasks, useLoadMoreBackendHistory } from '@/hooks/useBackendTasks';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { BackendWorkDrawer }   from '@/components/pipeline/BackendWorkDrawer';
+import { getProposalDocuments } from '@/utils/proposalDocuments';
+import { ProposalDocumentList } from '@/components/pipeline/ProposalDocumentList';
 import { cn }   from '@/lib/utils';
-import type { Task, StageHistoryEntry, FieldDefinition, FieldType } from '@/types';
+import type { Task, StageHistoryEntry, FieldDefinition, FieldType, ProposalStageData } from '@/types';
 
 // ─── Active task card ─────────────────────────────────────────────────────────
 
@@ -146,7 +148,7 @@ function BackendHistoryDetailContent({ task, onClose }: { task: Task | null; onC
     checklistSnapshot: FieldDefinition[];
     submittedByName:   string;
   } | null>(null);
-  const [proposalDoc, setProposalDoc] = useState<{ url: string; name: string } | null>(null);
+  const [proposalDoc, setProposalDoc] = useState<ProposalStageData | null>(null);
 
   useEffect(() => {
     if (!task) {
@@ -171,10 +173,7 @@ function BackendHistoryDetailContent({ task, onClose }: { task: Task | null; onC
     getDoc(doc(db, 'tasks', task.id, 'stages', 'proposal'))
       .then((snap) => {
         if (snap.exists()) {
-          setProposalDoc({
-            url:  snap.data()['documentUrl']  as string,
-            name: snap.data()['documentName'] as string,
-          });
+          setProposalDoc(snap.data() as ProposalStageData);
         }
       })
       .catch(() => {});
@@ -237,20 +236,12 @@ function BackendHistoryDetailContent({ task, onClose }: { task: Task | null; onC
         </div>
 
         {/* Proposal document */}
-        {proposalDoc && (
+        {getProposalDocuments(proposalDoc).length > 0 && (
           <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3">
             <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide mb-2">
               Proposal Document
             </p>
-            <a
-              href={proposalDoc.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              download
-              className="inline-flex items-center gap-2 text-sm font-medium text-blue-700 hover:underline"
-            >
-              📄 {proposalDoc.name}
-            </a>
+            <ProposalDocumentList documents={getProposalDocuments(proposalDoc)} />
           </div>
         )}
 

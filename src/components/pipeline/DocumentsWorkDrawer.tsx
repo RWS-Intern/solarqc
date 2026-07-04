@@ -12,7 +12,9 @@ import { useToast }           from '@/components/ui/toast';
 import { ChecklistItem }      from '@/components/tasks/checklist/ChecklistItem';
 import { doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db }                 from '@/firebase/config';
-import type { Task, SurveyStageData } from '@/types';
+import { getProposalDocuments } from '@/utils/proposalDocuments';
+import { ProposalDocumentList } from '@/components/pipeline/ProposalDocumentList';
+import type { Task, SurveyStageData, ProposalStageData } from '@/types';
 
 interface DocumentsWorkDrawerProps {
   task:    Task | null;
@@ -33,7 +35,7 @@ export function DocumentsWorkDrawer({ task, onClose }: DocumentsWorkDrawerProps)
   const [docAnswers,  setDocAnswers]  = useState<Record<string, string>>({});
   const [docPhotos,   setDocPhotos]   = useState<Record<string, string[]>>({});
   const [surveyData,  setSurveyData]  = useState<SurveyStageData | null>(null);
-  const [proposalDoc, setProposalDoc] = useState<{ url: string; name: string } | null>(null);
+  const [proposalDoc, setProposalDoc] = useState<ProposalStageData | null>(null);
   const [saving,      setSaving]      = useState(false);
   const [submitting,  setSubmitting]  = useState(false);
 
@@ -54,10 +56,7 @@ export function DocumentsWorkDrawer({ task, onClose }: DocumentsWorkDrawerProps)
     ]).then(([surveySnap, proposalSnap]) => {
       setSurveyData(surveySnap.exists() ? (surveySnap.data() as SurveyStageData) : null);
       if (proposalSnap.exists()) {
-        setProposalDoc({
-          url:  proposalSnap.data()['documentUrl']  as string,
-          name: proposalSnap.data()['documentName'] as string,
-        });
+        setProposalDoc(proposalSnap.data() as ProposalStageData);
       } else {
         setProposalDoc(null);
       }
@@ -166,21 +165,21 @@ export function DocumentsWorkDrawer({ task, onClose }: DocumentsWorkDrawerProps)
 
         <div className="flex flex-col gap-5 px-5 py-5">
 
+          {/* Description */}
+          {task?.description && (
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Description</p>
+              <p className="text-sm text-gray-700 whitespace-pre-wrap">{task.description}</p>
+            </div>
+          )}
+
           {/* Proposal Document */}
-          {proposalDoc && (
+          {getProposalDocuments(proposalDoc).length > 0 && (
             <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3">
               <p className="text-xs font-semibold text-blue-600 uppercase tracking-wide mb-2">
                 Proposal Document
               </p>
-              <a
-                href={proposalDoc.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                download
-                className="inline-flex items-center gap-2 text-sm font-medium text-blue-700 hover:underline"
-              >
-                📄 {proposalDoc.name}
-              </a>
+              <ProposalDocumentList documents={getProposalDocuments(proposalDoc)} />
             </div>
           )}
 

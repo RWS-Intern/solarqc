@@ -13,7 +13,7 @@ interface SubmitData {
   blockedReason:    string | null;
   fieldAnswers:     Record<string, { value: string; type: FieldType }>;
   fieldPhotos:      Record<string, string[]>;
-  location:         { lat: number; lng: number } | null;
+  location:         { lat: number; lng: number; accuracy?: number } | null;
   followUpDate:     Date | null;
   previousStatus:   TaskStatus;
   taskNum:          string;

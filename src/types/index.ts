@@ -130,6 +130,11 @@ export interface SurveyStageData {
   surveyFormSnapshot?: FieldDefinition[];
 }
 
+export interface ProposalDocument {
+  url:  string;
+  name: string;
+}
+
 export interface ProposalRevision {
   documentUrl:    string;
   documentName:   string;
@@ -137,6 +142,7 @@ export interface ProposalRevision {
   uploadedBy:     string;
   uploadedByName: string;
   revisionNote:   string;
+  documents?:     ProposalDocument[];
 }
 
 export interface ProposalStageData {
@@ -146,6 +152,7 @@ export interface ProposalStageData {
   uploadedBy?:     string;
   uploadedByName?: string;
   revisions:       ProposalRevision[];
+  documents?:      ProposalDocument[];
 }
 
 export interface FieldReviewStageData {
@@ -209,7 +216,7 @@ export interface Task {
   fieldPhotos:      Record<string, string[]>;
   completionPhotos: string[];
   blockedReason:    string | null;
-  location:         { lat: number; lng: number } | null;
+  location:         { lat: number; lng: number; accuracy?: number } | null;
   submittedBy:      string | null;
   submittedAt:      Date | null;
   createdBy:        string;
@@ -253,7 +260,7 @@ export interface TaskUpdate {
   submittedByName:  string;
   submittedAt:      Date;
   status:           TaskStatus;
-  location:         { lat: number; lng: number } | null;
+  location:         { lat: number; lng: number; accuracy?: number } | null;
   blockedReason:    string | null;
   fieldAnswers:     Record<string, { value: string; type: FieldType }>;
   fieldPhotos:      Record<string, string[]>;
@@ -292,7 +299,7 @@ export interface QueuedTaskUpdate {
     blockedReason:    string | null;
     fieldAnswers:     Record<string, { value: string; type: FieldType }>;
     fieldPhotos:      Record<string, string[]>;
-    location:         { lat: number; lng: number } | null;
+    location:         { lat: number; lng: number; accuracy?: number } | null;
     followUpDate:     Date | string | null;
     submittedAt:      string;
     fields?:          FieldDefinition[];
