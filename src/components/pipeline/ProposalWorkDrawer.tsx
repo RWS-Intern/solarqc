@@ -19,6 +19,14 @@ interface ProposalWorkDrawerProps {
   onClose: () => void;
 }
 
+// The stages/field_review doc's real written shape (see submitFieldReviewDecision in
+// usePipelineActions.ts) doesn't match the FieldReviewStageData type in @/types, so it's
+// declared locally here rather than reusing that mismatched shared type.
+interface FieldReviewDecisionData {
+  decision?:     'accepted' | 'rejected' | 'revision';
+  revisionNote?: string;
+}
+
 function formatDate(d: Date | null | undefined): string {
   if (!d) return '—';
   return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
@@ -42,14 +50,16 @@ export function ProposalWorkDrawer({ task, onClose }: ProposalWorkDrawerProps) {
   const [existingData,    setExistingData]    = useState<ProposalStageData | null>(null);
   const [loadingExisting, setLoadingExisting] = useState(false);
   const [surveyData,      setSurveyData]      = useState<SurveyStageData | null>(null);
+  const [fieldReviewData, setFieldReviewData] = useState<FieldReviewDecisionData | null>(null);
 
-  // Load existing proposal + survey stage data when drawer opens
+  // Load existing proposal + survey + field_review stage data when drawer opens
   useEffect(() => {
     if (!task) {
       setSelectedFiles([]);
       setFileProgress([]);
       setExistingData(null);
       setSurveyData(null);
+      setFieldReviewData(null);
       return;
     }
     setLoadingExisting(true);
@@ -66,6 +76,12 @@ export function ProposalWorkDrawer({ task, onClose }: ProposalWorkDrawerProps) {
         else setSurveyData(null);
       })
       .catch(() => setSurveyData(null));
+    getDoc(doc(db, 'tasks', task.id, 'stages', 'field_review'))
+      .then((snap) => {
+        if (snap.exists()) setFieldReviewData(snap.data() as FieldReviewDecisionData);
+        else setFieldReviewData(null);
+      })
+      .catch(() => setFieldReviewData(null));
   }, [task?.id]);
 
   function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
@@ -183,6 +199,18 @@ export function ProposalWorkDrawer({ task, onClose }: ProposalWorkDrawerProps) {
         </SheetHeader>
 
         <div className="flex flex-col gap-5 px-5 py-5">
+
+          {/* Revision requested — shown prominently so the Proposal team sees it before uploading */}
+          {(task?.proposalRevisionCount ?? 0) > 0 && fieldReviewData?.revisionNote?.trim() && (
+            <div className="rounded-lg border-2 border-orange-300 bg-orange-50 px-4 py-3">
+              <p className="text-xs font-bold text-orange-700 uppercase tracking-wide mb-1">
+                🔄 Revision Requested
+              </p>
+              <p className="text-sm text-orange-800 whitespace-pre-wrap">
+                {fieldReviewData.revisionNote}
+              </p>
+            </div>
+          )}
 
           {/* Description */}
           {task?.description && (
