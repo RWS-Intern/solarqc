@@ -4,6 +4,7 @@ import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '@/firebase/config';
 import { useEngineerTaskStats } from '@/hooks/useEngineerTaskStats';
+import { getProposalDoneCount } from '@/utils/engineerStats';
 import { TaskDetailDrawer }    from '@/components/tasks/TaskDetailDrawer';
 import { cn }                  from '@/lib/utils';
 import type { User, Task, TaskStatus } from '@/types';
@@ -120,9 +121,7 @@ export function EngineerDetailDrawer({ engineer, onClose }: EngineerDetailDrawer
     engineer.role === 'backend'
       ? engineerTasks.filter((t) => t.pipelineStage === 'completed').length
       : engineer.role === 'proposal'
-      ? engineerTasks.filter((t) =>
-          t.pipelineStage === 'completed' || t.pipelineStage === 'dropped'
-        ).length
+      ? getProposalDoneCount(engineerTasks)
       : engineerTasks.filter((t) => t.status === 'completed').length;
 
   const completionPct = assignedCount > 0

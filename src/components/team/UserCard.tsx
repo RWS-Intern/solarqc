@@ -2,6 +2,7 @@ import { UserCog, Wifi } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useEngineerTaskStats } from '@/hooks/useEngineerTaskStats';
+import { getProposalDoneCount } from '@/utils/engineerStats';
 import type { User, UserRole } from '@/types';
 
 interface UserCardProps {
@@ -66,10 +67,7 @@ export function UserCard({ user, isSelf, onEdit, onToggleActive, onView, onChang
   const completedCount = user.role === 'backend'
     ? tasks.filter((t) => t.pipelineStage === 'completed').length
     : user.role === 'proposal'
-    ? tasks.filter((t) =>
-        t.pipelineStage === 'completed' ||
-        t.pipelineStage === 'dropped'
-      ).length
+    ? getProposalDoneCount(tasks)
     : tasks.filter((t) => t.status === 'completed').length;
   const completionPct  = assignedCount > 0
     ? Math.round((completedCount / assignedCount) * 100)
@@ -162,10 +160,7 @@ export function UserCard({ user, isSelf, onEdit, onToggleActive, onView, onChang
                   const active = tasks.filter((t) =>
                     t.pipelineStage === 'proposal'
                   ).length;
-                  const done = tasks.filter((t) =>
-                    t.pipelineStage === 'completed' ||
-                    t.pipelineStage === 'dropped'
-                  ).length;
+                  const done = getProposalDoneCount(tasks);
                   return (
                     <>
                       <span className="font-medium text-gray-600">{active}</span> active
