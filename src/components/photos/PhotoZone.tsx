@@ -5,20 +5,21 @@ import { _emitToast } from '@/components/ui/toast';
 import { cn } from '@/lib/utils';
 
 interface PhotoZoneProps {
-  label:           string;
-  photos:          string[];
-  onPhotosChange:  (urls: string[]) => void;
-  required?:       boolean;
-  maxPhotos?:      number;
-  disabled?:       boolean;
-  taskNum?:        string;
-  taskId?:         string;
-  fieldId?:        string;
-  photoType?:      'field' | 'completion';
-  engineerCode?:   string;
-  engineerName?:   string;
-  fieldLabel?:     string;
-  uploadType?:     'documents';
+  label:                string;
+  photos:               string[];
+  onPhotosChange:       (urls: string[]) => void;
+  onUploadingChange?:   (uploading: boolean) => void;
+  required?:            boolean;
+  maxPhotos?:           number;
+  disabled?:            boolean;
+  taskNum?:             string;
+  taskId?:              string;
+  fieldId?:             string;
+  photoType?:           'field' | 'completion';
+  engineerCode?:        string;
+  engineerName?:        string;
+  fieldLabel?:          string;
+  uploadType?:          'documents';
 }
 
 function isPdfUrl(url: string): boolean {
@@ -50,6 +51,7 @@ export function PhotoZone({
   label,
   photos,
   onPhotosChange,
+  onUploadingChange,
   required   = false,
   maxPhotos  = 5,
   disabled   = false,
@@ -65,9 +67,10 @@ export function PhotoZone({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [pendingUploads, setPendingUploads] = useState<PendingUpload[]>([]);
 
-  const latestPhotosRef = useRef<string[]>(photos);
-  const onChangeRef     = useRef(onPhotosChange);
-  const pendingRef      = useRef<PendingUpload[]>([]);
+  const latestPhotosRef       = useRef<string[]>(photos);
+  const onChangeRef           = useRef(onPhotosChange);
+  const onUploadingChangeRef  = useRef(onUploadingChange);
+  const pendingRef            = useRef<PendingUpload[]>([]);
 
   useEffect(() => {
     // Only sync from props when no upload is in flight.
@@ -77,8 +80,15 @@ export function PhotoZone({
       latestPhotosRef.current = photos;
     }
   }, [photos, pendingUploads.length]);
-  useEffect(() => { onChangeRef.current     = onPhotosChange; }, [onPhotosChange]);
-  useEffect(() => { pendingRef.current      = pendingUploads; }, [pendingUploads]);
+  useEffect(() => { onChangeRef.current          = onPhotosChange; },         [onPhotosChange]);
+  useEffect(() => { onUploadingChangeRef.current = onUploadingChange; },      [onUploadingChange]);
+  useEffect(() => { pendingRef.current           = pendingUploads; },         [pendingUploads]);
+
+  // Signal to parent whenever upload count transitions between 0 and >0.
+  useEffect(() => {
+    onUploadingChangeRef.current?.(pendingUploads.length > 0);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingUploads.length]);
 
   useEffect(() => () => {
     pendingRef.current.forEach((p) => URL.revokeObjectURL(p.previewUrl));

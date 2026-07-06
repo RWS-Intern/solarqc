@@ -10,22 +10,23 @@ import { PhotoZone }         from '@/components/photos/PhotoZone';
 import type { FieldDefinition } from '@/types';
 
 interface ChecklistItemProps {
-  field:          FieldDefinition;
-  answer:         string | null;
-  photos:         string[];
-  onAnswerChange: (fieldId: string, value: string) => void;
-  onPhotosChange: (fieldId: string, urls: string[]) => void;
-  showError:      boolean;
-  taskNum?:       string;
-  disabled?:      boolean;
-  engineerCode?:  string;
-  engineerName?:  string;
-  uploadType?:    'documents';
+  field:                FieldDefinition;
+  answer:               string | null;
+  photos:               string[];
+  onAnswerChange:       (fieldId: string, value: string) => void;
+  onPhotosChange:       (fieldId: string, urls: string[]) => void;
+  onUploadingChange?:   (fieldId: string, uploading: boolean) => void;
+  showError:            boolean;
+  taskNum?:             string;
+  disabled?:            boolean;
+  engineerCode?:        string;
+  engineerName?:        string;
+  uploadType?:          'documents';
 }
 
 export function ChecklistItem({
-  field, answer, photos, onAnswerChange, onPhotosChange, showError, taskNum, disabled,
-  engineerCode, engineerName, uploadType,
+  field, answer, photos, onAnswerChange, onPhotosChange, onUploadingChange,
+  showError, taskNum, disabled, engineerCode, engineerName, uploadType,
 }: ChecklistItemProps) {
   const isPhotoOnly  = field.type === 'photo_only';
   const isHeaderOnly = field.type === 'section_header';
@@ -102,6 +103,7 @@ export function ChecklistItem({
             label="Photo"
             photos={photos}
             onPhotosChange={(urls) => onPhotosChange(field.fieldId, urls)}
+            onUploadingChange={(uploading) => onUploadingChange?.(field.fieldId, uploading)}
             required={field.isRequired}
             maxPhotos={10}
             disabled={disabled}

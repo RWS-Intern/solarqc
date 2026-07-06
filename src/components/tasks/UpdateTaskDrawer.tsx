@@ -78,6 +78,7 @@ export function UpdateTaskDrawer({ task, onClose }: UpdateTaskDrawerProps) {
   const [gpsLoading,       setGpsLoading]       = useState(false);
   const [submitting,       setSubmitting]       = useState(false);
   const [showErrors,       setShowErrors]       = useState(false);
+  const [uploadingFields,  setUploadingFields]  = useState<Set<string>>(new Set());
 
   // Initialise state when the drawer opens for a new task.
   // Guarded by initialisedForTaskId so Firestore real-time updates
@@ -87,6 +88,7 @@ export function UpdateTaskDrawer({ task, onClose }: UpdateTaskDrawerProps) {
       initialisedForTaskId.current = null;
       stopGpsWatch();
       setGpsLoading(false);
+      setUploadingFields(new Set());
       return;
     }
     if (initialisedForTaskId.current === task.id) return;
@@ -116,6 +118,7 @@ export function UpdateTaskDrawer({ task, onClose }: UpdateTaskDrawerProps) {
     );
     setSubmitting(false);
     setShowErrors(false);
+    setUploadingFields(new Set());
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [task?.id, task]);
 
@@ -132,7 +135,8 @@ export function UpdateTaskDrawer({ task, onClose }: UpdateTaskDrawerProps) {
   // Alias after guard so all closures below reference a non-nullable value
   const task_ = task;
 
-  const isReadOnly = !!(task && task.pipelineStage && task.pipelineStage !== 'survey');
+  const isReadOnly  = !!(task && task.pipelineStage && task.pipelineStage !== 'survey');
+  const isUploading = uploadingFields.size > 0;
 
   // ── Handlers ─────────────────────────────────────────────────────────────────
 
@@ -184,6 +188,15 @@ export function UpdateTaskDrawer({ task, onClose }: UpdateTaskDrawerProps) {
 
   function handlePhotosChange(fieldId: string, urls: string[]) {
     setFieldPhotos((prev) => ({ ...prev, [fieldId]: urls }));
+  }
+
+  function handleFieldUploadingChange(fieldId: string, uploading: boolean) {
+    setUploadingFields((prev) => {
+      const next = new Set(prev);
+      if (uploading) next.add(fieldId);
+      else next.delete(fieldId);
+      return next;
+    });
   }
 
   function stopGpsWatch() {
@@ -247,6 +260,13 @@ export function UpdateTaskDrawer({ task, onClose }: UpdateTaskDrawerProps) {
   }
 
   async function handleSubmit() {
+    // Belt-and-suspenders: button is already disabled while uploading, but some
+    // mobile browsers fire click events on disabled buttons via tap/form submit.
+    if (isUploading) {
+      _emitToast('Please wait for photos to finish uploading.', 'error');
+      return;
+    }
+
     // ── Validate ──────────────────────────────────────────────────────────────
     if (status === 'blocked' && !blockedReason.trim()) {
       setShowErrors(true);
@@ -517,6 +537,7 @@ export function UpdateTaskDrawer({ task, onClose }: UpdateTaskDrawerProps) {
                   photos={fieldPhotos[field.fieldId] ?? []}
                   onAnswerChange={handleAnswerChange}
                   onPhotosChange={handlePhotosChange}
+                  onUploadingChange={handleFieldUploadingChange}
                   showError={showErrors && status === 'completed'}
                   taskNum={task_.taskNum}
                   disabled={isReadOnly}
@@ -535,12 +556,17 @@ export function UpdateTaskDrawer({ task, onClose }: UpdateTaskDrawerProps) {
             <Button
               className="w-full h-12 text-base font-bold bg-brand-green hover:bg-brand-green/90 border-0"
               onClick={handleSubmit}
-              disabled={submitting}
+              disabled={submitting || isUploading}
             >
               {submitting ? (
                 <span className="flex items-center gap-2">
                   <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
                   Submitting…
+                </span>
+              ) : isUploading ? (
+                <span className="flex items-center gap-2">
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                  Uploading photos… please wait
                 </span>
               ) : (
                 'Submit Update'

@@ -8,6 +8,8 @@ import { useAuthStore } from '@/store/authStore';
 import { useToast } from '@/components/ui/toast';
 import type { TaskStatus, FieldType, FieldDefinition } from '@/types';
 
+const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
 interface SubmitData {
   status:           TaskStatus;
   blockedReason:    string | null;
@@ -30,18 +32,38 @@ export function useTaskSubmit() {
 
     const taskRef = doc(db, 'tasks', taskId);
 
-    // Step 1: Save main task data
-    await updateDoc(taskRef, {
-      status:        data.status,
-      blockedReason: data.blockedReason ?? null,
-      fieldAnswers:  data.fieldAnswers,
-      fieldPhotos:   data.fieldPhotos,
-      location:      data.location,
-      followUpDate:  data.followUpDate ? Timestamp.fromDate(data.followUpDate) : null,
-      submittedBy:   currentUser.uid,
-      submittedAt:   serverTimestamp(),
-      updatedAt:     serverTimestamp(),
-    });
+    // Step 1: Save main task data — retried up to 3 times on transient errors.
+    // Photos are already in Cloudinary at this point (uploaded at capture time in
+    // PhotoZone.tsx). Retrying guarantees the https:// URLs are committed to Firestore
+    // even if a brief network blip hits the first attempt (the T-009 scenario).
+    const RETRY_DELAYS = [500, 1000];
+    let lastWriteErr: unknown;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        await updateDoc(taskRef, {
+          status:        data.status,
+          blockedReason: data.blockedReason ?? null,
+          fieldAnswers:  data.fieldAnswers,
+          fieldPhotos:   data.fieldPhotos,
+          location:      data.location,
+          followUpDate:  data.followUpDate ? Timestamp.fromDate(data.followUpDate) : null,
+          submittedBy:   currentUser.uid,
+          submittedAt:   serverTimestamp(),
+          updatedAt:     serverTimestamp(),
+        });
+        lastWriteErr = undefined;
+        break;
+      } catch (err) {
+        lastWriteErr = err;
+        const code = (err as { code?: string }).code;
+        if (code === 'permission-denied') throw err;
+        if (attempt < 3) {
+          console.warn(`[useTaskSubmit] Retrying main write, attempt ${attempt + 1} of 3`);
+          await wait(RETRY_DELAYS[attempt - 1]);
+        }
+      }
+    }
+    if (lastWriteErr !== undefined) throw lastWriteErr;
 
     // Step 2: Pipeline transition — survey → proposal (only on completed)
     if (data.status === 'completed') {
