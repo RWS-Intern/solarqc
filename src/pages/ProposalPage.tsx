@@ -210,6 +210,22 @@ function HistoryDetailContent({ task, onClose }: { task: Task | null; onClose: (
             <span className="text-gray-400">Survey completed: </span>
             {task.submittedAt ? formatDate(task.submittedAt) : '—'}
           </p>
+          {task.location && (
+            <p className="text-sm text-gray-700 mt-1">
+              <span className="text-gray-400">Location: </span>
+              <a
+                href={`https://maps.google.com/?q=${task.location.lat},${task.location.lng}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-600 hover:underline"
+              >
+                {task.location.lat.toFixed(5)}, {task.location.lng.toFixed(5)}
+              </a>
+              {task.location.accuracy !== undefined && (
+                <span className="text-gray-400 text-xs ml-1">(±{Math.round(task.location.accuracy)}m)</span>
+              )}
+            </p>
+          )}
           {task.proposalAssignedToName && (
             <p className="text-sm text-gray-700 mt-1">
               <span className="text-gray-400">Proposal by: </span>
@@ -222,6 +238,60 @@ function HistoryDetailContent({ task, onClose }: { task: Task | null; onClose: (
             </p>
           )}
         </div>
+
+        {/* Survey answers */}
+        {(task.fields ?? []).length > 0 && (
+          <div className="rounded-lg border border-gray-200 bg-white px-4 py-3">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
+              Survey Answers
+            </p>
+            <div className="flex flex-col gap-2">
+              {(task.fields ?? [])
+                .filter((f) => f.type !== 'section_header' && f.type !== 'photo_only')
+                .sort((a, b) => a.sortOrder - b.sortOrder)
+                .map((field) => {
+                  const answer = task.fieldAnswers?.[field.fieldId];
+                  if (!answer?.value) return null;
+                  return (
+                    <div key={field.fieldId} className="flex flex-col gap-0.5">
+                      <p className="text-xs text-gray-400">{field.label}</p>
+                      <p className="text-sm font-medium text-gray-800">
+                        {field.type === 'yesno'
+                          ? answer.value === 'yes' ? '✅ Yes' : '❌ No'
+                          : answer.value}
+                      </p>
+                    </div>
+                  );
+                })}
+            </div>
+            {Object.values(task.fieldPhotos ?? {}).flat().length > 0 && (
+              <div className="mt-3">
+                <p className="text-xs text-gray-400 mb-2">Survey Photos</p>
+                <div className="grid grid-cols-3 gap-2">
+                  {Object.values(task.fieldPhotos ?? {}).flat().map((url, i) =>
+                    url.toLowerCase().includes('.pdf') || url.toLowerCase().includes('/raw/upload/') ? (
+                      <a key={i} href={url} target="_blank" rel="noopener noreferrer" download
+                        className="flex flex-col items-center justify-center gap-1 rounded-lg border border-red-200 bg-red-50 hover:bg-red-100 p-2 min-h-[72px]">
+                        <span className="text-2xl">📄</span>
+                        <span className="text-[9px] text-red-700 font-medium text-center line-clamp-2">
+                          Document {i + 1}
+                        </span>
+                      </a>
+                    ) : (
+                      <a key={i} href={url} target="_blank" rel="noopener noreferrer">
+                        <img
+                          src={url}
+                          alt={`Survey photo ${i + 1}`}
+                          className="w-full aspect-square object-cover rounded-lg border border-gray-200"
+                        />
+                      </a>
+                    )
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Proposal document */}
         {getProposalDocuments(proposalDoc).length > 0 && (

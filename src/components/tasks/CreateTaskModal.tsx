@@ -8,7 +8,8 @@ import { Label }    from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useTaskActions }    from '@/hooks/useTaskActions';
 import { useFieldEngineers } from '@/hooks/useFieldEngineers';
-import { DistrictCombobox }  from '@/components/ui/DistrictCombobox';
+import { DistrictCombobox }   from '@/components/ui/DistrictCombobox';
+import { EngineerCombobox }   from '@/components/ui/EngineerCombobox';
 
 interface CreateTaskModalProps {
   open:    boolean;
@@ -72,7 +73,7 @@ export function CreateTaskModal({ open, onClose }: CreateTaskModalProps) {
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) handleClose(); }}>
       <DialogContent
-        className="sm:max-w-md"
+        className="sm:max-w-md max-h-[90vh] overflow-y-auto"
         aria-describedby={undefined}
         onInteractOutside={(e) => e.preventDefault()}
         onEscapeKeyDown={(e) => e.preventDefault()}
@@ -106,7 +107,7 @@ export function CreateTaskModal({ open, onClose }: CreateTaskModalProps) {
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Optional details…"
-              rows={3}
+              rows={2}
             />
           </div>
 
@@ -121,20 +122,13 @@ export function CreateTaskModal({ open, onClose }: CreateTaskModalProps) {
           {/* Assign to */}
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="ct-assign">Assign to</Label>
-            <select
-              id="ct-assign"
+            <EngineerCombobox
+              engineers={engineers}
               value={assigneeUid}
-              onChange={(e) => setAssigneeUid(e.target.value)}
+              onChange={setAssigneeUid}
               disabled={engLoading}
-              className="h-12 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
-            >
-              <option value="">— Unassigned —</option>
-              {engineers.map((eng) => (
-                <option key={eng.uid} value={eng.uid}>
-                  {eng.displayName}{eng.engineerCode ? ` — ${eng.engineerCode}` : ''}
-                </option>
-              ))}
-            </select>
+              allowUnassigned
+            />
           </div>
 
           {/* Due date */}

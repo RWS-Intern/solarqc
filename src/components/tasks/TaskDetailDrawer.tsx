@@ -20,8 +20,9 @@ import {
 import { Button } from '@/components/ui/button';
 import { cn }     from '@/lib/utils';
 import { PipelineTracker } from '@/components/pipeline/PipelineTracker';
-import { getProposalDocuments } from '@/utils/proposalDocuments';
-import { ProposalDocumentList } from '@/components/pipeline/ProposalDocumentList';
+import { getProposalDocuments }  from '@/utils/proposalDocuments';
+import { ProposalDocumentList }  from '@/components/pipeline/ProposalDocumentList';
+import { EngineerCombobox }      from '@/components/ui/EngineerCombobox';
 import type { Task, TaskStatus, TaskUpdate, DocumentsStageData, ProposalStageData } from '@/types';
 
 // ─── Inline Title Edit ────────────────────────────────────────────────────────
@@ -740,8 +741,11 @@ export function TaskDetailDrawer({ task, onClose, onUpdate, onAdminUpdate }: Tas
     if (!task) return;
     const eng = engineers.find((e) => e.uid === uid);
     if (!eng) return;
-    await assignTask(task.id, eng);
-    setShowAssignPicker(false);
+    try {
+      await assignTask(task.id, eng);
+    } finally {
+      setShowAssignPicker(false);
+    }
   }
 
   if (!task) return null;
@@ -824,19 +828,12 @@ export function TaskDetailDrawer({ task, onClose, onUpdate, onAdminUpdate }: Tas
             {/* Inline assign picker */}
             {isAdmin && showAssignPicker && (
               <div className="flex items-center gap-2 ml-6">
-                <select
-                  autoFocus
-                  defaultValue=""
-                  onChange={(e) => { if (e.target.value) handleAssign(e.target.value); }}
-                  className="h-8 flex-1 rounded-md border border-input bg-background px-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                >
-                  <option value="" disabled>Select engineer…</option>
-                  {engineers.map((eng) => (
-                    <option key={eng.uid} value={eng.uid}>
-                      {eng.displayName}{eng.engineerCode ? ` — ${eng.engineerCode}` : ''}
-                    </option>
-                  ))}
-                </select>
+                <EngineerCombobox
+                  engineers={engineers}
+                  value=""
+                  onChange={(uid) => { if (uid) handleAssign(uid); }}
+                  className="flex-1"
+                />
                 <button
                   type="button"
                   onClick={() => setShowAssignPicker(false)}

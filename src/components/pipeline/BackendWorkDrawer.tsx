@@ -448,6 +448,24 @@ export function BackendWorkDrawer({ task, onClose }: BackendWorkDrawerProps) {
             </button>
             {showSurvey && (
               <div className="border-t border-gray-100 px-4 pb-4">
+                {task?.location && (
+                  <p className="text-sm text-gray-600 pt-3">
+                    Location:{' '}
+                    <a
+                      href={`https://maps.google.com/?q=${task.location.lat},${task.location.lng}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:underline"
+                    >
+                      {task.location.lat.toFixed(5)}, {task.location.lng.toFixed(5)}
+                    </a>
+                    {task.location.accuracy !== undefined && (
+                      <span className="text-gray-400 text-xs ml-1">
+                        (±{Math.round(task.location.accuracy)}m)
+                      </span>
+                    )}
+                  </p>
+                )}
                 {/* FIX 2: fallback to task.fieldAnswers/fieldPhotos when stages/survey missing */}
                 {(() => {
                   const answers    = surveyData?.fieldAnswers ?? task?.fieldAnswers ?? {};
