@@ -206,6 +206,14 @@ function HistoryDetailContent({ task, onClose }: { task: Task | null; onClose: (
               <span className="ml-1 font-mono text-xs text-gray-400">({task.assignedToCode})</span>
             )}
           </p>
+          {task.assignedToMobile && (
+            <p className="text-sm text-gray-700 mt-1">
+              <span className="text-gray-400">Mobile: </span>
+              <a href={`tel:${task.assignedToMobile}`} className="text-blue-600 hover:underline">
+                {task.assignedToMobile}
+              </a>
+            </p>
+          )}
           <p className="text-sm text-gray-700 mt-1">
             <span className="text-gray-400">Survey completed: </span>
             {task.submittedAt ? formatDate(task.submittedAt) : '—'}

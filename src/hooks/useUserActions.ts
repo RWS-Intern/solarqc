@@ -51,7 +51,7 @@ export function useUserActions() {
   }
 
   async function createUser(
-    name: string, email: string, role: UserRole, district?: string,
+    name: string, email: string, role: UserRole, district?: string, mobileNumber?: string,
   ): Promise<void> {
     const tempPassword =
       Math.random().toString(36).slice(-10) +
@@ -93,6 +93,7 @@ export function useUserActions() {
         role,
         active:            true,
         engineerCode:      roleCodeMap[role] ? engineerCode : null,
+        mobileNumber:      mobileNumber?.trim() || null,
         createdAt:         serverTimestamp(),
         createdBy:         currentUser?.uid ?? '',
         district:          district?.trim() ?? '',
@@ -124,15 +125,21 @@ export function useUserActions() {
     }
   }
 
-  async function updateUserName(userId: string, newName: string): Promise<void> {
+  async function updateUserName(userId: string, newName: string, role: string): Promise<void> {
     const trimmed = newName.trim();
     if (!trimmed) { showToast('Name cannot be empty', 'error'); return; }
     try {
       await updateDoc(doc(db, 'users', userId), {
         name: trimmed, updatedAt: serverTimestamp(),
       });
-      // Sync denormalized name in all assigned tasks
+      // Sync denormalized name in field engineer slot (assignedTo)
       await syncTasksForUser(userId, { assignedToName: trimmed });
+      // Sync proposal/backend role slots if applicable
+      if (role === 'proposal') {
+        await syncRoleAssignedName(userId, 'proposalAssignedTo', 'proposalAssignedToName', trimmed);
+      } else if (role === 'backend') {
+        await syncRoleAssignedName(userId, 'backendAssignedTo', 'backendAssignedToName', trimmed);
+      }
       showToast('Name updated', 'success');
     } catch (err) {
       console.error('[updateUserName] failed:', err);
@@ -323,9 +330,37 @@ export function useUserActions() {
     }
   }
 
+  async function syncRoleAssignedName(
+    userId:    string,
+    uidField:  string,
+    nameField: string,
+    newName:   string,
+  ): Promise<void> {
+    try {
+      const snap = await getDocs(query(
+        collection(db, 'tasks'),
+        where(uidField,   '==', userId),
+        where('archived', '==', false),
+      ));
+      if (snap.empty) return;
+      const CHUNK = 499;
+      const docs  = snap.docs;
+      for (let i = 0; i < docs.length; i += CHUNK) {
+        const batch = writeBatch(db);
+        docs.slice(i, i + CHUNK).forEach((d) => {
+          batch.update(d.ref, { [nameField]: newName, updatedAt: serverTimestamp() });
+        });
+        await batch.commit();
+      }
+      console.warn(`[syncRoleAssignedName] Updated ${docs.length} tasks — ${nameField}`);
+    } catch (err) {
+      console.error('[syncRoleAssignedName] failed:', err);
+    }
+  }
+
   async function syncTasksForUser(
     userId:  string,
-    updates: { assignedToName?: string; assignedToCode?: string },
+    updates: { assignedToName?: string; assignedToCode?: string; assignedToMobile?: string },
   ): Promise<void> {
     try {
       const snap = await getDocs(query(
@@ -352,6 +387,20 @@ export function useUserActions() {
     }
   }
 
+  async function updateUserMobile(userId: string, mobileNumber: string): Promise<void> {
+    try {
+      await updateDoc(doc(db, 'users', userId), {
+        mobileNumber: mobileNumber || null,
+        updatedAt: serverTimestamp(),
+      });
+      await syncTasksForUser(userId, { assignedToMobile: mobileNumber });
+    } catch (err) {
+      console.error('[updateUserMobile] failed:', err);
+      showToast('Failed to update mobile number. Try again.', 'error');
+      throw err;
+    }
+  }
+
   async function updateUserDistrict(userId: string, district: string): Promise<void> {
     try {
       await updateDoc(doc(db, 'users', userId), {
@@ -367,7 +416,7 @@ export function useUserActions() {
   }
 
   return {
-    createUser, updateUserName, updateUserDistrict, setUserActive,
-    changeRole, transferSuperAdmin,
+    createUser, updateUserName, updateUserDistrict, updateUserMobile,
+    setUserActive, changeRole, transferSuperAdmin, syncTasksForUser,
   };
 }

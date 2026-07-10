@@ -8,13 +8,14 @@ import { useToast } from '@/components/ui/toast';
 import type { FieldEngineer } from '@/hooks/useFieldEngineers';
 
 interface CreateTaskData {
-  title:          string;
-  description?:   string;
-  district?:      string;
-  assignedTo:     string | null;
-  assignedToName: string;
-  assignedToCode: string;
-  dueDate:        Date | null;
+  title:            string;
+  description?:     string;
+  district?:        string;
+  assignedTo:       string | null;
+  assignedToName:   string;
+  assignedToCode:   string;
+  assignedToMobile?: string;
+  dueDate:          Date | null;
 }
 
 export function useTaskActions() {
@@ -45,6 +46,7 @@ export function useTaskActions() {
       assignedTo:       data.assignedTo,
       assignedToName:   data.assignedToName,
       assignedToCode:   data.assignedToCode,
+      assignedToMobile: data.assignedToMobile ?? '',
       dueDate:          data.dueDate ? Timestamp.fromDate(data.dueDate) : null,
       followUpDate:     null,
       status:           'pending',
@@ -111,10 +113,11 @@ export function useTaskActions() {
         }
 
         tx.update(taskRef, {
-          assignedTo:     engineer.uid,
-          assignedToName: engineer.displayName,
-          assignedToCode: engineer.engineerCode ?? '',
-          updatedAt:      serverTimestamp(),
+          assignedTo:       engineer.uid,
+          assignedToName:   engineer.displayName,
+          assignedToCode:   engineer.engineerCode ?? '',
+          assignedToMobile: engineer.mobileNumber ?? '',
+          updatedAt:        serverTimestamp(),
         });
       });
       showToast(`Assigned to ${engineer.displayName}`, 'success');

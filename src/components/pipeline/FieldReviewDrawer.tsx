@@ -274,6 +274,23 @@ export function FieldReviewDrawer({ task, onClose, onAcceptedToDocuments }: Fiel
               Survey Reference
             </p>
             <div className="flex flex-col gap-1 text-xs text-gray-500">
+              {task?.assignedToName && (
+                <p>
+                  <span className="text-gray-400">Field Engineer: </span>
+                  {task.assignedToName}
+                  {task.assignedToCode && (
+                    <span className="ml-1 font-mono text-gray-400">({task.assignedToCode})</span>
+                  )}
+                </p>
+              )}
+              {task?.assignedToMobile && (
+                <p>
+                  <span className="text-gray-400">Mobile: </span>
+                  <a href={`tel:${task.assignedToMobile}`} className="text-blue-600 hover:underline">
+                    {task.assignedToMobile}
+                  </a>
+                </p>
+              )}
               <p>Survey completed: {formatDate(task?.submittedAt)}</p>
               {task?.location && (
                 <a

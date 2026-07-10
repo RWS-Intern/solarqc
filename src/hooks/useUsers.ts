@@ -31,6 +31,7 @@ export function useUsers() {
             fcmToken:         data['fcmToken']           ?? undefined,
             fcmTokenUpdatedAt: data['fcmTokenUpdatedAt']?.toDate?.() ?? undefined,
             engineerCode:     data['engineerCode']       ?? undefined,
+            mobileNumber:     (data['mobileNumber'] as string | undefined) ?? undefined,
             district:         (data['district'] as string | undefined) ?? undefined,
           };
         });

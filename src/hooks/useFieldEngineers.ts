@@ -5,6 +5,7 @@ export interface FieldEngineer {
   uid:          string;
   displayName:  string;
   engineerCode: string | undefined;
+  mobileNumber: string | undefined;
   email:        string;
 }
 
@@ -19,6 +20,7 @@ export function useFieldEngineers(): { engineers: FieldEngineer[]; loading: bool
           uid:          u.id,
           displayName:  u.name,
           engineerCode: u.engineerCode,
+          mobileNumber: u.mobileNumber,
           email:        u.email,
         }))
         .sort((a, b) => a.displayName.localeCompare(b.displayName)),

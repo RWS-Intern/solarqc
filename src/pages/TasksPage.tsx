@@ -93,6 +93,7 @@ function isPast(d: Date): boolean {
 
 function isOverdue(task: Task): boolean {
   if (task.status === 'completed') return false;
+  if (task.pipelineStage && task.pipelineStage !== 'survey') return false;
   return !!(task.dueDate && isPast(task.dueDate));
 }
 
@@ -198,7 +199,8 @@ function TaskCard({ task, onClick }: { task: Task; onClick: () => void }) {
         {task.dueDate && (!task.pipelineStage || task.pipelineStage === 'survey') && task.status !== 'completed' && (
           <p className="text-xs text-gray-400 mt-0.5">Due {formatDate(task.dueDate)}</p>
         )}
-        {task.followUpDate && (
+        {task.followUpDate &&
+         (!task.pipelineStage || task.pipelineStage === 'survey') && (
           <div className={cn(
             'mt-1 flex items-center gap-1 text-xs font-medium rounded-full px-2 py-0.5 w-fit',
             isToday(task.followUpDate)

@@ -233,6 +233,14 @@ export function ProposalWorkDrawer({ task, onClose }: ProposalWorkDrawerProps) {
                   <span className="ml-1 font-mono text-xs text-gray-400">({task.assignedToCode})</span>
                 )}
               </p>
+              {task?.assignedToMobile && (
+                <p>
+                  <span className="text-gray-400">Mobile: </span>
+                  <a href={`tel:${task.assignedToMobile}`} className="text-blue-600 hover:underline">
+                    {task.assignedToMobile}
+                  </a>
+                </p>
+              )}
               <p>
                 <span className="text-gray-400">Survey completed:</span>{' '}
                 {formatDate(task?.submittedAt)}

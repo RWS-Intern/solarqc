@@ -56,9 +56,10 @@ export function CreateTaskModal({ open, onClose }: CreateTaskModalProps) {
         title,
         description: description || undefined,
         district:    district || undefined,
-        assignedTo:     engineer?.uid     ?? null,
-        assignedToName: engineer?.displayName  ?? '',
-        assignedToCode: engineer?.engineerCode ?? '',
+        assignedTo:       engineer?.uid          ?? null,
+        assignedToName:   engineer?.displayName  ?? '',
+        assignedToCode:   engineer?.engineerCode ?? '',
+        assignedToMobile: engineer?.mobileNumber ?? '',
         dueDate: dueDate ? new Date(dueDate) : null,
       });
       reset();

@@ -195,6 +195,14 @@ export function DocumentsWorkDrawer({ task, onClose }: DocumentsWorkDrawerProps)
                   <span className="ml-1 font-mono text-gray-400">({task.assignedToCode})</span>
                 )}
               </p>
+              {task?.assignedToMobile && (
+                <p>
+                  <span className="text-gray-400">Mobile: </span>
+                  <a href={`tel:${task.assignedToMobile}`} className="text-blue-600 hover:underline">
+                    {task.assignedToMobile}
+                  </a>
+                </p>
+              )}
               <p>Survey completed: {formatDate(task?.submittedAt)}</p>
               {task?.location && (
                 <a

@@ -16,19 +16,23 @@ interface EditUserModalProps {
 }
 
 export function EditUserModal({ user, onClose }: EditUserModalProps) {
-  const { updateUserName, updateUserDistrict } = useUserActions();
+  const { updateUserName, updateUserDistrict, updateUserMobile } = useUserActions();
   const { config }  = useAppConfig();
   const districts   = config.districts ?? [];
 
-  const [name,      setName]      = useState('');
-  const [district,  setDistrict]  = useState('');
-  const [saving,    setSaving]    = useState(false);
-  const [nameError, setNameError] = useState('');
+  const [name,         setName]         = useState('');
+  const [district,     setDistrict]     = useState('');
+  const [mobileNumber, setMobileNumber] = useState('');
+  const [saving,       setSaving]       = useState(false);
+  const [nameError,    setNameError]    = useState('');
+
+  const mobileError = mobileNumber.length > 0 && mobileNumber.length !== 10;
 
   useEffect(() => {
     if (user) {
       setName(user.name);
       setDistrict(user.district ?? '');
+      setMobileNumber(user.mobileNumber ?? '');
       setNameError('');
     }
   }, [user]);
@@ -39,11 +43,16 @@ export function EditUserModal({ user, onClose }: EditUserModalProps) {
       setNameError('Name is required');
       return;
     }
+    if (mobileError) return;
     setSaving(true);
     try {
-      await updateUserName(user.id, name);
+      await updateUserName(user.id, name, user.role);
       if (user.role === 'field') {
         await updateUserDistrict(user.id, district);
+      }
+      // Only sync tasks when mobile actually changed (avoids spurious batch-writes)
+      if (mobileNumber.trim() !== (user?.mobileNumber ?? '')) {
+        await updateUserMobile(user.id, mobileNumber.trim());
       }
       onClose();
     } catch {
@@ -129,6 +138,24 @@ export function EditUserModal({ user, onClose }: EditUserModalProps) {
             </div>
           )}
 
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="edit-mobile">Mobile Number <span className="text-gray-400 font-normal">(optional)</span></Label>
+            <Input
+              id="edit-mobile"
+              type="tel"
+              inputMode="numeric"
+              maxLength={10}
+              value={mobileNumber}
+              onChange={(e) => setMobileNumber(e.target.value.replace(/\D/g, '').slice(0, 10))}
+              placeholder="10-digit mobile number"
+              disabled={saving}
+              className={mobileError ? 'border-brand-red focus-visible:ring-brand-red' : ''}
+            />
+            {mobileError && (
+              <p className="text-xs text-brand-red">Mobile number must be exactly 10 digits</p>
+            )}
+          </div>
+
           <div className="flex gap-2 pt-1">
             <Button
               variant="outline"
@@ -141,7 +168,7 @@ export function EditUserModal({ user, onClose }: EditUserModalProps) {
             <Button
               className="flex-1"
               onClick={handleSave}
-              disabled={saving}
+              disabled={saving || mobileError}
             >
               {saving ? (
                 <span className="flex items-center gap-2">

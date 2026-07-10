@@ -75,6 +75,29 @@ export function ChecklistItem({
       {field.type === 'text' && (
         <TextInput value={answer ?? ''} onChange={(v) => onAnswerChange(field.fieldId, v)} placeholder="Enter value…" disabled={disabled} />
       )}
+      {field.type === 'mobile' && (
+        <div>
+          <input
+            type="tel"
+            inputMode="numeric"
+            maxLength={10}
+            pattern="[0-9]{10}"
+            value={answer ?? ''}
+            onChange={(e) => {
+              const digits = e.target.value.replace(/\D/g, '').slice(0, 10);
+              onAnswerChange(field.fieldId, digits);
+            }}
+            placeholder="10-digit mobile number"
+            disabled={disabled}
+            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+          />
+          {(answer ?? '').length > 0 && (
+            <p className={`text-xs mt-1 ${(answer ?? '').length === 10 ? 'text-green-600' : 'text-red-500'}`}>
+              {(answer ?? '').length}/10 digits
+            </p>
+          )}
+        </div>
+      )}
       {field.type === 'number' && (
         <NumberInput value={answer ?? ''} onChange={(v) => onAnswerChange(field.fieldId, v)} placeholder="Enter number…" disabled={disabled} />
       )}

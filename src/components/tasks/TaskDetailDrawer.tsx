@@ -798,6 +798,14 @@ export function TaskDetailDrawer({ task, onClose, onUpdate, onAdminUpdate }: Tas
                     {task.assignedToCode && (
                       <span className="ml-1 font-mono text-xs text-gray-400">({task.assignedToCode})</span>
                     )}
+                    {task.assignedToMobile && (
+                      <a
+                        href={`tel:${task.assignedToMobile}`}
+                        className="ml-2 text-xs text-blue-600 hover:underline font-normal"
+                      >
+                        {task.assignedToMobile}
+                      </a>
+                    )}
                   </span>
                   {isAdmin && !showAssignPicker && (
                     <button

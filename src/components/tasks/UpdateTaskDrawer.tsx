@@ -282,6 +282,7 @@ export function UpdateTaskDrawer({ task, onClose }: UpdateTaskDrawerProps) {
         if (!f.isRequired) return false;
         if (f.type === 'section_header') return false;
         if (f.type === 'photo_only') return (fieldPhotos[f.fieldId] ?? []).length === 0;
+        if (f.type === 'mobile') return !/^\d{10}$/.test(fieldAnswers[f.fieldId]?.value ?? '');
         return !(fieldAnswers[f.fieldId]?.value);
       });
 

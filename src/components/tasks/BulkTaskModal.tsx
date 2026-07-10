@@ -235,7 +235,8 @@ export function BulkTaskModal({ open, onClose }: BulkTaskModalProps) {
                   <thead>
                     <tr className="border-b border-gray-100 bg-gray-50">
                       <th className="text-left px-3 py-2 font-semibold text-gray-500 w-10">#</th>
-                      <th className="text-left px-3 py-2 font-semibold text-gray-500">Title</th>
+                      <th className="text-left px-3 py-2 font-semibold text-gray-500 max-w-[160px]">Title</th>
+                      <th className="text-left px-3 py-2 font-semibold text-gray-500 max-w-[160px]">Description</th>
                       <th className="text-left px-3 py-2 font-semibold text-gray-500">Engineer</th>
                       <th className="text-left px-3 py-2 font-semibold text-gray-500">Due Date</th>
                       <th className="text-left px-3 py-2 font-semibold text-gray-500">District</th>
@@ -249,7 +250,12 @@ export function BulkTaskModal({ open, onClose }: BulkTaskModalProps) {
                         !row.valid && 'bg-red-50/50',
                       )}>
                         <td className="px-3 py-2 text-gray-400">{row.rowNum}</td>
-                        <td className="px-3 py-2 font-medium text-gray-800 max-w-[180px] truncate">{row.title || '—'}</td>
+                        <td className="px-3 py-2 font-medium text-gray-800 max-w-[160px]">
+                          <span className="block truncate" title={row.title || ''}>{row.title || '—'}</span>
+                        </td>
+                        <td className="px-3 py-2 text-gray-500 max-w-[160px]">
+                          <span className="block truncate" title={row.description || ''}>{row.description || '—'}</span>
+                        </td>
                         <td className="px-3 py-2 text-gray-600">{row.engineerCode || '—'}</td>
                         <td className="px-3 py-2 text-gray-600">{row.dueDate || '—'}</td>
                         <td className="px-3 py-2 text-gray-600">{row.district || '—'}</td>

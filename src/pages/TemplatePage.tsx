@@ -14,6 +14,7 @@ import type { FieldDefinition, FieldType, JourneyStepDefinition } from '@/types'
 const FIELD_TYPE_LABELS: Record<FieldType, string> = {
   yesno:          'Yes / No',
   text:           'Text',
+  mobile:         'Mobile Number (10 digits)',
   number:         'Number',
   select:         'Select (options)',
   photo_only:     'Photo only',
@@ -26,6 +27,7 @@ const FIELD_TYPE_LABELS: Record<FieldType, string> = {
 const FIELD_TYPE_COLOURS: Partial<Record<FieldType, string>> = {
   yesno:          'bg-green-100 text-green-700',
   text:           'bg-sky-100 text-sky-700',
+  mobile:         'bg-cyan-100 text-cyan-700',
   number:         'bg-violet-100 text-violet-700',
   select:         'bg-amber-100 text-amber-700',
   photo_only:     'bg-pink-100 text-pink-700',

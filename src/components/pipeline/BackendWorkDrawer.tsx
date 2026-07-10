@@ -23,6 +23,11 @@ interface BackendWorkDrawerProps {
   onClose: () => void;
 }
 
+function formatDate(d: Date | null | undefined): string {
+  if (!d) return '—';
+  return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
 function isPdfUrl(url: string): boolean {
   return url.toLowerCase().includes('.pdf') ||
          url.toLowerCase().includes('/raw/upload/');
@@ -344,6 +349,52 @@ export function BackendWorkDrawer({ task, onClose }: BackendWorkDrawerProps) {
         </SheetHeader>
 
         <div className="flex flex-col gap-4 px-5 py-5">
+
+          {/* Survey Reference */}
+          <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm space-y-1">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+              Survey Reference
+            </p>
+            <p className="text-gray-700">
+              <span className="text-gray-400">Field Engineer: </span>
+              {task?.assignedToName}
+              {task?.assignedToCode && (
+                <span className="text-gray-400 ml-1">({task.assignedToCode})</span>
+              )}
+            </p>
+            {task?.assignedToMobile && (
+              <p className="text-gray-700">
+                <span className="text-gray-400">Mobile: </span>
+                <a href={`tel:${task.assignedToMobile}`} className="text-blue-600 hover:underline">
+                  {task.assignedToMobile}
+                </a>
+              </p>
+            )}
+            {task?.submittedAt && (
+              <p className="text-gray-700">
+                <span className="text-gray-400">Survey completed: </span>
+                {formatDate(task.submittedAt)}
+              </p>
+            )}
+            {task?.location && (
+              <p className="text-gray-700">
+                <span className="text-gray-400">Location: </span>
+                <a
+                  href={`https://maps.google.com/?q=${task.location.lat},${task.location.lng}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-600 hover:underline"
+                >
+                  {task.location.lat.toFixed(5)}, {task.location.lng.toFixed(5)}
+                </a>
+                {task.location.accuracy !== undefined && (
+                  <span className="text-gray-400 text-xs ml-1">
+                    (±{Math.round(task.location.accuracy)}m)
+                  </span>
+                )}
+              </p>
+            )}
+          </div>
 
           {/* Description */}
           {task?.description && (

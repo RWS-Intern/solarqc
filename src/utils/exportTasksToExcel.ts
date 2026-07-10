@@ -16,6 +16,7 @@ export function exportTasksToExcel(tasks: Task[]): void {
     'Status':              t.status,
     'Assigned To':         t.assignedToName ?? '',
     'Engineer Code':       t.assignedToCode ?? '',
+    'Engineer Mobile':     t.assignedToMobile ?? '',
     'Due Date':            dateStr(t.dueDate),
     'Created Date':        dateStr(t.createdAt),
     'Submitted Date':      dateStr(t.submittedAt),

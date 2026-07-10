@@ -28,18 +28,22 @@ interface CreateUserModalProps {
 export function CreateUserModal({ open, onClose }: CreateUserModalProps) {
   const { createUser } = useUserActions();
 
-  const [name,        setName]        = useState('');
-  const [email,       setEmail]       = useState('');
-  const [role,        setRole]        = useState<UserRole>('field');
-  const [district,    setDistrict]    = useState('');
-  const [submitting,  setSubmitting]  = useState(false);
-  const [createdEmail, setCreatedEmail] = useState<string | null>(null);
+  const [name,          setName]          = useState('');
+  const [email,         setEmail]         = useState('');
+  const [role,          setRole]          = useState<UserRole>('field');
+  const [district,      setDistrict]      = useState('');
+  const [mobileNumber,  setMobileNumber]  = useState('');
+  const [submitting,    setSubmitting]    = useState(false);
+  const [createdEmail,  setCreatedEmail]  = useState<string | null>(null);
+
+  const mobileError = mobileNumber.length > 0 && mobileNumber.length !== 10;
 
   function reset() {
     setName('');
     setEmail('');
     setRole('field');
     setDistrict('');
+    setMobileNumber('');
     setSubmitting(false);
     setCreatedEmail(null);
   }
@@ -53,7 +57,7 @@ export function CreateUserModal({ open, onClose }: CreateUserModalProps) {
     if (!name.trim() || !email.trim()) return;
     setSubmitting(true);
     try {
-      await createUser(name.trim(), email.trim(), role, district || undefined);
+      await createUser(name.trim(), email.trim(), role, district || undefined, mobileNumber || undefined);
       setCreatedEmail(email.trim());
     } catch {
       // Error toast already shown inside createUser
@@ -127,6 +131,24 @@ export function CreateUserModal({ open, onClose }: CreateUserModalProps) {
               </div>
             )}
 
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="cu-mobile">Mobile Number <span className="text-gray-400 font-normal">(optional)</span></Label>
+              <Input
+                id="cu-mobile"
+                type="tel"
+                inputMode="numeric"
+                maxLength={10}
+                value={mobileNumber}
+                onChange={(e) => setMobileNumber(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                placeholder="10-digit mobile number"
+                autoComplete="off"
+                className={mobileError ? 'border-brand-red focus-visible:ring-brand-red' : ''}
+              />
+              {mobileError && (
+                <p className="text-xs text-brand-red">Mobile number must be exactly 10 digits</p>
+              )}
+            </div>
+
             <div className="flex gap-3 pt-1">
               <Button
                 type="button"
@@ -140,7 +162,7 @@ export function CreateUserModal({ open, onClose }: CreateUserModalProps) {
               <Button
                 type="submit"
                 className="flex-1"
-                disabled={submitting || !name.trim() || !email.trim()}
+                disabled={submitting || !name.trim() || !email.trim() || mobileError}
               >
                 {submitting ? (
                   <span className="flex items-center gap-2">

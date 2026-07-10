@@ -20,6 +20,7 @@ export function docToTask(d: { id: string; data: () => Record<string, unknown> }
     assignedTo:       (data['assignedTo']       as string | null) ?? null,
     assignedToName:   (data['assignedToName']   as string)  ?? '',
     assignedToCode:   (data['assignedToCode']   as string)  ?? '',
+    assignedToMobile: (data['assignedToMobile'] as string | undefined) ?? undefined,
     status:           ((data['status']          as string)  ?? 'pending') as TaskStatus,
     dueDate:          (data['dueDate'] as { toDate?: () => Date } | null)?.toDate?.()        ?? null,
     followUpDate:     (data['followUpDate'] as { toDate?: () => Date } | null)?.toDate?.()   ?? null,

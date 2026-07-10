@@ -9,6 +9,7 @@ export interface User {
   role:              UserRole;
   active:            boolean;
   engineerCode?:     string;
+  mobileNumber?:     string;
   createdAt:         Date;
   createdBy?:        string;
   deletedAt?:        Date | null;
@@ -35,7 +36,7 @@ export interface AppUser {
 // ─── Task Form Template ────────────────────────────────────────────────────────
 
 export type FieldType =
-  | 'yesno' | 'text' | 'number' | 'select' | 'photo_only' | 'date'
+  | 'yesno' | 'text' | 'mobile' | 'number' | 'select' | 'photo_only' | 'date'
   | 'measurement' | 'age' | 'section_header';
 
 // ─── Application Journey ───────────────────────────────────────────────────────
@@ -208,6 +209,7 @@ export interface Task {
   assignedTo:       string | null;
   assignedToName:   string;
   assignedToCode:   string;
+  assignedToMobile?: string;
   status:           TaskStatus;
   dueDate:          Date | null;
   followUpDate:     Date | null;

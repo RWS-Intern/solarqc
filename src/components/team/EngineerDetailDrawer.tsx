@@ -169,6 +169,14 @@ export function EngineerDetailDrawer({ engineer, onClose }: EngineerDetailDrawer
                 <p className="text-sm text-white/70 mt-0.5">
                   {ROLE_LABEL[engineer.role] ?? engineer.role}
                 </p>
+                {engineer.mobileNumber && (
+                  <a
+                    href={`tel:${engineer.mobileNumber}`}
+                    className="text-xs text-white/60 hover:text-white/90 mt-0.5 block"
+                  >
+                    {engineer.mobileNumber}
+                  </a>
+                )}
               </div>
             </div>
           </div>
@@ -222,6 +230,7 @@ export function EngineerDetailDrawer({ engineer, onClose }: EngineerDetailDrawer
                           assignedTo:       (data['assignedTo']       as string | null) ?? null,
                           assignedToName:   (data['assignedToName']   as string)  ?? '',
                           assignedToCode:   (data['assignedToCode']   as string)  ?? '',
+                          assignedToMobile: (data['assignedToMobile'] as string | undefined) ?? undefined,
                           status:           (data['status']           as Task['status']) ?? 'pending',
                           dueDate:          (data['dueDate'] as { toDate?: () => Date } | null)?.toDate?.() ?? null,
                           followUpDate:     (data['followUpDate'] as { toDate?: () => Date } | null)?.toDate?.() ?? null,
