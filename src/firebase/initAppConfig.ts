@@ -157,7 +157,6 @@ export async function initAppConfig() {
   const snap = await getDoc(ref);
 
   if (snap.exists()) {
-    console.log('appConfig/global already exists — skipping init');
     return;
   }
 
@@ -188,8 +187,8 @@ export async function initAppConfig() {
     districts:    [],
   });
 
-  console.log('appConfig/global initialised successfully');
 }
+
 
 export async function migratePipelineStages(): Promise<void> {
   try {
@@ -200,7 +199,6 @@ export async function migratePipelineStages(): Promise<void> {
 
     const toMigrate = snap.docs.filter((d) => !d.data()['pipelineStage']);
     if (toMigrate.length === 0) {
-      console.log('[migratePipelineStages] Nothing to migrate.');
       return;
     }
 
@@ -213,7 +211,6 @@ export async function migratePipelineStages(): Promise<void> {
       await batch.commit();
     }
 
-    console.log(`[migratePipelineStages] Migrated ${toMigrate.length} tasks to stage 'survey'.`);
   } catch (err) {
     console.error('[migratePipelineStages] failed:', err);
   }
@@ -656,6 +653,5 @@ export async function ensureSuperAdmin(uid: string): Promise<void> {
   // Only set once — never overwrite an existing super admin
   if (!data['superAdminUid']) {
     await updateDoc(ref, { superAdminUid: uid });
-    console.log('Super admin set:', uid);
   }
 }

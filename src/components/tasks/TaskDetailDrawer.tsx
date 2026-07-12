@@ -23,7 +23,7 @@ import { PipelineTracker } from '@/components/pipeline/PipelineTracker';
 import { getProposalDocuments }  from '@/utils/proposalDocuments';
 import { ProposalDocumentList }  from '@/components/pipeline/ProposalDocumentList';
 import { EngineerCombobox }      from '@/components/ui/EngineerCombobox';
-import type { Task, TaskStatus, TaskUpdate, DocumentsStageData, ProposalStageData } from '@/types';
+import type { Task, TaskStatus, TaskUpdate, DocumentsStageData, ProposalStageData, FieldDefinition } from '@/types';
 
 // ─── Inline Title Edit ────────────────────────────────────────────────────────
 
@@ -205,9 +205,10 @@ function PhotoGrid({ urls, label }: { urls: string[]; label: string }) {
 
 // ─── History entry ────────────────────────────────────────────────────────────
 
-function HistoryEntry({ update }: { update: TaskUpdate }) {
+function HistoryEntry({ update, fields }: { update: TaskUpdate; fields: FieldDefinition[] }) {
   const [open, setOpen] = useState(false);
   const answerCount = Object.keys(update.fieldAnswers).length;
+  const fieldLabel = (fid: string) => fields.find((f) => f.fieldId === fid)?.label ?? fid;
 
   return (
     <div className="rounded-lg border border-gray-100 bg-gray-50">
@@ -242,7 +243,7 @@ function HistoryEntry({ update }: { update: TaskUpdate }) {
             <div className="flex flex-col gap-1">
               {Object.entries(update.fieldAnswers).map(([fid, ans]) => (
                 <p key={fid} className="text-xs text-gray-600">
-                  <span className="font-medium text-gray-800">{fid}:</span> {ans.value}
+                  <span className="font-medium text-gray-800">{fieldLabel(fid)}:</span> {ans.value}
                 </p>
               ))}
             </div>
@@ -264,9 +265,11 @@ function HistoryEntry({ update }: { update: TaskUpdate }) {
 function HistorySection({
   history,
   historyLoading,
+  fields,
 }: {
   history:        TaskUpdate[];
   historyLoading: boolean;
+  fields:         FieldDefinition[];
 }) {
   const [expanded, setExpanded] = React.useState(false);
   const PREVIEW = 3;
@@ -303,7 +306,7 @@ function HistorySection({
         <p className="text-xs text-gray-400">No submissions yet.</p>
       ) : (
         <div className="flex flex-col gap-2">
-          {shown.map((u) => <HistoryEntry key={u.id} update={u} />)}
+          {shown.map((u) => <HistoryEntry key={u.id} update={u} fields={fields} />)}
           {hasMore && !expanded && (
             <button
               type="button"
@@ -641,29 +644,29 @@ export function TaskDetailDrawer({ task, onClose, onUpdate, onAdminUpdate }: Tas
   const { config }                         = useAppConfig();
   const [history, setHistory]              = useState<TaskUpdate[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
-  const [archiving,   setArchiving]   = useState(false);
-  const [unarchiving, setUnarchiving] = useState(false);
+  const [archiving,          setArchiving]          = useState(false);
+  const [unarchiving,        setUnarchiving]        = useState(false);
+  const [showArchiveConfirm, setShowArchiveConfirm] = useState(false);
   const [showAssignPicker, setShowAssignPicker] = useState(false);
   const [proposalDoc, setProposalDoc] = useState<ProposalStageData | null>(null);
   const [documentsData, setDocumentsData] = useState<DocumentsStageData | null>(null);
 
-  const isAdmin = currentUser?.role === 'admin';
+  const isAdmin    = currentUser?.role === 'admin';
+  const isViewOnly = currentUser?.role === 'view_only';
+  const canEdit    = isAdmin;
 
   useEffect(() => {
+    setShowArchiveConfirm(false);
     if (!task) { setProposalDoc(null); return; }
     if (!['proposal','field_review','documents','backend','logistics','installation','completed','dropped']
       .includes(task.pipelineStage ?? '')) { setProposalDoc(null); return; }
-    import('firebase/firestore').then(({ doc, getDoc }) => {
-      import('@/firebase/config').then(({ db }) => {
-        getDoc(doc(db, 'tasks', task.id, 'stages', 'proposal')).then((snap) => {
-          if (snap.exists()) {
-            setProposalDoc(snap.data() as ProposalStageData);
-          } else {
-            setProposalDoc(null);
-          }
-        }).catch(() => setProposalDoc(null));
-      });
-    });
+    getDoc(doc(db, 'tasks', task.id, 'stages', 'proposal')).then((snap) => {
+      if (snap.exists()) {
+        setProposalDoc(snap.data() as ProposalStageData);
+      } else {
+        setProposalDoc(null);
+      }
+    }).catch(() => setProposalDoc(null));
   }, [task?.id, task?.pipelineStage]);
 
   useEffect(() => {
@@ -777,6 +780,11 @@ export function TaskDetailDrawer({ task, onClose, onUpdate, onAdminUpdate }: Tas
                   </svg>
                 </button>
                 <StatusBadge status={task.status} />
+                {isViewOnly && (
+                  <span className="inline-flex items-center rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-semibold text-white uppercase tracking-wide">
+                    View Only
+                  </span>
+                )}
               </div>
               <InlineTitleEdit task={task} />
             </div>
@@ -798,7 +806,7 @@ export function TaskDetailDrawer({ task, onClose, onUpdate, onAdminUpdate }: Tas
                     {task.assignedToCode && (
                       <span className="ml-1 font-mono text-xs text-gray-400">({task.assignedToCode})</span>
                     )}
-                    {task.assignedToMobile && (
+                    {task.assignedToMobile && task.assignedToMobile.trim() !== '' && (
                       <a
                         href={`tel:${task.assignedToMobile}`}
                         className="ml-2 text-xs text-blue-600 hover:underline font-normal"
@@ -807,7 +815,7 @@ export function TaskDetailDrawer({ task, onClose, onUpdate, onAdminUpdate }: Tas
                       </a>
                     )}
                   </span>
-                  {isAdmin && !showAssignPicker && (
+                  {canEdit && !showAssignPicker && (
                     <button
                       type="button"
                       onClick={() => setShowAssignPicker(true)}
@@ -820,7 +828,7 @@ export function TaskDetailDrawer({ task, onClose, onUpdate, onAdminUpdate }: Tas
               ) : (
                 <div className="flex items-center gap-2">
                   <span className="text-gray-400 italic">Unassigned</span>
-                  {isAdmin && !showAssignPicker && (
+                  {canEdit && !showAssignPicker && (
                     <button
                       type="button"
                       onClick={() => setShowAssignPicker(true)}
@@ -834,7 +842,7 @@ export function TaskDetailDrawer({ task, onClose, onUpdate, onAdminUpdate }: Tas
             </div>
 
             {/* Inline assign picker */}
-            {isAdmin && showAssignPicker && (
+            {canEdit && showAssignPicker && (
               <div className="flex items-center gap-2 ml-6">
                 <EngineerCombobox
                   engineers={engineers}
@@ -1097,15 +1105,17 @@ export function TaskDetailDrawer({ task, onClose, onUpdate, onAdminUpdate }: Tas
                             day: '2-digit', month: 'short', year: 'numeric',
                           })}
                           {step.recordedBy && ` · ${step.recordedBy}`}
-                          {step.recordedAt && ` · recorded ${
-                            (step.recordedAt instanceof Date
+                          {step.recordedAt && (() => {
+                            const raw = step.recordedAt as unknown as { toDate?: () => Date };
+                            const recordedDate = step.recordedAt instanceof Date
                               ? step.recordedAt
-                              : new Date()
-                            ).toLocaleTimeString('en-IN', {
+                              : raw?.toDate?.() ?? null;
+                            if (!recordedDate) return null;
+                            return ` · recorded ${recordedDate.toLocaleTimeString('en-IN', {
                               hour: '2-digit', minute: '2-digit',
                               timeZone: 'Asia/Kolkata',
-                            })
-                          }`}
+                            })}`;
+                          })()}
                         </p>
                       )}
                       {idx === task.currentStepIndex && step.status !== 'done' && (
@@ -1193,12 +1203,12 @@ export function TaskDetailDrawer({ task, onClose, onUpdate, onAdminUpdate }: Tas
           })()}
 
           {/* Proposal assignment (admin only, any stage past survey) */}
-          {isAdmin && task.pipelineStage && task.pipelineStage !== 'survey' && (
+          {canEdit && task.pipelineStage && task.pipelineStage !== 'survey' && (
             <ProposalAssignSection task={task} />
           )}
 
           {/* Backend assignment (admin only, backend stage) */}
-          {isAdmin && task.pipelineStage === 'backend' && (
+          {canEdit && task.pipelineStage === 'backend' && (
             <div className="flex flex-col gap-2 rounded-lg border border-orange-200 bg-orange-50 px-4 py-3">
               <p className="text-xs font-semibold text-orange-700 uppercase tracking-wide">
                 Backend Team Assignment
@@ -1221,11 +1231,11 @@ export function TaskDetailDrawer({ task, onClose, onUpdate, onAdminUpdate }: Tas
           )}
 
           {/* Submission history */}
-          <HistorySection history={history} historyLoading={historyLoading} />
+          <HistorySection history={history} historyLoading={historyLoading} fields={task.fields} />
         </div>
 
         {/* ── Footer ── */}
-        {(currentUser?.role === 'field' && onUpdate || isAdmin) && (
+        {(currentUser?.role === 'field' && onUpdate || canEdit) && (
           <div className="border-t border-gray-100 px-5 py-4 shrink-0 flex flex-col gap-2">
             {currentUser?.role === 'field' && onUpdate && (
               <Button
@@ -1235,7 +1245,7 @@ export function TaskDetailDrawer({ task, onClose, onUpdate, onAdminUpdate }: Tas
                 Update Task
               </Button>
             )}
-            {isAdmin && (
+            {canEdit && (
               <div className="flex justify-end">
                 <Button
                   variant="outline"
@@ -1248,13 +1258,13 @@ export function TaskDetailDrawer({ task, onClose, onUpdate, onAdminUpdate }: Tas
                 </Button>
               </div>
             )}
-            {isAdmin && task.pipelineStage === 'dropped' && (
+            {canEdit && task.pipelineStage === 'dropped' && (
               <ReEngageButton task={task} />
             )}
-            {isAdmin && (
+            {canEdit && (
               <AdminStageOverride task={task} />
             )}
-            {isAdmin && (
+            {canEdit && (
               task.archived ? (
                 <Button
                   variant="outline"
@@ -1274,24 +1284,33 @@ export function TaskDetailDrawer({ task, onClose, onUpdate, onAdminUpdate }: Tas
                     </>
                   )}
                 </Button>
+              ) : showArchiveConfirm ? (
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowArchiveConfirm(false)}
+                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setShowArchiveConfirm(false); handleArchive(); }}
+                    disabled={archiving}
+                    className="flex-1 px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+                  >
+                    {archiving ? 'Archiving…' : 'Yes, Archive'}
+                  </button>
+                </div>
               ) : (
                 <Button
                   variant="outline"
                   className="w-full text-red-600 border-red-200 hover:bg-red-50"
-                  onClick={handleArchive}
+                  onClick={() => setShowArchiveConfirm(true)}
                   disabled={archiving}
                 >
-                  {archiving ? (
-                    <span className="flex items-center gap-2">
-                      <span className="h-4 w-4 animate-spin rounded-full border-2 border-red-600 border-t-transparent" />
-                      Archiving…
-                    </span>
-                  ) : (
-                    <>
-                      <Archive className="h-4 w-4 mr-2" />
-                      Archive Task
-                    </>
-                  )}
+                  <Archive className="h-4 w-4 mr-2" />
+                  Archive Task
                 </Button>
               )
             )}

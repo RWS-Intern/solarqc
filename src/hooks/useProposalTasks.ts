@@ -15,6 +15,8 @@ function docToProposalTask(d: { id: string; data: () => Record<string, unknown> 
     id:               d.id,
     taskNum:          (data['taskNum']         as string)  ?? '',
     title:            (data['title']           as string)  ?? '',
+    priorityScore:    (data['priorityScore']   as number | undefined) ?? 6,
+    titleWords:       (data['titleWords']      as string[] | undefined) ?? [],
     description:      (data['description']     as string)  ?? undefined,
     assignedTo:       (data['assignedTo']      as string | null) ?? null,
     assignedToName:   (data['assignedToName']  as string)  ?? '',

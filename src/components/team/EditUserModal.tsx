@@ -113,10 +113,12 @@ export function EditUserModal({ user, onClose }: EditUserModalProps) {
             <Input
               id="edit-role"
               value={
-                user?.role === 'admin'    ? 'Admin' :
-                user?.role === 'field'    ? 'Field Engineer' :
-                user?.role === 'proposal' ? 'Proposal Engineer' :
-                user?.role === 'backend'  ? 'Backend Engineer' :
+                user?.role === 'admin'           ? 'Admin' :
+                user?.role === 'field'           ? 'Field Engineer' :
+                user?.role === 'proposal'        ? 'Proposal Engineer' :
+                user?.role === 'backend'         ? 'Backend Engineer' :
+                user?.role === 'view_only'       ? 'View Only' :
+                user?.role === 'backend_manager' ? 'Backend Manager' :
                 user?.role ?? ''
               }
               readOnly

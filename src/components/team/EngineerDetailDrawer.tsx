@@ -19,12 +19,13 @@ const STATUS_META: Record<TaskStatus, { label: string; className: string }> = {
 };
 
 const STAGE_META: Record<string, { label: string; className: string }> = {
-  survey:    { label: 'Survey',    className: 'bg-blue-100 text-blue-700'     },
-  proposal:  { label: 'Proposal',  className: 'bg-violet-100 text-violet-700' },
-  documents: { label: 'Documents', className: 'bg-teal-100 text-teal-700'     },
-  backend:   { label: 'Backend',   className: 'bg-orange-100 text-orange-700' },
-  completed: { label: 'Converted', className: 'bg-green-100 text-green-700'   },
-  dropped:   { label: 'Dropped',   className: 'bg-red-100 text-red-600'       },
+  survey:       { label: 'Survey',       className: 'bg-blue-100 text-blue-700'     },
+  proposal:     { label: 'Proposal',     className: 'bg-violet-100 text-violet-700' },
+  field_review: { label: 'Field Review', className: 'bg-blue-100 text-blue-700'     },
+  documents:    { label: 'Documents',    className: 'bg-teal-100 text-teal-700'     },
+  backend:      { label: 'Backend',      className: 'bg-orange-100 text-orange-700' },
+  completed:    { label: 'Converted',    className: 'bg-green-100 text-green-700'   },
+  dropped:      { label: 'Dropped',      className: 'bg-red-100 text-red-600'       },
 };
 
 const ROLE_LABEL: Record<string, string> = {
@@ -274,6 +275,8 @@ export function EngineerDetailDrawer({ engineer, onClose }: EngineerDetailDrawer
                           currentStepIndex: (data['currentStepIndex']  as number)  ?? 0,
                           journeyCompleted: (data['journeyCompleted']   as boolean) ?? false,
                           titleLower:       (data['titleLower']         as string)  ?? '',
+                          priorityScore:    (data['priorityScore']       as number | undefined) ?? 6,
+                          titleWords:       (data['titleWords']          as string[] | undefined) ?? [],
                         } as Task);
                       }
                     } catch (err) {

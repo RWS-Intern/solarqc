@@ -68,11 +68,11 @@ export function useUserActions() {
       let engineerCode: string | null = null;
 
       const roleCodeMap: Record<string, { prefix: string; counterKey: string }> = {
-        field:        { prefix: 'ENG',  counterKey: 'engineerNumCounter'      },
-        proposal:     { prefix: 'PROP', counterKey: 'proposalNumCounter'      },
-        backend:      { prefix: 'BACK', counterKey: 'backendNumCounter'       },
-        logistics:    { prefix: 'LOG',  counterKey: 'logisticsNumCounter'     },
-        installation: { prefix: 'INST', counterKey: 'installationNumCounter'  },
+        field:        { prefix: 'ENG',  counterKey: 'engineerNumCounter'  },
+        proposal:     { prefix: 'PROP', counterKey: 'proposalNumCounter'  },
+        backend:      { prefix: 'BACK', counterKey: 'backendNumCounter'   },
+        logistics:    { prefix: 'LOG',  counterKey: 'logisticsNumCounter' },
+        installation: { prefix: 'INST', counterKey: 'installationNumCounter' },
       };
 
       if (roleCodeMap[role]) {
@@ -252,7 +252,7 @@ export function useUserActions() {
           'success',
         );
       } else if (roleCodeMap[newRole]) {
-        // Admin or any role → non-admin: assign role-specific code atomically
+        // Admin or any role → code-bearing role: assign role-specific code atomically
         const { prefix, counterKey, label } = roleCodeMap[newRole];
         const actualMax = await resolveActualMax(prefix);
         let engineerCode = '';
@@ -273,6 +273,13 @@ export function useUserActions() {
           `Role changed to ${label}. Assigned ${engineerCode}. User must log out and back in.`,
           'success',
         );
+      } else {
+        // Roles with no code (view_only, backend_manager): update role only
+        await updateDoc(userRef, {
+          role:      newRole,
+          updatedAt: serverTimestamp(),
+        });
+        showToast('Role changed. User must log out and back in for full effect.', 'success');
       }
     } catch (err) {
       console.error('[changeRole] failed:', err);

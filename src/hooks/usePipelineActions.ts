@@ -8,6 +8,7 @@ import { useAuthStore } from '@/store/authStore';
 import { useToast }     from '@/components/ui/toast';
 import { assignLeastLoaded } from '@/utils/findLeastLoadedUser';
 import { getProposalDocuments } from '@/utils/proposalDocuments';
+import { computePriorityScore } from '@/utils/taskScoring';
 import type { Task, PipelineStage, ProposalStageData, JourneyStepDefinition, JourneyStepAnswer } from '@/types';
 
 function cleanStep(step: JourneyStepAnswer): Record<string, unknown> {
@@ -96,6 +97,7 @@ export function usePipelineActions() {
       // Advance pipeline stage on task document
       await updateDoc(taskRef, {
         pipelineStage:         'field_review',
+        priorityScore:         computePriorityScore('field_review', 'completed'),
         proposalRevisionCount: revisions.length,
         stageHistory:          arrayUnion(stageHistoryEntry),
         updatedAt:             serverTimestamp(),
@@ -159,7 +161,7 @@ export function usePipelineActions() {
           if (oldUid && oldUid !== assigneeUid) {
             updates[`memberCounts.${oldUid}`] = increment(-1);
           }
-          if (assigneeUid) {
+          if (assigneeUid && assigneeUid !== oldUid) {
             updates[`memberCounts.${assigneeUid}`] = increment(1);
           }
           const pcUpdates: Record<string, unknown> = {};
@@ -256,6 +258,7 @@ export function usePipelineActions() {
 
           tx.update(taskRef, {
             pipelineStage: targetStage,
+            priorityScore: computePriorityScore(targetStage, 'pending'),
             stageHistory:  [...cappedHistory, entry],
             updatedAt:     serverTimestamp(),
           });
@@ -339,6 +342,7 @@ export function usePipelineActions() {
 
           tx.update(taskRef, {
             pipelineStage: 'dropped',
+            priorityScore: computePriorityScore('dropped', 'completed'),
             droppedReason: revisionNote ?? 'Consumer rejected proposal',
             stageHistory:  [...cappedHistory, entry],
             updatedAt:     serverTimestamp(),
@@ -389,6 +393,7 @@ export function usePipelineActions() {
 
           tx.update(taskRef, {
             pipelineStage:         'proposal',
+            priorityScore:         computePriorityScore('proposal', 'completed'),
             proposalRevisionCount: increment(1),
             stageHistory:          [...cappedHistory, entry],
             updatedAt:             serverTimestamp(),
@@ -476,6 +481,7 @@ export function usePipelineActions() {
         tx.update(taskRef, {
           documentsCompleted: true,
           pipelineStage:      'backend',
+          priorityScore:      computePriorityScore('backend', 'pending'),
           stageHistory:       [...cappedHistory, entry],
           updatedAt:          serverTimestamp(),
         });
@@ -509,19 +515,6 @@ export function usePipelineActions() {
       showToast('Failed to submit documents. Try again.', 'error');
       throw err;
     }
-  }
-
-  // ── Submit Backend Checklist — logistics stage cancelled ──────────
-  async function submitBackendChecklist(
-    _taskId:            string,
-    _checklistAnswers:  Record<string, string>,
-    _checklistPhotos:   Record<string, string[]>,
-    _checklistSnapshot: unknown[],
-  ): Promise<void> {
-    // Logistics stage cancelled — this function is no longer used.
-    // Backend team uses markLeadConverted instead.
-    console.warn('[submitBackendChecklist] called but logistics stage is cancelled');
-    showToast('Use "Mark as Converted" to complete this lead.', 'error');
   }
 
   // ── Initialize Journey Steps (payment type selected) ─────────────
@@ -642,6 +635,7 @@ export function usePipelineActions() {
         tx.set(backendStageRef, backendStageDoc);
         tx.update(taskRef, {
           pipelineStage:    'completed',
+          priorityScore:    computePriorityScore('completed', 'completed'),
           journeyCompleted: true,
           status:           'completed',
           updatedAt:        serverTimestamp(),
@@ -700,6 +694,7 @@ export function usePipelineActions() {
   ): Promise<void> {
     if (!currentUser) throw new Error('Not authenticated');
     try {
+      let blockedByArchive = false;
       const now   = Timestamp.now();
       const entry = {
         fromStage: 'dropped' as PipelineStage,
@@ -718,6 +713,10 @@ export function usePipelineActions() {
         if (taskSnap.data()['pipelineStage'] !== 'dropped') {
           throw new Error('Task is not in dropped state');
         }
+        if (taskSnap.data()['archived'] === true) {
+          blockedByArchive = true;
+          return;
+        }
         const existingHistory = (taskSnap.data()?.['stageHistory'] ?? []) as Array<Record<string, unknown>>;
         const cappedHistory   = existingHistory.slice(-49).map((e) => ({
           fromStage: e['fromStage'] ?? null,
@@ -730,6 +729,7 @@ export function usePipelineActions() {
         }));
         tx.update(taskRef, {
           pipelineStage: 'proposal',
+          priorityScore: computePriorityScore('proposal', 'completed'),
           droppedReason: null,
           updatedAt:     serverTimestamp(),
           stageHistory:  [...cappedHistory, entry],
@@ -741,6 +741,11 @@ export function usePipelineActions() {
           'pipelineCounts.unassigned_proposal':  increment(1),
         });
       });
+
+      if (blockedByArchive) {
+        showToast('Cannot re-engage an archived task. Restore it first.', 'error');
+        return;
+      }
 
       // Assign to least loaded proposal member
       try {
@@ -775,79 +780,82 @@ export function usePipelineActions() {
     if (!currentUser) throw new Error('Not authenticated');
     if (currentUser.role !== 'admin') throw new Error('Admin only');
     try {
-      const now     = Timestamp.now();
-      const taskRef = doc(db, 'tasks', taskId);
-      const taskSnap = await getDoc(taskRef);
-      if (!taskSnap.exists()) throw new Error('Task not found');
-      const currentStage    = taskSnap.data()['pipelineStage'] as string;
-      const proposalUid     = taskSnap.data()['proposalAssignedTo'] as string | null;
-      const backendUid      = taskSnap.data()['backendAssignedTo']  as string | null;
-      const existingHistory = (taskSnap.data()?.['stageHistory'] ?? []) as Array<Record<string, unknown>>;
-      const cappedHistory   = existingHistory.slice(-49).map((e) => ({
-        fromStage: e['fromStage'] ?? null,
-        toStage:   e['toStage']   ?? '',
-        timestamp: e['timestamp'] ?? Timestamp.now(),
-        actorUid:  e['actorUid']  ?? '',
-        actorName: e['actorName'] ?? '',
-        actorRole: e['actorRole'] ?? '',
-        note:      e['note']      ?? '',
-      }));
+      const now          = Timestamp.now();
+      const taskRef      = doc(db, 'tasks', taskId);
+      const appConfigRef = doc(db, 'appConfig', 'global');
 
-      const entry = {
-        fromStage: currentStage as PipelineStage,
-        toStage:   newStage,
-        timestamp: now,
-        actorUid:  currentUser.uid,
-        actorName: currentUser.name,
-        actorRole: 'admin_override',
-        note:      note || `Admin moved from ${currentStage} to ${newStage}`,
-      };
+      await runTransaction(db, async (tx) => {
+        const taskSnap = await tx.get(taskRef);
+        if (!taskSnap.exists()) throw new Error('Task not found');
 
-      const taskFieldUpdates: Record<string, unknown> = {
-        pipelineStage: newStage,
-        updatedAt:     serverTimestamp(),
-        stageHistory:  [...cappedHistory, entry],
-      };
+        const currentStage  = taskSnap.data()['pipelineStage'] as string;
+        const currentStatus = taskSnap.data()['status'] as string;
+        const proposalUid   = taskSnap.data()['proposalAssignedTo'] as string | null;
+        const backendUid    = taskSnap.data()['backendAssignedTo']  as string | null;
+        const existingHistory = (taskSnap.data()?.['stageHistory'] ?? []) as Array<Record<string, unknown>>;
+        const cappedHistory   = existingHistory.slice(-49).map((e) => ({
+          fromStage: e['fromStage'] ?? null,
+          toStage:   e['toStage']   ?? '',
+          timestamp: e['timestamp'] ?? Timestamp.now(),
+          actorUid:  e['actorUid']  ?? '',
+          actorName: e['actorName'] ?? '',
+          actorRole: e['actorRole'] ?? '',
+          note:      e['note']      ?? '',
+        }));
 
-      // Clear stale assignment fields when moving away from a stage
-      if (currentStage === 'proposal' && newStage !== 'proposal') {
-        taskFieldUpdates['proposalAssignedTo']     = null;
-        taskFieldUpdates['proposalAssignedToName'] = '';
-      }
-      if (currentStage === 'backend' && newStage !== 'backend') {
-        taskFieldUpdates['backendAssignedTo']     = null;
-        taskFieldUpdates['backendAssignedToName'] = '';
-      }
+        const entry = {
+          fromStage: currentStage as PipelineStage,
+          toStage:   newStage,
+          timestamp: now,
+          actorUid:  currentUser.uid,
+          actorName: currentUser.name,
+          actorRole: 'admin_override',
+          note:      note || `Admin moved from ${currentStage} to ${newStage}`,
+        };
 
-      const overrideConfigUpdates: Record<string, unknown> = {
-        [`pipelineCounts.${currentStage}`]: increment(-1),
-        [`pipelineCounts.${newStage}`]:     increment(1),
-        ...(['completed', 'dropped'].includes(newStage) && !['completed', 'dropped'].includes(currentStage)
-          ? { 'pipelineCounts.total_active': increment(-1) }
-          : {}),
-        ...(!['completed', 'dropped'].includes(newStage) && ['completed', 'dropped'].includes(currentStage)
-          ? { 'pipelineCounts.total_active': increment(1) }
-          : {}),
-      };
+        const taskFieldUpdates: Record<string, unknown> = {
+          pipelineStage: newStage,
+          priorityScore: computePriorityScore(newStage, currentStatus),
+          updatedAt:     serverTimestamp(),
+          stageHistory:  [...cappedHistory, entry],
+        };
 
-      // Decrement old stage member count when overriding away
-      if (currentStage === 'proposal' && proposalUid) {
-        overrideConfigUpdates[`memberCounts.${proposalUid}`] = increment(-1);
-      }
-      if (currentStage === 'backend' && backendUid) {
-        overrideConfigUpdates[`memberCounts.${backendUid}`] = increment(-1);
-      }
+        if (currentStage === 'proposal' && newStage !== 'proposal') {
+          taskFieldUpdates['proposalAssignedTo']     = null;
+          taskFieldUpdates['proposalAssignedToName'] = '';
+        }
+        if (currentStage === 'backend' && newStage !== 'backend') {
+          taskFieldUpdates['backendAssignedTo']     = null;
+          taskFieldUpdates['backendAssignedToName'] = '';
+        }
 
-      // Add unassigned counter for new stage
-      if (newStage === 'proposal') {
-        overrideConfigUpdates['pipelineCounts.unassigned_proposal'] = increment(1);
-      }
-      if (newStage === 'backend') {
-        overrideConfigUpdates['pipelineCounts.unassigned_backend'] = increment(1);
-      }
+        const overrideConfigUpdates: Record<string, unknown> = {
+          [`pipelineCounts.${currentStage}`]: increment(-1),
+          [`pipelineCounts.${newStage}`]:     increment(1),
+          ...(['completed', 'dropped'].includes(newStage) && !['completed', 'dropped'].includes(currentStage)
+            ? { 'pipelineCounts.total_active': increment(-1) }
+            : {}),
+          ...(!['completed', 'dropped'].includes(newStage) && ['completed', 'dropped'].includes(currentStage)
+            ? { 'pipelineCounts.total_active': increment(1) }
+            : {}),
+        };
 
-      await updateDoc(taskRef, taskFieldUpdates);
-      await updateDoc(doc(db, 'appConfig', 'global'), overrideConfigUpdates);
+        if (currentStage === 'proposal' && proposalUid) {
+          overrideConfigUpdates[`memberCounts.${proposalUid}`] = increment(-1);
+        }
+        if (currentStage === 'backend' && backendUid) {
+          overrideConfigUpdates[`memberCounts.${backendUid}`] = increment(-1);
+        }
+        if (newStage === 'proposal') {
+          overrideConfigUpdates['pipelineCounts.unassigned_proposal'] = increment(1);
+        }
+        if (newStage === 'backend') {
+          overrideConfigUpdates['pipelineCounts.unassigned_backend'] = increment(1);
+        }
+
+        tx.update(taskRef, taskFieldUpdates);
+        tx.update(appConfigRef, overrideConfigUpdates);
+      });
 
       // Auto-assign if moving to proposal or backend stage
       if (newStage === 'proposal') {
@@ -859,7 +867,7 @@ export function usePipelineActions() {
             'proposalAssignedToName',
           );
           if (assigned) {
-            await updateDoc(doc(db, 'appConfig', 'global'), {
+            await updateDoc(appConfigRef, {
               'pipelineCounts.unassigned_proposal': increment(-1),
             }).catch(console.error);
           }
@@ -877,7 +885,7 @@ export function usePipelineActions() {
             'backendAssignedToName',
           );
           if (assigned) {
-            await updateDoc(doc(db, 'appConfig', 'global'), {
+            await updateDoc(appConfigRef, {
               'pipelineCounts.unassigned_backend': increment(-1),
             }).catch(console.error);
           }
@@ -894,5 +902,5 @@ export function usePipelineActions() {
     }
   }
 
-  return { submitProposal, assignStageTeamMember, submitFieldReviewDecision, submitDocuments, submitBackendChecklist, initializeJourneySteps, completeJourneyStep, markLeadConverted, saveJourneyStepDraft, reEngageLead, adminOverrideStage };
+  return { submitProposal, assignStageTeamMember, submitFieldReviewDecision, submitDocuments, initializeJourneySteps, completeJourneyStep, markLeadConverted, saveJourneyStepDraft, reEngageLead, adminOverrideStage };
 }

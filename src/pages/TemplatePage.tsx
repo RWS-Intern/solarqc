@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AlertTriangle, Plus, Trash2, ChevronUp, ChevronDown, Save, Check, X, ChevronRight, Pencil, Route, FileText } from 'lucide-react';
 import { useAppConfig }       from '@/hooks/useAppConfig';
+import { useAuthStore }       from '@/store/authStore';
 import { useTemplateActions } from '@/hooks/useTemplateActions';
 import { _emitToast }         from '@/components/ui/toast';
 import { Button }  from '@/components/ui/button';
@@ -560,6 +561,8 @@ function ApplicationJourneyEditor() {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export function TemplatePage() {
+  const { currentUser }      = useAuthStore();
+  const isViewOnly           = currentUser?.role === 'view_only';
   const { config, loading }  = useAppConfig();
   const { saveTemplate, saveDocumentTemplate, saveDistricts } = useTemplateActions();
 
@@ -839,17 +842,19 @@ export function TemplatePage() {
             <p className="text-sm text-gray-500">
               {fields.length} field{fields.length !== 1 ? 's' : ''} — applied to all new tasks
             </p>
-            <Button
-              onClick={handleSave}
-              disabled={!dirty || saving}
-              className="w-full sm:w-auto sm:ml-auto flex items-center justify-center gap-1.5 h-11"
-            >
-              {saving ? (
-                <><span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />Saving…</>
-              ) : (
-                <><Save className="h-4 w-4" />Save</>
-              )}
-            </Button>
+            {!isViewOnly && (
+              <Button
+                onClick={handleSave}
+                disabled={!dirty || saving}
+                className="w-full sm:w-auto sm:ml-auto flex items-center justify-center gap-1.5 h-11"
+              >
+                {saving ? (
+                  <><span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />Saving…</>
+                ) : (
+                  <><Save className="h-4 w-4" />Save</>
+                )}
+              </Button>
+            )}
           </div>
 
           {/* Warning banner */}
@@ -885,14 +890,16 @@ export function TemplatePage() {
             </div>
           )}
 
-          <Button
-            variant="outline"
-            onClick={handleAddField}
-            className="w-full flex items-center gap-2 border-dashed"
-          >
-            <Plus className="h-4 w-4" />
-            Add Field
-          </Button>
+          {!isViewOnly && (
+            <Button
+              variant="outline"
+              onClick={handleAddField}
+              className="w-full flex items-center gap-2 border-dashed"
+            >
+              <Plus className="h-4 w-4" />
+              Add Field
+            </Button>
+          )}
         </>
       )}
 
@@ -904,17 +911,19 @@ export function TemplatePage() {
             <p className="text-sm text-gray-500">
               {docFields.length} field{docFields.length !== 1 ? 's' : ''} — collected during the Documents stage
             </p>
-            <Button
-              onClick={handleSaveDocuments}
-              disabled={!docDirty || docSaving}
-              className="w-full sm:w-auto sm:ml-auto flex items-center justify-center gap-1.5 h-11"
-            >
-              {docSaving ? (
-                <><span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />Saving…</>
-              ) : (
-                <><Save className="h-4 w-4" />Save</>
-              )}
-            </Button>
+            {!isViewOnly && (
+              <Button
+                onClick={handleSaveDocuments}
+                disabled={!docDirty || docSaving}
+                className="w-full sm:w-auto sm:ml-auto flex items-center justify-center gap-1.5 h-11"
+              >
+                {docSaving ? (
+                  <><span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />Saving…</>
+                ) : (
+                  <><Save className="h-4 w-4" />Save</>
+                )}
+              </Button>
+            )}
           </div>
 
           {/* Info banner */}
@@ -950,14 +959,16 @@ export function TemplatePage() {
             </div>
           )}
 
-          <Button
-            variant="outline"
-            onClick={handleDocAddField}
-            className="w-full flex items-center gap-2 border-dashed"
-          >
-            <Plus className="h-4 w-4" />
-            Add Field
-          </Button>
+          {!isViewOnly && (
+            <Button
+              variant="outline"
+              onClick={handleDocAddField}
+              className="w-full flex items-center gap-2 border-dashed"
+            >
+              <Plus className="h-4 w-4" />
+              Add Field
+            </Button>
+          )}
         </>
       )}
 
@@ -971,7 +982,7 @@ export function TemplatePage() {
             <h2 className="text-base font-semibold text-gray-900">Districts</h2>
             <p className="text-xs text-gray-500 mt-0.5">Manage district options for tasks and engineers</p>
           </div>
-          {districtsDirty && (
+          {districtsDirty && !isViewOnly && (
             <Button
               size="sm"
               onClick={handleSaveDistricts}

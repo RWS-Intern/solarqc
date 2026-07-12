@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+﻿import { useEffect, useRef, useState } from 'react';
 import {
   collection, query, where, orderBy, limit, onSnapshot,
   startAfter, getDocs, Timestamp,
@@ -15,6 +15,8 @@ export function docToTask(d: { id: string; data: () => Record<string, unknown> }
     id:               d.id,
     taskNum:          (data['taskNum']          as string)  ?? '',
     title:            (data['title']            as string)  ?? '',
+    priorityScore:    (data['priorityScore']    as number | undefined) ?? 6,
+    titleWords:       (data['titleWords']       as string[] | undefined) ?? [],
     description:      (data['description']      as string)  ?? undefined,
     district:         (data['district']          as string)  ?? undefined,
     assignedTo:       (data['assignedTo']       as string | null) ?? null,
@@ -154,7 +156,9 @@ export function useTasks() {
     if (!currentUser) return;
     const pipelineRoles = ['proposal', 'backend', 'logistics', 'installation'];
     if (pipelineRoles.includes(currentUser.role)) return;
-    if (currentUser.role === 'admin') return; // admin handled by subscribeToFilter
+    if (currentUser.role === 'admin' ||
+        currentUser.role === 'view_only' ||
+        currentUser.role === 'backend_manager') return; // handled by subscribeToFilter / own page
 
     const q = query(
       collection(db, 'tasks'),
@@ -230,8 +234,7 @@ export function useTasks() {
           base,
           where('archived',   '==', false),
           where('createdBy',  '==', currentUser!.uid),
-          where('titleLower', '>=', term),
-          where('titleLower', '<=', term + ''),
+          where('titleWords', 'array-contains', term),
           limit(PAGE_SIZE),
         );
         return { taskNumQuery, titleQuery, isSearch: true as const };
@@ -246,8 +249,7 @@ export function useTasks() {
       const titleQuery = query(
         base,
         where('archived',   '==', false),
-        where('titleLower', '>=', term),
-        where('titleLower', '<=', term + ''),
+        where('titleWords', 'array-contains', term),
         limit(PAGE_SIZE),
       );
       return { taskNumQuery, titleQuery, isSearch: true as const };
@@ -353,8 +355,10 @@ export function useTasks() {
         break;
       default: // 'all'
         q = query(base,
-          where('archived', '==', false),
-          orderBy('updatedAt', 'desc'), limit(PAGE_SIZE));
+          where('archived',     '==', false),
+          orderBy('priorityScore', 'asc'),
+          orderBy('updatedAt',     'desc'),
+          limit(PAGE_SIZE));
     }
     return { q, isSearch: false as const };
   }
@@ -366,7 +370,7 @@ export function useTasks() {
     engineerUid?: string,
     districtFilter?: string,
   ) {
-    if (currentUser?.role !== 'admin') return;
+    if (currentUser?.role !== 'admin' && currentUser?.role !== 'view_only') return;
 
     if (unsubRef.current) {
       unsubRef.current();
@@ -465,8 +469,23 @@ export function useTasks() {
               return [where('archived','==',false), where('pipelineStage','==','backend'), orderBy('createdAt','desc')];
             case 'my_tasks':
               return [where('archived','==',false), where('createdBy','==',currentUser!.uid), orderBy('createdAt','desc')];
+            case 'follow_up':
+              return [
+                where('archived',     '==', false),
+                where('followUpDate', '!=', null),
+                orderBy('followUpDate', 'asc'),
+              ];
+            case 'overdue': {
+              const now = new Date();
+              return [
+                where('archived', '==', false),
+                where('status',   'in', ['pending', 'in_progress', 'blocked']),
+                where('dueDate',  '<',  Timestamp.fromDate(now)),
+                orderBy('dueDate', 'asc'),
+              ];
+            }
             default:
-              return [where('archived','==',false), orderBy('createdAt','desc')];
+              return [where('archived','==',false), orderBy('priorityScore','asc'), orderBy('updatedAt','desc')];
           }
         })();
         const moreSnap = await getDocs(query(

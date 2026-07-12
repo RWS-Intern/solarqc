@@ -1,6 +1,7 @@
 import { useEffect }   from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth }     from '@/hooks/useAuth';
+import { usePresence } from '@/hooks/usePresence';
 import { useAuthStore } from '@/store/authStore';
 import { Toaster }     from '@/components/ui/toaster';
 import { Layout }      from '@/components/layout/Layout';
@@ -11,8 +12,9 @@ import { TasksPage }   from '@/pages/TasksPage';
 import { TeamPage }    from '@/pages/TeamPage';
 import { TemplatePage } from '@/pages/TemplatePage';
 import { ReportsPage }  from '@/pages/ReportsPage';
-import { ProposalPage }    from '@/pages/ProposalPage';
-import { BackendPage }     from '@/pages/BackendPage';
+import { ProposalPage }        from '@/pages/ProposalPage';
+import { BackendPage }         from '@/pages/BackendPage';
+import { BackendManagerPage }  from '@/pages/BackendManagerPage';
 
 function ComingSoonPage() {
   return (
@@ -28,6 +30,7 @@ function ComingSoonPage() {
 
 function AuthInit({ children }: { children: React.ReactNode }) {
   useAuth();
+  usePresence();
   return <>{children}</>;
 }
 
@@ -50,7 +53,7 @@ function ProtectedRoute({ requireAdmin = false, requireRole, requireAdminOrField
   }
 
   if (!currentUser) return <Navigate to="/login" replace />;
-  if (requireAdmin && currentUser.role !== 'admin') return <Navigate to="/dashboard" replace />;
+  if (requireAdmin && currentUser.role !== 'admin' && currentUser.role !== 'view_only') return <Navigate to="/dashboard" replace />;
   if (requireRole && currentUser.role !== requireRole && currentUser.role !== 'admin') {
     return <Navigate to="/dashboard" replace />;
   }
@@ -58,6 +61,7 @@ function ProtectedRoute({ requireAdmin = false, requireRole, requireAdminOrField
     const role = currentUser.role;
     if (role === 'proposal') return <Navigate to="/proposal" replace />;
     if (role === 'backend') return <Navigate to="/backend" replace />;
+    if (role === 'backend_manager') return <Navigate to="/backend-manager" replace />;
     if (role === 'logistics' || role === 'installation') {
       return <Navigate to="/coming-soon" replace />;
     }
@@ -103,6 +107,15 @@ export default function App() {
               element={
                 <ProtectedRoute requireRole="backend">
                   <BackendPage />
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/backend-manager"
+              element={
+                <ProtectedRoute requireRole="backend_manager">
+                  <BackendManagerPage />
                 </ProtectedRoute>
               }
             />

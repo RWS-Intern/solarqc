@@ -10,8 +10,10 @@ service cloud.firestore {
     function isField()        { return isAuth() && userRole() == 'field'; }
     function isProposal()     { return isAuth() && userRole() == 'proposal'; }
     function isBackend()      { return isAuth() && userRole() == 'backend'; }
-    function isLogistics()    { return isAuth() && userRole() == 'logistics'; }
-    function isInstallation() { return isAuth() && userRole() == 'installation'; }
+    function isLogistics()      { return isAuth() && userRole() == 'logistics'; }
+    function isInstallation()   { return isAuth() && userRole() == 'installation'; }
+    function isViewOnly()       { return isAuth() && userRole() == 'view_only'; }
+    function isBackendManager() { return isAuth() && userRole() == 'backend_manager'; }
 
     match /users/{uid} {
       allow read:  if isAuth();
@@ -37,6 +39,8 @@ service cloud.firestore {
 
     match /tasks/{taskId} {
       allow read:   if isAdmin()
+                    || isViewOnly()
+                    || isBackendManager()
                     || (isField()        && resource.data.assignedTo         == request.auth.uid)
                     || (isProposal()     && (resource.data.pipelineStage     == 'proposal'
                                          || resource.data.proposalAssignedTo == request.auth.uid))
@@ -57,6 +61,8 @@ service cloud.firestore {
 
       match /updates/{updateId} {
         allow read:   if isAdmin()
+                      || isViewOnly()
+                      || isBackendManager()
                       || (isField() && get(/databases/$(database)/documents/tasks/$(taskId)).data.assignedTo == request.auth.uid);
         allow create: if isAdmin()
                       || (isField() && get(/databases/$(database)/documents/tasks/$(taskId)).data.assignedTo == request.auth.uid);
@@ -66,6 +72,8 @@ service cloud.firestore {
 
       match /stages/{stageId} {
         allow read:   if isAdmin()
+                      || isViewOnly()
+                      || isBackendManager()
                       || (isField()        && get(/databases/$(database)/documents/tasks/$(taskId)).data.assignedTo         == request.auth.uid)
                       || (isProposal()     && (get(/databases/$(database)/documents/tasks/$(taskId)).data.pipelineStage     == 'proposal'
                                            || get(/databases/$(database)/documents/tasks/$(taskId)).data.proposalAssignedTo == request.auth.uid))

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { MapPin, Loader2 } from 'lucide-react';
 import { useAuthStore }        from '@/store/authStore';
 import { useTaskSubmit }       from '@/hooks/useTaskSubmit';
@@ -79,6 +79,7 @@ export function UpdateTaskDrawer({ task, onClose }: UpdateTaskDrawerProps) {
   const [submitting,       setSubmitting]       = useState(false);
   const [showErrors,       setShowErrors]       = useState(false);
   const [uploadingFields,  setUploadingFields]  = useState<Set<string>>(new Set());
+  const [confirmClose,     setConfirmClose]     = useState(false);
 
   // Initialise state when the drawer opens for a new task.
   // Guarded by initialisedForTaskId so Firestore real-time updates
@@ -119,10 +120,39 @@ export function UpdateTaskDrawer({ task, onClose }: UpdateTaskDrawerProps) {
     setSubmitting(false);
     setShowErrors(false);
     setUploadingFields(new Set());
+    setConfirmClose(false);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [task?.id, task]);
 
-  useDrawerBackButton(!!task, () => { if (!submitting) onClose(); });
+  // Derived values computed before the null-guard so hooks (useMemo) are
+  // always called in the same order regardless of the task prop value.
+  const isUploading = uploadingFields.size > 0;
+
+  const hasUnsavedChanges = useMemo(() => {
+    if (!task || !!(task.pipelineStage && task.pipelineStage !== 'survey')) return false;
+    const originalAnswers = task.fieldAnswers ?? {};
+    const answersChanged = Object.keys(fieldAnswers).some(
+      (k) => fieldAnswers[k]?.value !== originalAnswers[k]?.value,
+    );
+    const originalPhotos = task.fieldPhotos ?? {};
+    const photosChanged = Object.keys(fieldPhotos).some(
+      (k) => (fieldPhotos[k]?.length ?? 0) !== (originalPhotos[k]?.length ?? 0),
+    );
+    const originalStatus = task.status === 'pending' ? 'in_progress' : task.status;
+    const statusChanged = status !== originalStatus;
+    return answersChanged || photosChanged || statusChanged;
+  }, [task, fieldAnswers, fieldPhotos, status]);
+
+  function handleCloseAttempt() {
+    if (submitting || isUploading) return;
+    if (hasUnsavedChanges) {
+      setConfirmClose(true);
+      return;
+    }
+    onClose();
+  }
+
+  useDrawerBackButton(!!task, handleCloseAttempt);
 
   // Defensive backstop for a genuine component unmount while a GPS watch
   // is still active (e.g. navigating away from this page mid-capture).
@@ -136,7 +166,6 @@ export function UpdateTaskDrawer({ task, onClose }: UpdateTaskDrawerProps) {
   const task_ = task;
 
   const isReadOnly  = !!(task && task.pipelineStage && task.pipelineStage !== 'survey');
-  const isUploading = uploadingFields.size > 0;
 
   // ── Handlers ─────────────────────────────────────────────────────────────────
 
@@ -358,7 +387,7 @@ export function UpdateTaskDrawer({ task, onClose }: UpdateTaskDrawerProps) {
   const sortedFields = [...task_.fields].sort((a, b) => a.sortOrder - b.sortOrder);
 
   return (
-    <Sheet open={!!task} onOpenChange={(o) => { if (!o && !submitting) onClose(); }}>
+    <Sheet open={!!task} onOpenChange={(o) => { if (!o) handleCloseAttempt(); }}>
       <SheetContent side="right" className="flex flex-col p-0 w-full md:max-w-lg">
 
         {/* ── Sticky header with gradient ── */}
@@ -573,6 +602,31 @@ export function UpdateTaskDrawer({ task, onClose }: UpdateTaskDrawerProps) {
                 'Submit Update'
               )}
             </Button>
+          </div>
+        )}
+
+        {/* ── Unsaved-changes confirmation ── */}
+        {confirmClose && (
+          <div className="mx-4 mb-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
+            <p className="text-sm font-medium text-amber-800 mb-2">
+              You have unsaved changes. Close without submitting?
+            </p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmClose(false)}
+                className="flex-1 px-3 py-1.5 border border-gray-300 rounded text-xs text-gray-600 bg-white"
+              >
+                Keep editing
+              </button>
+              <button
+                type="button"
+                onClick={() => { setConfirmClose(false); onClose(); }}
+                className="flex-1 px-3 py-1.5 bg-amber-600 text-white rounded text-xs font-medium"
+              >
+                Close anyway
+              </button>
+            </div>
           </div>
         )}
       </SheetContent>

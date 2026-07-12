@@ -29,16 +29,23 @@ const adminItems = [
   { to: '/reports',   label: 'Reports',  Icon: BarChart2 },
 ];
 
+const backendManagerItems = [
+  { to: '/dashboard',       label: 'Home',    Icon: LayoutDashboard },
+  { to: '/backend-manager', label: 'Backend', Icon: Settings },
+];
+
 export function BottomNav() {
   const { currentUser } = useAuthStore();
   const { proposalTasks, backendTasks } = useTaskStore();
   const role = currentUser?.role;
-  const items = role === 'admin'
+  const items = role === 'admin' || role === 'view_only'
     ? adminItems
     : role === 'proposal'
     ? proposalItems
     : role === 'backend'
     ? backendItems
+    : role === 'backend_manager'
+    ? backendManagerItems
     : fieldItems;
 
   const badgeCount = role === 'proposal'

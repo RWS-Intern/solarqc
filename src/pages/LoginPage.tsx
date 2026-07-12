@@ -41,8 +41,9 @@ export function LoginPage() {
   const { showToast } = useToast();
 
   function getHomeRoute(role?: string): string {
-    if (role === 'proposal') return '/proposal';
-    if (role === 'backend')  return '/backend';
+    if (role === 'proposal')        return '/proposal';
+    if (role === 'backend')         return '/backend';
+    if (role === 'backend_manager') return '/backend-manager';
     return '/dashboard';
   }
 

@@ -26,7 +26,9 @@
       "PowerShell(cd D:\\\\SolarOps; npm run build 2>&1; echo \"EXIT_CODE: $LASTEXITCODE\")",
       "PowerShell(cd D:\\\\SolarOps; npx tsc --noEmit 2>&1; echo \"EXIT_CODE:$LASTEXITCODE\")",
       "PowerShell(cd D:\\\\SolarOps; npm run build 2>&1; echo \"EXIT_CODE:$LASTEXITCODE\")",
-      "PowerShell(cd D:\\\\SolarOps; \\(Get-Content firestore.rules | Measure-Object -Line\\).Lines; echo \"---\"; \\(Get-Content firestore.indexes.json | Measure-Object -Line\\).Lines)"
+      "PowerShell(cd D:\\\\SolarOps; \\(Get-Content firestore.rules | Measure-Object -Line\\).Lines; echo \"---\"; \\(Get-Content firestore.indexes.json | Measure-Object -Line\\).Lines)",
+      "PowerShell(cd D:\\\\SolarOps; \\(Get-Content firestore.rules | Measure-Object -Line\\).Lines)",
+      "PowerShell(cd D:\\\\SolarOps; $pkgs = @\\('xlsx','papaparse','date-fns','dayjs','moment'\\); foreach \\($p in $pkgs\\) { $exists = Test-Path \"node_modules/$p\"; Write-Host \"$p : $exists\" })"
     ]
   }
 }

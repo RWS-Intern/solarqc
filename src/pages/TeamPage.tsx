@@ -4,6 +4,8 @@ import { useUserStore } from '@/store/userStore';
 import { useUserActions } from '@/hooks/useUserActions';
 import { useAuthStore }   from '@/store/authStore';
 import { useAppConfig }   from '@/hooks/useAppConfig';
+import { useTeamStats }     from '@/hooks/useTeamStats';
+import { useOnlineUsers }   from '@/hooks/useOnlineUsers';
 import { UserCard }               from '@/components/team/UserCard';
 import { EditUserModal }          from '@/components/team/EditUserModal';
 import { CreateUserModal }        from '@/components/team/CreateUserModal';
@@ -18,7 +20,7 @@ import {
 import { Button }   from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
-import type { User } from '@/types';
+import type { User, UserRole } from '@/types';
 
 function exportEngineersCsv(users: User[]): void {
   const headers = ['Name', 'Engineer Code', 'Email', 'Role', 'Status'].join(',');
@@ -43,15 +45,17 @@ function exportEngineersCsv(users: User[]): void {
   URL.revokeObjectURL(url);
 }
 
-type FilterTab = 'all' | 'admin' | 'field' | 'proposal' | 'backend' | 'disabled';
+type FilterTab = 'all' | 'admin' | 'field' | 'proposal' | 'backend' | 'view_only' | 'backend_manager' | 'disabled';
 
 const TABS: { key: FilterTab; label: string }[] = [
-  { key: 'all',          label: 'All'             },
-  { key: 'admin',        label: 'Admins'           },
-  { key: 'field',        label: 'Field Engineers'  },
-  { key: 'proposal',     label: 'Proposal Team'    },
-  { key: 'backend',      label: 'Backend Team'     },
-  { key: 'disabled',     label: 'Disabled'         },
+  { key: 'all',             label: 'All'              },
+  { key: 'admin',           label: 'Admins'            },
+  { key: 'field',           label: 'Field Engineers'   },
+  { key: 'proposal',        label: 'Proposal Team'     },
+  { key: 'backend',         label: 'Backend Team'      },
+  { key: 'view_only',       label: 'View Only'         },
+  { key: 'backend_manager', label: 'Backend Managers'  },
+  { key: 'disabled',        label: 'Disabled'          },
 ];
 
 export function TeamPage() {
@@ -59,23 +63,33 @@ export function TeamPage() {
   const { currentUser }    = useAuthStore();
   const { config }         = useAppConfig();
   const { setUserActive, changeRole } = useUserActions();
+  const teamStats = useTeamStats(users);
+  const { presenceMap } = useOnlineUsers();
+  const isViewOnly = currentUser?.role === 'view_only';
+  const canEdit    = !isViewOnly;
 
   const [search,         setSearch]         = useState('');
   const [districtFilter, setDistrictFilter] = useState('');
   const [activeTab,      setActiveTab]      = useState<FilterTab>('all');
   const [editUser,       setEditUser]       = useState<User | null>(null);
   const [showCreateUser, setShowCreateUser] = useState(false);
-  const [confirmUser,    setConfirmUser]    = useState<User | null>(null);
-  const [confirming,     setConfirming]     = useState(false);
-  const [viewEngineer,   setViewEngineer]   = useState<User | null>(null);
+  const [confirmUser,      setConfirmUser]      = useState<User | null>(null);
+  const [confirming,       setConfirming]       = useState(false);
+  const [viewEngineer,     setViewEngineer]     = useState<User | null>(null);
+  const [roleChangeConfirm, setRoleChangeConfirm] = useState<{
+    userId: string; userName: string; currentRole: UserRole; newRole: UserRole;
+  } | null>(null);
+  const [confirmingRole,   setConfirmingRole]   = useState(false);
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim();
     return users.filter((u) => {
-      if (activeTab === 'admin'        && u.role !== 'admin')        return false;
-      if (activeTab === 'field'        && u.role !== 'field')        return false;
-      if (activeTab === 'proposal'     && u.role !== 'proposal')     return false;
-      if (activeTab === 'backend'      && u.role !== 'backend')      return false;
+      if (activeTab === 'admin'           && u.role !== 'admin')           return false;
+      if (activeTab === 'field'           && u.role !== 'field')           return false;
+      if (activeTab === 'proposal'        && u.role !== 'proposal')        return false;
+      if (activeTab === 'backend'         && u.role !== 'backend')         return false;
+      if (activeTab === 'view_only'       && u.role !== 'view_only')       return false;
+      if (activeTab === 'backend_manager' && u.role !== 'backend_manager') return false;
       if (activeTab === 'disabled' && u.active)           return false;
       if (activeTab !== 'disabled' && !u.active)          return false;
       if (districtFilter &&
@@ -91,12 +105,14 @@ export function TeamPage() {
   }, [users, activeTab, search, districtFilter]);
 
   const counts = useMemo(() => ({
-    all:          users.filter((u) => u.active).length,
-    admin:        users.filter((u) => u.role === 'admin'        && u.active).length,
-    field:        users.filter((u) => u.role === 'field'        && u.active).length,
-    proposal:     users.filter((u) => u.role === 'proposal'     && u.active).length,
-    backend:      users.filter((u) => u.role === 'backend'      && u.active).length,
-    disabled:     users.filter((u) => !u.active).length,
+    all:             users.filter((u) => u.active).length,
+    admin:           users.filter((u) => u.role === 'admin'           && u.active).length,
+    field:           users.filter((u) => u.role === 'field'           && u.active).length,
+    proposal:        users.filter((u) => u.role === 'proposal'        && u.active).length,
+    backend:         users.filter((u) => u.role === 'backend'         && u.active).length,
+    view_only:       users.filter((u) => u.role === 'view_only'       && u.active).length,
+    backend_manager: users.filter((u) => u.role === 'backend_manager' && u.active).length,
+    disabled:        users.filter((u) => !u.active).length,
   }), [users]);
 
   function requestToggleActive(user: User) { setConfirmUser(user); }
@@ -133,13 +149,15 @@ export function TeamPage() {
             <Download className="h-4 w-4" />
             Export CSV
           </Button>
-          <Button
-            onClick={() => setShowCreateUser(true)}
-            className="flex items-center gap-1.5 flex-1 sm:flex-none h-11"
-          >
-            <UserPlus className="h-4 w-4" />
-            Add User
-          </Button>
+          {canEdit && (
+            <Button
+              onClick={() => setShowCreateUser(true)}
+              className="flex items-center gap-1.5 flex-1 sm:flex-none h-11"
+            >
+              <UserPlus className="h-4 w-4" />
+              Add User
+            </Button>
+          )}
         </div>
       </div>
 
@@ -211,11 +229,21 @@ export function TeamPage() {
               user={user}
               isSelf={user.id === currentUser?.uid}
               isSuperAdmin={user.id === config.superAdminUid}
-              onEdit={setEditUser}
-              onToggleActive={requestToggleActive}
+              stats={teamStats[user.id]}
+              isOnline={presenceMap[user.id]?.online ?? false}
+              lastSeen={presenceMap[user.id]?.lastSeen ?? null}
+              onEdit={canEdit ? setEditUser : undefined}
+              onToggleActive={canEdit ? requestToggleActive : undefined}
               onView={(u) => setViewEngineer(u)}
-              onChangeRole={user.id !== currentUser?.uid
-                ? async (u, newRole) => { await changeRole(u.id, u.role, newRole, users); }
+              onChangeRole={canEdit && user.id !== currentUser?.uid
+                ? (u, newRole) => {
+                    setRoleChangeConfirm({
+                      userId:      u.id,
+                      userName:    u.name,
+                      currentRole: u.role as UserRole,
+                      newRole:     newRole as UserRole,
+                    });
+                  }
                 : undefined}
             />
           ))}
@@ -236,6 +264,59 @@ export function TeamPage() {
         user={editUser}
         onClose={() => setEditUser(null)}
       />
+
+      <Dialog
+        open={!!roleChangeConfirm}
+        onOpenChange={(o) => { if (!o && !confirmingRole) setRoleChangeConfirm(null); }}
+      >
+        <DialogContent className="max-w-sm" aria-describedby="role-change-desc">
+          <DialogHeader>
+            <DialogTitle>Change Role</DialogTitle>
+            <DialogDescription id="role-change-desc">
+              {roleChangeConfirm && (
+                <>
+                  Change <strong>{roleChangeConfirm.userName}</strong>'s role from{' '}
+                  <strong>{roleChangeConfirm.currentRole}</strong> to{' '}
+                  <strong>{roleChangeConfirm.newRole}</strong>? This will affect their access immediately.
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex gap-2 mt-2">
+            <Button
+              variant="outline"
+              className="flex-1"
+              onClick={() => setRoleChangeConfirm(null)}
+              disabled={confirmingRole}
+            >
+              Cancel
+            </Button>
+            <Button
+              className="flex-1"
+              onClick={async () => {
+                if (!roleChangeConfirm) return;
+                setConfirmingRole(true);
+                try {
+                  await changeRole(roleChangeConfirm.userId, roleChangeConfirm.currentRole, roleChangeConfirm.newRole, users);
+                } finally {
+                  setConfirmingRole(false);
+                  setRoleChangeConfirm(null);
+                }
+              }}
+              disabled={confirmingRole}
+            >
+              {confirmingRole ? (
+                <span className="flex items-center gap-2">
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                  Changing…
+                </span>
+              ) : (
+                'Confirm'
+              )}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={!!confirmUser}

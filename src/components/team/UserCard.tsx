@@ -3,16 +3,29 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useEngineerTaskStats } from '@/hooks/useEngineerTaskStats';
 import { getProposalDoneCount } from '@/utils/engineerStats';
-import type { User, UserRole } from '@/types';
+import type { User, UserRole, Task } from '@/types';
 
 interface UserCardProps {
   user:            User;
   isSelf:          boolean;
-  onEdit:          (user: User) => void;
-  onToggleActive:  (user: User) => void;
+  onEdit?:         (user: User) => void;
+  onToggleActive?: (user: User) => void;
   onView?:         (user: User) => void;
   onChangeRole?:   (user: User, newRole: UserRole) => void;
   isSuperAdmin?:   boolean;
+  stats?:          { tasks: Task[]; loading: boolean };
+  isOnline?:       boolean;
+  lastSeen?:       number | null;
+}
+
+function timeAgo(ms: number): string {
+  const diff = Date.now() - ms;
+  const mins = Math.floor(diff / 60_000);
+  if (mins < 1)  return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24)  return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
 }
 
 const ROLE_CONFIG: Record<string, { label: string; avatarBg: string; badgeBg: string; badgeText: string }> = {
@@ -20,8 +33,10 @@ const ROLE_CONFIG: Record<string, { label: string; avatarBg: string; badgeBg: st
   field:        { label: 'Field Engineer',        avatarBg: 'bg-teal-600',    badgeBg: 'bg-teal-100',      badgeText: 'text-teal-700'    },
   proposal:     { label: 'Proposal Engineer',     avatarBg: 'bg-violet-600',  badgeBg: 'bg-violet-100',    badgeText: 'text-violet-700'  },
   backend:      { label: 'Backend Engineer',      avatarBg: 'bg-orange-500',  badgeBg: 'bg-orange-100',    badgeText: 'text-orange-700'  },
-  logistics:    { label: 'Logistics',             avatarBg: 'bg-sky-600',     badgeBg: 'bg-sky-100',       badgeText: 'text-sky-700'     },
-  installation: { label: 'Installation Engineer', avatarBg: 'bg-green-700',   badgeBg: 'bg-green-100',     badgeText: 'text-green-700'   },
+  logistics:       { label: 'Logistics',             avatarBg: 'bg-sky-600',     badgeBg: 'bg-sky-100',       badgeText: 'text-sky-700'     },
+  installation:    { label: 'Installation Engineer', avatarBg: 'bg-green-700',   badgeBg: 'bg-green-100',     badgeText: 'text-green-700'   },
+  view_only:       { label: 'View Only',             avatarBg: 'bg-slate-500',   badgeBg: 'bg-slate-100',     badgeText: 'text-slate-600'   },
+  backend_manager: { label: 'Backend Manager',       avatarBg: 'bg-amber-600',   badgeBg: 'bg-amber-100',     badgeText: 'text-amber-700'   },
 };
 
 function Avatar({ user }: { user: User }) {
@@ -56,12 +71,13 @@ function RoleBadge({ role }: { role: User['role'] }) {
   );
 }
 
-export function UserCard({ user, isSelf, onEdit, onToggleActive, onView, onChangeRole, isSuperAdmin }: UserCardProps) {
-  const isNonAdmin = user.role !== 'admin';
-  const { tasks, loading: statsLoading } = useEngineerTaskStats(
-    isNonAdmin ? user.id : '',
+export function UserCard({ user, isSelf, onEdit, onToggleActive, onView, onChangeRole, isSuperAdmin, stats, isOnline, lastSeen }: UserCardProps) {
+  const isNonAdmin = user.role !== 'admin' && user.role !== 'view_only' && user.role !== 'backend_manager';
+  const fallback = useEngineerTaskStats(
+    (!stats && isNonAdmin) ? user.id : '',
     user.role,
   );
+  const { tasks, loading: statsLoading } = stats ?? fallback;
 
   const assignedCount  = tasks.length;
   const completedCount = user.role === 'backend'
@@ -75,12 +91,14 @@ export function UserCard({ user, isSelf, onEdit, onToggleActive, onView, onChang
 
   function handleChangeRole() {
     if (!onChangeRole) return;
-    const roleOptions = ['field', 'proposal', 'backend', 'admin'] as UserRole[];
+    const roleOptions = ['field', 'proposal', 'backend', 'admin', 'view_only', 'backend_manager'] as UserRole[];
     const labels: Record<string, string> = {
-      field:    'Field Engineer',
-      proposal: 'Proposal Team',
-      backend:  'Backend Team',
-      admin:    'Admin',
+      field:           'Field Engineer',
+      proposal:        'Proposal Team',
+      backend:         'Backend Team',
+      admin:           'Admin',
+      view_only:       'View Only',
+      backend_manager: 'Backend Manager',
     };
     const optionStr = roleOptions
       .filter((r) => r !== user.role)
@@ -111,7 +129,13 @@ export function UserCard({ user, isSelf, onEdit, onToggleActive, onView, onChang
         !user.active && 'opacity-60',
       )}
     >
-      <Avatar user={user} />
+      <div className="relative shrink-0">
+        <Avatar user={user} />
+        <div className={cn(
+          'absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-white',
+          isOnline ? 'bg-green-500' : 'bg-gray-300',
+        )} />
+      </div>
 
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
@@ -130,6 +154,9 @@ export function UserCard({ user, isSelf, onEdit, onToggleActive, onView, onChang
         </div>
 
         <p className="text-xs text-gray-500 mt-0.5 truncate">{user.email}</p>
+        {!isOnline && lastSeen && (
+          <p className="text-xs font-medium text-gray-600 mt-0.5">Last seen {timeAgo(lastSeen)}</p>
+        )}
 
         <div className="flex items-center gap-2 mt-1.5 flex-wrap">
           <RoleBadge role={user.role} />
@@ -211,14 +238,16 @@ export function UserCard({ user, isSelf, onEdit, onToggleActive, onView, onChang
             View
           </Button>
         )}
-        <Button
-          size="sm"
-          variant="outline"
-          className="h-7 min-h-[44px] sm:min-h-0 text-xs px-2.5"
-          onClick={() => onEdit(user)}
-        >
-          Edit
-        </Button>
+        {onEdit && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 min-h-[44px] sm:min-h-0 text-xs px-2.5"
+            onClick={() => onEdit(user)}
+          >
+            Edit
+          </Button>
+        )}
         {!isSelf && !isSuperAdmin && onChangeRole && (
           <Button
             size="sm"
@@ -229,7 +258,7 @@ export function UserCard({ user, isSelf, onEdit, onToggleActive, onView, onChang
             <><UserCog className="h-3.5 w-3.5" /> Change Role</>
           </Button>
         )}
-        {!isSelf && !isSuperAdmin && (
+        {!isSelf && !isSuperAdmin && onToggleActive && (
           <Button
             size="sm"
             variant="outline"

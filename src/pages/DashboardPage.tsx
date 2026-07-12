@@ -6,7 +6,10 @@ import { db } from '@/firebase/config';
 import { useAuthStore } from '@/store/authStore';
 import { useTaskStore } from '@/store/taskStore';
 import { useAppConfig } from '@/hooks/useAppConfig';
-import { initAppConfig, ensureSuperAdmin, syncUserTaskCodes, migratePipelineStages, backfillPipelineAssignments, initBackendJourneySteps, backfillJourneyCompleted, migrateLogisticsToBackend, backfillTitleLower, reconcilePipelineCounts, backfillMemberCounts, backfillCreatedBy } from '@/firebase/initAppConfig';
+import { useProposalTasks } from '@/hooks/useProposalTasks';
+import { useBackendTasks }  from '@/hooks/useBackendTasks';
+import { useOnlineUsers }   from '@/hooks/useOnlineUsers';
+import { initAppConfig, ensureSuperAdmin, syncUserTaskCodes, migratePipelineStages, backfillPipelineAssignments, initBackendJourneySteps, backfillJourneyCompleted, migrateLogisticsToBackend, reconcilePipelineCounts, backfillMemberCounts, backfillCreatedBy } from '@/firebase/initAppConfig';
 import { cn } from '@/lib/utils';
 import type { Task, TaskStatus } from '@/types';
 
@@ -62,14 +65,18 @@ const STATUS_ROW_BORDER: Record<TaskStatus, string> = {
 // ─── Stat card ────────────────────────────────────────────────────────────────
 
 function StatCard({
-  label, value, borderColour,
-}: { label: string; value: number; borderColour: string }) {
+  label, value, borderColour, loading,
+}: { label: string; value: number; borderColour: string; loading?: boolean }) {
   return (
     <div className={cn(
       'rounded-xl p-4 bg-white border border-gray-100 shadow-sm border-l-4',
       borderColour,
     )}>
-      <p className="text-3xl font-extrabold tabular-nums text-gray-900">{value}</p>
+      {loading ? (
+        <div className="h-8 w-16 bg-gray-200 animate-pulse rounded mb-1" />
+      ) : (
+        <p className="text-3xl font-extrabold tabular-nums text-gray-900">{value}</p>
+      )}
       <p className="text-xs font-semibold text-gray-500 mt-1 uppercase tracking-wide">{label}</p>
     </div>
   );
@@ -160,9 +167,12 @@ function NextDueCard({ task }: { task: Task }) {
 
 export function DashboardPage() {
   const { currentUser } = useAuthStore();
-  const { tasks }       = useTaskStore();
+  const { tasks, proposalTasks, backendTasks, proposalTasksLoading, backendTasksLoading } = useTaskStore();
   const navigate        = useNavigate();
   const { config }      = useAppConfig();
+
+  useProposalTasks();
+  useBackendTasks();
   const pc              = config.pipelineCounts;
 
   useEffect(() => {
@@ -206,11 +216,6 @@ export function DashboardPage() {
           localStorage.setItem('so_member_counts_v1', '1');
         }).catch(console.error);
       }
-      if (!localStorage.getItem('so_title_lower_v1')) {
-        backfillTitleLower().then(() => {
-          localStorage.setItem('so_title_lower_v1', '1');
-        }).catch(console.error);
-      }
       if (!localStorage.getItem('so_created_by_v1') && currentUser?.role === 'admin') {
         backfillCreatedBy(currentUser.uid).then(() => {
           localStorage.setItem('so_created_by_v1', '1');
@@ -219,15 +224,20 @@ export function DashboardPage() {
     }
   }, [currentUser?.role]);
 
-  const isAdmin = currentUser?.role === 'admin';
+  const isAdmin      = currentUser?.role === 'admin';
+  const isViewOnly   = currentUser?.role === 'view_only';
+  const showAdminView = isAdmin || isViewOnly;
+  const { onlineUsers, onlineCount } = useOnlineUsers();
 
   // ── Status counts for admin (full Firestore query, not 50-task store) ────────
   const [statusCounts, setStatusCounts] = useState<{
     pending: number; in_progress: number; completed: number; blocked: number;
   }>({ pending: 0, in_progress: 0, completed: 0, blocked: 0 });
+  const [statusCountsLoading, setStatusCountsLoading] = useState(true);
 
   useEffect(() => {
-    if (!isAdmin) return;
+    if (!showAdminView) return;
+    setStatusCountsLoading(true);
     async function loadStatusCounts() {
       try {
         const [p, ip, c, b] = await Promise.all([
@@ -244,14 +254,16 @@ export function DashboardPage() {
         });
       } catch (err) {
         console.error('[Dashboard] loadStatusCounts failed:', err);
+      } finally {
+        setStatusCountsLoading(false);
       }
     }
     loadStatusCounts();
-  }, [isAdmin]);
+  }, [showAdminView]);
 
   // ── Counts (admin uses pipelineCounts from appConfig; field uses tasks) ────
   const counts = useMemo(() => {
-    if (isAdmin) {
+    if (showAdminView) {
       return {
         total:       statusCounts.pending + statusCounts.in_progress + statusCounts.completed + statusCounts.blocked,
         pending:     statusCounts.pending,
@@ -267,7 +279,7 @@ export function DashboardPage() {
       completed:   tasks.filter((t) => t.status === 'completed').length,
       blocked:     tasks.filter((t) => t.status === 'blocked').length,
     };
-  }, [tasks, isAdmin, pc, statusCounts]);
+  }, [tasks, showAdminView, pc, statusCounts]);
 
   // ── Recent activity (field engineer — from own tasks in store) ─────────────
   const todayStart = new Date();
@@ -306,7 +318,7 @@ export function DashboardPage() {
   }, [tasks]);
 
   // ── Pipeline counts (admin — from appConfig denormalized counters) ─────────
-  const pipelineCounts: Record<string, number> | null = isAdmin ? {
+  const pipelineCounts: Record<string, number> | null = showAdminView ? {
     survey:       pc?.survey       ?? 0,
     proposal:     pc?.proposal     ?? 0,
     field_review: pc?.field_review ?? 0,
@@ -324,7 +336,7 @@ export function DashboardPage() {
   const [todayActivity, setTodayActivity] = useState<ActivityEntry[]>([]);
 
   useEffect(() => {
-    if (!isAdmin) return;
+    if (!showAdminView) return;
     const dayStart = new Date();
     dayStart.setHours(0, 0, 0, 0);
     getDocs(query(
@@ -359,7 +371,7 @@ export function DashboardPage() {
       activity.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
       setTodayActivity(activity.slice(0, 20));
     }).catch(console.error);
-  }, [isAdmin]);
+  }, [showAdminView]);
 
   // ── Next due task (field) ───────────────────────────────────────────────────
   const nextDueTask = useMemo(() => {
@@ -380,6 +392,8 @@ export function DashboardPage() {
 
   // ── Proposal view ───────────────────────────────────────────────────────────
   if (currentUser?.role === 'proposal') {
+    const activeProposal   = proposalTasks.length;
+    const revisionsCount   = proposalTasks.filter((t) => (t.proposalRevisionCount ?? 0) > 0).length;
     return (
       <div className="flex flex-col gap-6 p-4 max-w-3xl mx-auto">
         <div>
@@ -389,6 +403,10 @@ export function DashboardPage() {
           <p className="text-sm text-gray-500 mt-1">
             {formatFullDate(new Date())}
           </p>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <StatCard label="Active"    value={activeProposal} borderColour="border-l-violet-400" loading={proposalTasksLoading} />
+          <StatCard label="Revisions" value={revisionsCount}  borderColour="border-l-amber-400"  loading={proposalTasksLoading} />
         </div>
         <div
           className="rounded-xl border border-purple-200 bg-purple-50 p-5 cursor-pointer hover:bg-purple-100 transition-colors"
@@ -405,6 +423,8 @@ export function DashboardPage() {
 
   // ── Backend view ────────────────────────────────────────────────────────────
   if (currentUser?.role === 'backend') {
+    const activeBackend = backendTasks.length;
+    const readyCount    = backendTasks.filter((t) => t.journeyCompleted).length;
     return (
       <div className="flex flex-col gap-6 p-4 max-w-3xl mx-auto">
         <div>
@@ -414,6 +434,10 @@ export function DashboardPage() {
           <p className="text-sm text-gray-500 mt-1">
             {formatFullDate(new Date())}
           </p>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <StatCard label="Active" value={activeBackend} borderColour="border-l-orange-400" loading={backendTasksLoading} />
+          <StatCard label="Ready"  value={readyCount}    borderColour="border-l-green-400"  loading={backendTasksLoading} />
         </div>
         <div
           className="rounded-xl border border-orange-200 bg-orange-50 p-5 cursor-pointer hover:bg-orange-100 transition-colors"
@@ -428,8 +452,33 @@ export function DashboardPage() {
     );
   }
 
-  // ── Admin view ──────────────────────────────────────────────────────────────
-  if (isAdmin) {
+  // ── Backend Manager view ────────────────────────────────────────────────────
+  if (currentUser?.role === 'backend_manager') {
+    return (
+      <div className="flex flex-col gap-6 p-4 max-w-3xl mx-auto">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">
+            {greeting(currentUser.name)}
+          </h1>
+          <p className="text-sm text-gray-500 mt-1">
+            {formatFullDate(new Date())}
+          </p>
+        </div>
+        <div
+          className="rounded-xl border border-orange-200 bg-orange-50 p-5 cursor-pointer hover:bg-orange-100 transition-colors"
+          onClick={() => navigate('/backend-manager')}
+        >
+          <p className="text-lg font-semibold text-orange-800">⚙️ Backend Overview</p>
+          <p className="text-sm text-orange-600 mt-1">
+            View and manage all backend tasks
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Admin / View-Only view ──────────────────────────────────────────────────
+  if (showAdminView) {
     return (
       <div className="w-full max-w-2xl mx-auto">
         <p className="text-xs font-medium text-gray-400 mb-0.5">
@@ -440,15 +489,37 @@ export function DashboardPage() {
 
         {/* Stat cards */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-          <StatCard label="Total"       value={counts.total}       borderColour="border-l-brand-blue"  />
-          <StatCard label="Pending"     value={counts.pending}     borderColour="border-l-gray-300"    />
-          <StatCard label="In Progress" value={counts.in_progress} borderColour="border-l-amber-400"   />
-          <StatCard label="Completed"   value={counts.completed}   borderColour="border-l-brand-green" />
-          <StatCard label="Blocked"     value={counts.blocked}     borderColour="border-l-brand-red"   />
+          <StatCard label="Total"       value={counts.total}       borderColour="border-l-brand-blue"  loading={statusCountsLoading} />
+          <StatCard label="Pending"     value={counts.pending}     borderColour="border-l-gray-300"    loading={statusCountsLoading} />
+          <StatCard label="In Progress" value={counts.in_progress} borderColour="border-l-amber-400"   loading={statusCountsLoading} />
+          <StatCard label="Completed"   value={counts.completed}   borderColour="border-l-brand-green" loading={statusCountsLoading} />
+          <StatCard label="Blocked"     value={counts.blocked}     borderColour="border-l-brand-red"   loading={statusCountsLoading} />
         </div>
 
+        {/* Online users */}
+        {showAdminView && (
+          <div className="rounded-xl border border-green-200 bg-green-50 p-4 mb-6">
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse" />
+              <span className="text-sm font-semibold text-green-800">
+                {onlineCount} {onlineCount === 1 ? 'user' : 'users'} online now
+              </span>
+            </div>
+            {onlineUsers.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {onlineUsers.map(u => (
+                  <span key={u.uid}
+                    className="text-xs bg-white border border-green-200 text-green-700 rounded-full px-2 py-0.5">
+                    {u.name}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Pipeline Overview */}
-        {isAdmin && pipelineCounts && (
+        {showAdminView && pipelineCounts && (
           <div className="flex flex-col gap-3 mb-6">
             <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
               Pipeline Overview

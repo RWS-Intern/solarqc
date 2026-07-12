@@ -121,13 +121,14 @@ export function TaskQueueProcessor() {
 
     const finalFieldPhotos = await uploadFieldPhotos(item.payload.fieldPhotos, item.taskNum, engineerCode, engineerName);
 
-    const finalCompletionPhotos = await Promise.all(
+    let anyOversized = false;
+    const rawCompletionPhotos = await Promise.all(
       (item.payload.completionPhotos ?? []).map(async (url, i) => {
         try {
           if (url.startsWith('data:')) {
-            const isPdf         = url.startsWith('data:application/pdf');
-            const limitBytes    = isPdf ? 20 * 1024 * 1024 : 10 * 1024 * 1024;
-            const base64Data    = url.split(',')[1] ?? '';
+            const isPdf          = url.startsWith('data:application/pdf');
+            const limitBytes     = isPdf ? 20 * 1024 * 1024 : 10 * 1024 * 1024;
+            const base64Data     = url.split(',')[1] ?? '';
             const estimatedBytes = base64Data.length * 0.75;
             if (estimatedBytes > limitBytes) {
               console.warn(
@@ -135,7 +136,8 @@ export function TaskQueueProcessor() {
                 `(index ${i}): estimated ${(estimatedBytes / (1024 * 1024)).toFixed(1)}MB ` +
                 `exceeds the ${isPdf ? '20' : '10'}MB limit. Upload not attempted.`
               );
-              return url;
+              anyOversized = true;
+              return null;
             }
           }
           return await uploadIfBase64(url, item.taskNum, 'completion', i, undefined, engineerCode, engineerName);
@@ -144,6 +146,10 @@ export function TaskQueueProcessor() {
         }
       })
     );
+    if (anyOversized) {
+      _emitToast('One file was too large to upload and was skipped. Max size: 15MB.', 'error');
+    }
+    const finalCompletionPhotos = rawCompletionPhotos.filter((u): u is string => u !== null);
 
     const taskRef = doc(db, 'tasks', item.taskId);
     await updateDoc(taskRef, {

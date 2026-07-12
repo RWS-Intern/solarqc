@@ -42,7 +42,7 @@ export function Layout() {
   return (
     <div className="min-h-screen bg-brand-background">
       <TasksListener />
-      {currentUser.role === 'admin' && <UsersListener />}
+      {(currentUser.role === 'admin' || currentUser.role === 'view_only') && <UsersListener />}
       <TaskQueueProcessor />
 
       {/* Header — fixed at top, always visible */}

@@ -5,6 +5,7 @@ import {
 import { db } from '@/firebase/config';
 import { useAuthStore } from '@/store/authStore';
 import { useToast } from '@/components/ui/toast';
+import { computePriorityScore, computeTitleWords } from '@/utils/taskScoring';
 import type { FieldEngineer } from '@/hooks/useFieldEngineers';
 
 interface CreateTaskData {
@@ -41,6 +42,8 @@ export function useTaskActions() {
       taskNum,
       title:            data.title.trim(),
       titleLower:       data.title.trim().toLowerCase(),
+      titleWords:       computeTitleWords(data.title),
+      priorityScore:    computePriorityScore('survey', 'pending'),
       description:      data.description?.trim() ?? '',
       district:         data.district?.trim() ?? '',
       assignedTo:       data.assignedTo,
@@ -202,6 +205,7 @@ export function useTaskActions() {
       await updateDoc(doc(db, 'tasks', taskId), {
         title:      newTitle.trim(),
         titleLower: newTitle.trim().toLowerCase(),
+        titleWords: computeTitleWords(newTitle),
         updatedAt:  serverTimestamp(),
       });
       showToast('Title updated', 'success');

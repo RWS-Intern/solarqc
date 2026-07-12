@@ -1,6 +1,9 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import { Plus, Search, ClipboardList, ChevronRight, Download, Upload, X } from 'lucide-react';
+import { collection, getDocs, writeBatch, doc as fsDoc } from 'firebase/firestore';
+import { db } from '@/firebase/config';
+import { computePriorityScore, computeTitleWords } from '@/utils/taskScoring';
 import { useTaskStore }       from '@/store/taskStore';
 import { useAuthStore }       from '@/store/authStore';
 import { Button }             from '@/components/ui/button';
@@ -15,6 +18,7 @@ import { cn }                 from '@/lib/utils';
 import { useArchivedTasks, useTasks, type AdminFilter } from '@/hooks/useTasks';
 import { useAppConfig } from '@/hooks/useAppConfig';
 import { useFieldEngineers } from '@/hooks/useFieldEngineers';
+import { useToast } from '@/components/ui/toast';
 import { SearchableSelect } from '@/components/ui/SearchableSelect';
 import type { Task, TaskStatus, PipelineStage } from '@/types';
 
@@ -117,7 +121,7 @@ function daysInStage(task: Task): number | null {
 function TaskCard({ task, onClick }: { task: Task; onClick: () => void }) {
   const { label, badge, border } = STATUS_META[task.status];
   const { currentUser } = useAuthStore();
-  const isAdminCard = currentUser?.role === 'admin';
+  const isAdminCard = currentUser?.role === 'admin' || currentUser?.role === 'view_only';
 
   return (
     <button
@@ -276,9 +280,12 @@ export function TasksPage() {
   const { config } = useAppConfig();
   const pc = config.pipelineCounts;
   const { archivedTasks, loading: archivedLoading, loadArchivedTasks } = useArchivedTasks();
+  const { showToast } = useToast();
 
   const isAdmin    = currentUser?.role === 'admin';
+  const isViewOnly = currentUser?.role === 'view_only';
   const location   = useLocation();
+  const pendingOpenTaskId = useRef<string | null>(null);
 
   const [filter,           setFilter]           = useState<Filter>('all');
   const [search,           setSearch]           = useState('');
@@ -287,17 +294,35 @@ export function TasksPage() {
   const [engineerFilter,   setEngineerFilter]   = useState<string>('');
   const [districtFilter,   setDistrictFilter]   = useState<string>('');
 
-  // Admin: re-subscribe when filter, search, engineerFilter, or districtFilter changes
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Admin: re-subscribe when filter, search, engineerFilter, or districtFilter changes.
+  // Search is debounced 350ms so Firestore is not queried on every keystroke.
   useEffect(() => {
-    if (currentUser?.role !== 'admin') return;
-    subscribeToFilter(
-      filter as AdminFilter,
-      isSearching ? search : undefined,
-      engineerFilter || undefined,
-      districtFilter || undefined,
-    );
+    if (currentUser?.role !== 'admin' && currentUser?.role !== 'view_only') return;
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (search.trim().length > 0) {
+      debounceRef.current = setTimeout(() => {
+        subscribeToFilter(
+          filter as AdminFilter,
+          search.trim(),
+          engineerFilter || undefined,
+          districtFilter || undefined,
+        );
+      }, 350);
+    } else {
+      subscribeToFilter(
+        filter as AdminFilter,
+        undefined,
+        engineerFilter || undefined,
+        districtFilter || undefined,
+      );
+    }
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filter, search, isSearching, currentUser?.uid, engineerFilter, districtFilter]);
+  }, [filter, search, currentUser?.uid, engineerFilter, districtFilter]);
   const [showCreate,       setShowCreate]       = useState(false);
   const [showBulk,         setShowBulk]         = useState(false);
   const [detailTask,       setDetailTask]       = useState<Task | null>(null);
@@ -318,14 +343,33 @@ export function TasksPage() {
 
     if (!state.openTaskId) return;
     const task = tasks.find((t) => t.id === state.openTaskId);
-    if (!task) return;
-    window.history.replaceState({}, '');
-    if (isAdmin) {
-      setDetailTask(task);
-    } else {
-      setUpdateTask(task);
+    if (!task) {
+      // Tasks not loaded yet — save for retry once loading completes
+      pendingOpenTaskId.current = state.openTaskId;
+      window.history.replaceState({}, '');
+      return;
     }
+    // Task found immediately — open it
+    pendingOpenTaskId.current = null;
+    window.history.replaceState({}, '');
+    if (isAdmin || isViewOnly) { setDetailTask(task); }
+    else                       { setUpdateTask(task); }
   }, [location.state]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (isLoadingTasks) return;
+    if (!pendingOpenTaskId.current) return;
+    const task = tasks.find((t) => t.id === pendingOpenTaskId.current);
+    if (!task) {
+      // Task not found even after loading — may be archived or in a different filter
+      showToast('Task not found. It may have been archived.', 'error');
+      pendingOpenTaskId.current = null;
+      return;
+    }
+    pendingOpenTaskId.current = null;
+    if (isAdmin || isViewOnly) { setDetailTask(task); }
+    else                        { setUpdateTask(task); }
+  }, [isLoadingTasks, tasks]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (filter === 'archived') {
@@ -391,7 +435,7 @@ export function TasksPage() {
 
     // When both engineerFilter and districtFilter are set, server-side only
     // handles engineerFilter — apply district client-side on top.
-    if (isAdmin && engineerFilter && districtFilter) {
+    if ((isAdmin || isViewOnly) && engineerFilter && districtFilter) {
       return source.filter((t) =>
         !t.archived &&
         t.assignedTo === engineerFilter &&
@@ -438,8 +482,9 @@ export function TasksPage() {
         t.status !== filter
       ) return false;
 
-      // Text search (client-side for field engineers)
-      if (!isAdmin && isSearching) {
+      // Text search (client-side for field engineers ONLY —
+      // admin and view_only use server-side titleWords search instead)
+      if (!isAdmin && !isViewOnly && isSearching) {
         const term = search.trim().toLowerCase();
         const matchesTitle  = t.title.toLowerCase().includes(term);
         const matchesNum    = t.taskNum.toLowerCase().includes(term);
@@ -448,10 +493,10 @@ export function TasksPage() {
 
       return true;
     });
-  }, [tasks, archivedTasks, filter, engineerFilter, districtFilter, search, isSearching, isAdmin]);
+  }, [tasks, archivedTasks, filter, engineerFilter, districtFilter, search, isSearching, isAdmin, isViewOnly]);
 
   const sorted = useMemo(() => {
-    if (isAdmin) {
+    if (isAdmin || isViewOnly) {
       // Only apply priority sort on 'all' filter and engineer filter
       // (specific pipeline filters already show one stage — no need to sort)
       const singleStageFilters = [
@@ -503,8 +548,44 @@ export function TasksPage() {
     });
   }, [visible, isAdmin, filter]);
 
+  const [migrating,     setMigrating]     = useState(false);
+  const [migrateResult, setMigrateResult] = useState<string | null>(null);
+
+  async function handleMigrateTasks() {
+    if (!isAdmin) return;
+    setMigrating(true);
+    setMigrateResult(null);
+    try {
+      const snap = await getDocs(collection(db, 'tasks'));
+      const CHUNK = 499;
+      const docs = snap.docs;
+      let updated = 0;
+      for (let i = 0; i < docs.length; i += CHUNK) {
+        const batch = writeBatch(db);
+        docs.slice(i, i + CHUNK).forEach(d => {
+          const data = d.data();
+          const stage  = (data['pipelineStage'] as string) ?? 'survey';
+          const status = (data['status']        as string) ?? 'pending';
+          const title  = (data['title']         as string) ?? '';
+          batch.update(fsDoc(db, 'tasks', d.id), {
+            priorityScore: computePriorityScore(stage, status),
+            titleWords:    computeTitleWords(title),
+          });
+          updated++;
+        });
+        await batch.commit();
+      }
+      setMigrateResult(`✅ Done — ${updated} tasks updated`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setMigrateResult(`❌ Error: ${msg}`);
+    } finally {
+      setMigrating(false);
+    }
+  }
+
   function handleCardClick(task: Task) {
-    if (isAdmin) {
+    if (isAdmin || isViewOnly) {
       setDetailTask(task);
     } else if (task.pipelineStage === 'field_review' && currentUser?.role === 'field') {
       setFieldReviewTask(task);
@@ -520,10 +601,10 @@ export function TasksPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-4">
         <h1 className="text-xl font-bold text-gray-900 flex-1">
-          {isAdmin ? 'Tasks' : 'My Tasks'}
+          {isAdmin || isViewOnly ? 'Tasks' : 'My Tasks'}
         </h1>
 
-        {isAdmin && tasks.length > 0 && (
+        {(isAdmin || isViewOnly) && tasks.length > 0 && (
           <Button
             variant="outline"
             size="sm"
@@ -533,6 +614,22 @@ export function TasksPage() {
             <Download className="h-3.5 w-3.5" />
             Export Excel
           </Button>
+        )}
+
+        {isAdmin && (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleMigrateTasks}
+              disabled={migrating}
+              className="text-xs px-3 py-1.5 rounded border border-gray-300
+                         text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+            >
+              {migrating ? 'Migrating...' : '🔧 Migrate Tasks'}
+            </button>
+            {migrateResult && (
+              <span className="text-xs text-gray-500">{migrateResult}</span>
+            )}
+          </div>
         )}
 
         {isAdmin && (
@@ -568,7 +665,7 @@ export function TasksPage() {
           className="w-full rounded-xl border border-gray-200 bg-white pl-9 pr-4 py-2.5 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-blue/30 focus:border-brand-blue shadow-sm"
         />
       </div>
-      {isAdmin && isSearching && (
+      {(isAdmin || isViewOnly) && isSearching && (
         <p className="text-xs text-gray-400 mb-2 px-1">
           {isLoadingTasks ? 'Searching…' : `${tasks.length} result${tasks.length !== 1 ? 's' : ''} found`}
         </p>
@@ -577,8 +674,8 @@ export function TasksPage() {
       {/* Filter tabs — Row 1: Status filters (all users) */}
       <div className="flex gap-1 overflow-x-auto pb-1 scrollbar-none mb-1">
         {FILTER_TABS.filter(({ adminOnly, fieldOnly, key }) => {
-          if (adminOnly && !isAdmin) return false;
-          if (fieldOnly && isAdmin) return false;
+          if (adminOnly && !isAdmin && !isViewOnly) return false;
+          if (fieldOnly && (isAdmin || isViewOnly)) return false;
           const statusTabs = ['all','my_tasks','pending','in_progress','completed','blocked','follow_up','overdue','archived','fe_review','fe_documents','fe_pipeline','fe_converted','fe_dropped','fe_survey_done'];
           return statusTabs.includes(key);
         }).map(({ key, label }) => {
@@ -611,7 +708,7 @@ export function TasksPage() {
       </div>
 
       {/* Filter tabs — Row 2: Pipeline filters (admin only) */}
-      {isAdmin && (
+      {(isAdmin || isViewOnly) && (
         <div className="flex gap-1 overflow-x-auto pb-1 scrollbar-none mb-3">
           {FILTER_TABS.filter(({ key }) => {
             const pipelineTabs = ['pipeline_proposal','pipeline_field_review','pipeline_documents','pipeline_backend','unassigned','converted','dropped'];
@@ -647,7 +744,7 @@ export function TasksPage() {
       )}
 
       {/* Engineer / District filters */}
-      {isAdmin && (engineerOptions.length > 0 || (config.districts ?? []).length > 0) && (
+      {(isAdmin || isViewOnly) && (engineerOptions.length > 0 || (config.districts ?? []).length > 0) && (
         <div className="flex flex-wrap items-center gap-2 mb-3">
           {engineerOptions.length > 0 && (
             <>
@@ -709,7 +806,7 @@ export function TasksPage() {
         <div className="text-center py-12 text-gray-400 text-sm">
           No archived tasks
         </div>
-      ) : isAdmin && isLoadingTasks ? (
+      ) : (isAdmin || isViewOnly) && isLoadingTasks ? (
         <div className="flex justify-center py-8">
           <span className="h-6 w-6 animate-spin rounded-full border-2 border-brand-blue border-t-transparent" />
         </div>

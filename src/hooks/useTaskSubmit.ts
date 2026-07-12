@@ -6,6 +6,8 @@ import { db } from '@/firebase/config';
 import { assignLeastLoaded } from '@/utils/findLeastLoadedUser';
 import { useAuthStore } from '@/store/authStore';
 import { useToast } from '@/components/ui/toast';
+import { computePriorityScore } from '@/utils/taskScoring';
+import { enqueueTaskUpdate } from '@/hooks/useTaskOfflineQueue';
 import type { TaskStatus, FieldType, FieldDefinition } from '@/types';
 
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -42,6 +44,7 @@ export function useTaskSubmit() {
       try {
         await updateDoc(taskRef, {
           status:        data.status,
+          priorityScore: computePriorityScore('survey', data.status),
           blockedReason: data.blockedReason ?? null,
           fieldAnswers:  data.fieldAnswers,
           fieldPhotos:   data.fieldPhotos,
@@ -63,37 +66,82 @@ export function useTaskSubmit() {
         }
       }
     }
-    if (lastWriteErr !== undefined) throw lastWriteErr;
+    if (lastWriteErr !== undefined) {
+      // All 3 retries failed — save to offline queue so the user's work isn't lost
+      try {
+        await enqueueTaskUpdate({
+          taskId:         taskId,
+          taskNum:        data.taskNum,
+          title:          data.title,
+          previousStatus: data.previousStatus,
+          queuedAt:       Date.now(),
+          attempts:       0,
+          payload: {
+            status:           data.status,
+            blockedReason:    data.blockedReason ?? null,
+            fieldAnswers:     data.fieldAnswers,
+            fieldPhotos:      data.fieldPhotos,
+            location:         data.location ?? null,
+            followUpDate:     data.followUpDate ?? null,
+            submittedAt:      new Date().toISOString(),
+            fields:           data.fields,
+            completionPhotos: [],
+          },
+        });
+        showToast('Saved locally — will sync when connection improves.', 'success');
+        return;
+      } catch {
+        throw lastWriteErr;
+      }
+    }
 
     // Step 2: Pipeline transition — survey → proposal (only on completed)
     if (data.status === 'completed') {
-      try {
-        const stageHistoryEntry = {
-          fromStage: 'survey' as const,
-          toStage:   'proposal' as const,
-          timestamp: Timestamp.now(),
-          actorUid:  currentUser.uid,
-          actorName: currentUser.name,
-          actorRole: 'field',
-          note:      '',
-        };
+      const stageHistoryEntry = {
+        fromStage: 'survey' as const,
+        toStage:   'proposal' as const,
+        timestamp: Timestamp.now(),
+        actorUid:  currentUser.uid,
+        actorName: currentUser.name,
+        actorRole: 'field',
+        note:      '',
+      };
 
-        await updateDoc(taskRef, {
-          pipelineStage: 'proposal',
-          stageHistory:  arrayUnion(stageHistoryEntry),
-          updatedAt:     serverTimestamp(),
-        });
+      let pipelineTransitionErr: unknown;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          await updateDoc(taskRef, {
+            pipelineStage: 'proposal',
+            priorityScore: computePriorityScore('proposal', 'completed'),
+            stageHistory:  arrayUnion(stageHistoryEntry),
+            updatedAt:     serverTimestamp(),
+          });
 
-        const surveyStageRef = doc(db, 'tasks', taskId, 'stages', 'survey');
-        await setDoc(surveyStageRef, {
-          fieldAnswers:       data.fieldAnswers,
-          fieldPhotos:        data.fieldPhotos,
-          location:           data.location,
-          submittedAt:        serverTimestamp(),
-          submittedBy:        currentUser.uid,
-          surveyFormSnapshot: data.fields,
-        });
+          const surveyStageRef = doc(db, 'tasks', taskId, 'stages', 'survey');
+          await setDoc(surveyStageRef, {
+            fieldAnswers:       data.fieldAnswers,
+            fieldPhotos:        data.fieldPhotos,
+            location:           data.location,
+            submittedAt:        serverTimestamp(),
+            submittedBy:        currentUser.uid,
+            surveyFormSnapshot: data.fields,
+          });
 
+          pipelineTransitionErr = undefined;
+          break;
+        } catch (err) {
+          pipelineTransitionErr = err;
+          if (attempt < 3) {
+            console.warn(`[Pipeline] Retrying survey → proposal transition, attempt ${attempt + 1} of 3`);
+            await wait(RETRY_DELAYS[attempt - 1]);
+          }
+        }
+      }
+
+      if (pipelineTransitionErr !== undefined) {
+        console.error('[Pipeline] FAILED to transition survey → proposal after 3 attempts:', pipelineTransitionErr);
+        showToast('Submission saved, but the stage transition failed. Admin has been notified.', 'error');
+      } else {
         // Update pipeline stage counters
         await updateDoc(doc(db, 'appConfig', 'global'), {
           'pipelineCounts.survey':             increment(-1),
@@ -122,9 +170,6 @@ export function useTaskSubmit() {
         } catch (assignErr) {
           console.error('[Pipeline] auto-assign proposal failed:', assignErr);
         }
-
-      } catch (pipelineErr) {
-        console.error('[Pipeline] FAILED to transition survey → proposal:', pipelineErr);
       }
     }
 

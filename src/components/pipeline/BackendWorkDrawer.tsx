@@ -19,13 +19,17 @@ import type {
 } from '@/types';
 
 interface BackendWorkDrawerProps {
-  task:    Task | null;
-  onClose: () => void;
+  task:        Task | null;
+  onClose:     () => void;
+  isReadOnly?: boolean;
 }
 
-function formatDate(d: Date | null | undefined): string {
+function formatDate(d: Date | { toDate: () => Date } | null | undefined): string {
   if (!d) return '—';
-  return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+  const date = typeof (d as any).toDate === 'function'
+    ? (d as any).toDate()
+    : d as Date;
+  return date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
 function isPdfUrl(url: string): boolean {
@@ -33,7 +37,7 @@ function isPdfUrl(url: string): boolean {
          url.toLowerCase().includes('/raw/upload/');
 }
 
-export function BackendWorkDrawer({ task, onClose }: BackendWorkDrawerProps) {
+export function BackendWorkDrawer({ task, onClose, isReadOnly = false }: BackendWorkDrawerProps) {
   const { currentUser }                                  = useAuthStore();
   const { showToast }                                    = useToast();
   const { config }                                       = useAppConfig();
@@ -187,6 +191,10 @@ export function BackendWorkDrawer({ task, onClose }: BackendWorkDrawerProps) {
   }
 
   async function handleCloseWithDraft() {
+    if (submittingStep) {
+      showToast('Please wait for the upload to complete.', 'error');
+      return;
+    }
     if (
       stepDoneValue === 'no' &&
       task?.id &&
@@ -628,7 +636,12 @@ export function BackendWorkDrawer({ task, onClose }: BackendWorkDrawerProps) {
           )}
 
           {/* ── Cash / Loan Selection ── */}
-          {!task?.paymentType && (
+          {!task?.paymentType && isReadOnly && (
+            <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-4 text-center">
+              <p className="text-sm text-gray-500">Payment type not yet selected by the backend team.</p>
+            </div>
+          )}
+          {!task?.paymentType && !isReadOnly && (
             <div className="flex flex-col gap-3">
               {!pendingPaymentType ? (
                 <>
@@ -788,20 +801,33 @@ export function BackendWorkDrawer({ task, onClose }: BackendWorkDrawerProps) {
 
               {/* Current active step */}
               {currentStep && !allStepsDone && (
-                <div className="flex flex-col gap-3 rounded-xl border-2 border-orange-300 bg-orange-50 px-4 py-4">
+                <div className={cn(
+                  'flex flex-col gap-3 rounded-xl border-2 px-4 py-4',
+                  isReadOnly
+                    ? 'border-gray-200 bg-gray-50'
+                    : 'border-orange-300 bg-orange-50',
+                )}>
                   <div className="flex items-center gap-2">
-                    <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-orange-400 text-white text-xs font-bold">
+                    <div className={cn(
+                      'flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-white text-xs font-bold',
+                      isReadOnly ? 'bg-gray-400' : 'bg-orange-400',
+                    )}>
                       {currentIdx + 1}
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold text-gray-800">
                         {currentStep.label}
                       </p>
-                      {/* FIX 1: draft indicator */}
-                      {(currentStep as JourneyStepAnswer & { inputValue?: string }).inputValue === 'no' && (
-                        <span className="inline-block mt-0.5 rounded-full bg-orange-200 text-orange-700 text-[10px] font-semibold px-2 py-0.5">
-                          Previously marked No
+                      {isReadOnly ? (
+                        <span className="inline-block mt-0.5 rounded-full bg-gray-200 text-gray-500 text-[10px] font-semibold px-2 py-0.5">
+                          In Progress
                         </span>
+                      ) : (
+                        (currentStep as JourneyStepAnswer & { inputValue?: string }).inputValue === 'no' && (
+                          <span className="inline-block mt-0.5 rounded-full bg-orange-200 text-orange-700 text-[10px] font-semibold px-2 py-0.5">
+                            Previously marked No
+                          </span>
+                        )
                       )}
                     </div>
                   </div>
@@ -810,55 +836,69 @@ export function BackendWorkDrawer({ task, onClose }: BackendWorkDrawerProps) {
                   {currentStep.type === 'yesno' && (
                     <div className="flex flex-col gap-2">
                       <p className="text-xs font-medium text-gray-600">Status:</p>
-                      <div className="flex gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setStepDoneValue('yes')}
-                          className={cn(
-                            'flex-1 rounded-lg border-2 py-2 text-sm font-semibold transition-all',
-                            stepDoneValue === 'yes'
-                              ? 'border-green-500 bg-green-500 text-white'
-                              : 'border-gray-200 bg-white text-gray-700 hover:border-green-300',
+                      {isReadOnly ? (
+                        <div className="text-sm text-gray-600 py-2">
+                          {stepDoneValue === 'yes' ? '✅ Yes' :
+                           stepDoneValue === 'no'  ? '❌ No'  :
+                           <span className="text-gray-400 italic">Not yet answered</span>}
+                        </div>
+                      ) : (
+                        <>
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setStepDoneValue('yes')}
+                              className={cn(
+                                'flex-1 rounded-lg border-2 py-2 text-sm font-semibold transition-all',
+                                stepDoneValue === 'yes'
+                                  ? 'border-green-500 bg-green-500 text-white'
+                                  : 'border-gray-200 bg-white text-gray-700 hover:border-green-300',
+                              )}
+                            >
+                              ✅ Yes
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setStepDoneValue('no')}
+                              className={cn(
+                                'flex-1 rounded-lg border-2 py-2 text-sm font-semibold transition-all',
+                                stepDoneValue === 'no'
+                                  ? 'border-red-400 bg-red-400 text-white'
+                                  : 'border-gray-200 bg-white text-gray-700 hover:border-red-200',
+                              )}
+                            >
+                              ❌ No
+                            </button>
+                          </div>
+                          {showErrors && stepDoneValue !== 'yes' && (
+                            <p className="text-xs text-red-500">
+                              Must be marked Yes to proceed to next step.
+                            </p>
                           )}
-                        >
-                          ✅ Yes
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setStepDoneValue('no')}
-                          className={cn(
-                            'flex-1 rounded-lg border-2 py-2 text-sm font-semibold transition-all',
-                            stepDoneValue === 'no'
-                              ? 'border-red-400 bg-red-400 text-white'
-                              : 'border-gray-200 bg-white text-gray-700 hover:border-red-200',
-                          )}
-                        >
-                          ❌ No
-                        </button>
-                      </div>
-                      {showErrors && stepDoneValue !== 'yes' && (
-                        <p className="text-xs text-red-500">
-                          Must be marked Yes to proceed to next step.
-                        </p>
+                        </>
                       )}
                     </div>
                   )}
 
                   {currentStep.type === 'photo' && (
                     <div className="flex flex-col gap-2">
-                      <p className="text-xs font-medium text-gray-600">Upload Photos:</p>
-                      <label className="flex cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed border-orange-300 bg-white px-4 py-4 hover:bg-orange-50 transition-colors">
-                        <Camera className="h-6 w-6 text-orange-400" />
-                        <span className="text-sm text-gray-500">Tap to add photos</span>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          multiple
-                          className="hidden"
-                          onChange={handlePhotoAdd}
-                        />
-                      </label>
-                      {stepPhotos.length > 0 && (
+                      <p className="text-xs font-medium text-gray-600">
+                        {isReadOnly ? 'Photos:' : 'Upload Photos:'}
+                      </p>
+                      {!isReadOnly && (
+                        <label className="flex cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed border-orange-300 bg-white px-4 py-4 hover:bg-orange-50 transition-colors">
+                          <Camera className="h-6 w-6 text-orange-400" />
+                          <span className="text-sm text-gray-500">Tap to add photos</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            multiple
+                            className="hidden"
+                            onChange={handlePhotoAdd}
+                          />
+                        </label>
+                      )}
+                      {stepPhotos.length > 0 ? (
                         <div className="grid grid-cols-3 gap-2">
                           {stepPhotos.map((url, i) => (
                             <div key={i} className="relative">
@@ -867,18 +907,22 @@ export function BackendWorkDrawer({ task, onClose }: BackendWorkDrawerProps) {
                                 alt={`Photo ${i + 1}`}
                                 className="w-full aspect-square object-cover rounded-lg border border-orange-200"
                               />
-                              <button
-                                type="button"
-                                onClick={() => handlePhotoRemove(i)}
-                                className="absolute top-1 right-1 rounded-full bg-red-500 text-white h-5 w-5 flex items-center justify-center text-xs"
-                              >
-                                ×
-                              </button>
+                              {!isReadOnly && (
+                                <button
+                                  type="button"
+                                  onClick={() => handlePhotoRemove(i)}
+                                  className="absolute top-1 right-1 rounded-full bg-red-500 text-white h-5 w-5 flex items-center justify-center text-xs"
+                                >
+                                  ×
+                                </button>
+                              )}
                             </div>
                           ))}
                         </div>
-                      )}
-                      {showErrors && stepPhotos.length === 0 && (
+                      ) : isReadOnly ? (
+                        <p className="text-xs text-gray-400 italic">No photos uploaded yet.</p>
+                      ) : null}
+                      {!isReadOnly && showErrors && stepPhotos.length === 0 && (
                         <p className="text-xs text-red-500">
                           At least one photo is required.
                         </p>
@@ -889,68 +933,76 @@ export function BackendWorkDrawer({ task, onClose }: BackendWorkDrawerProps) {
                   {/* Date input */}
                   <div className="flex flex-col gap-1">
                     <label className="text-xs font-medium text-gray-600">
-                      Date completed: <span className="text-red-500">*</span>
+                      Date completed:{!isReadOnly && <span className="text-red-500"> *</span>}
                     </label>
-                    <input
-                      type="date"
-                      value={stepDate}
-                      max={todayStr}
-                      min={getMinDate()}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        if (!val) return;
-                        // Enforce min/max programmatically on change
-                        const entered  = new Date(val);
-                        const today    = new Date();
-                        today.setHours(23, 59, 59, 999);
-                        const minStr   = getMinDate();
-                        const minDate  = new Date(minStr);
-                        minDate.setHours(0, 0, 0, 0);
-                        if (entered > today || entered < minDate) return; // silently block
-                        setStepDate(val);
-                      }}
-                      onKeyDown={(e) => {
-                        // Block all keyboard input except Tab and Escape
-                        if (e.key !== 'Tab' && e.key !== 'Escape') {
-                          e.preventDefault();
-                        }
-                      }}
-                      className={cn(
-                        'rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300',
-                        showErrors && !stepDate
-                          ? 'border-red-400 bg-red-50'
-                          : 'border-gray-200 bg-white',
-                      )}
-                    />
-                    {showErrors && !stepDate && (
-                      <p className="text-xs text-red-500">Date is required.</p>
+                    {isReadOnly ? (
+                      <p className="text-sm text-gray-700 py-1">
+                        {stepDate
+                          ? new Date(stepDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+                          : <span className="text-gray-400 italic">Not set</span>}
+                      </p>
+                    ) : (
+                      <>
+                        <input
+                          type="date"
+                          value={stepDate}
+                          max={todayStr}
+                          min={getMinDate()}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (!val) return;
+                            const entered  = new Date(val);
+                            const today    = new Date();
+                            today.setHours(23, 59, 59, 999);
+                            const minStr   = getMinDate();
+                            const minDate  = new Date(minStr);
+                            minDate.setHours(0, 0, 0, 0);
+                            if (entered > today || entered < minDate) return;
+                            setStepDate(val);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key !== 'Tab' && e.key !== 'Escape') {
+                              e.preventDefault();
+                            }
+                          }}
+                          className={cn(
+                            'rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300',
+                            showErrors && !stepDate
+                              ? 'border-red-400 bg-red-50'
+                              : 'border-gray-200 bg-white',
+                          )}
+                        />
+                        {showErrors && !stepDate && (
+                          <p className="text-xs text-red-500">Date is required.</p>
+                        )}
+                        {showErrors && stepDate && (() => {
+                          const entered  = new Date(stepDate);
+                          const todayEnd = new Date();
+                          todayEnd.setHours(23, 59, 59, 999);
+                          const minStr   = getMinDate();
+                          const minDate  = new Date(minStr);
+                          minDate.setHours(0, 0, 0, 0);
+                          if (entered > todayEnd) {
+                            return <p className="text-xs text-red-500">Date cannot be in the future.</p>;
+                          }
+                          if (entered < minDate) {
+                            return (
+                              <p className="text-xs text-red-500">
+                                Date must be within the last 2 days and not before the previous step's date.
+                              </p>
+                            );
+                          }
+                          return null;
+                        })()}
+                        <p className="text-xs text-gray-400">
+                          Allowed: last 2 days only · Cannot be before previous step's date.
+                        </p>
+                      </>
                     )}
-                    {showErrors && stepDate && (() => {
-                      const entered  = new Date(stepDate);
-                      const todayEnd = new Date();
-                      todayEnd.setHours(23, 59, 59, 999);
-                      const minStr   = getMinDate();
-                      const minDate  = new Date(minStr);
-                      minDate.setHours(0, 0, 0, 0);
-                      if (entered > todayEnd) {
-                        return <p className="text-xs text-red-500">Date cannot be in the future.</p>;
-                      }
-                      if (entered < minDate) {
-                        return (
-                          <p className="text-xs text-red-500">
-                            Date must be within the last 2 days and not before the previous step's date.
-                          </p>
-                        );
-                      }
-                      return null;
-                    })()}
-                    <p className="text-xs text-gray-400">
-                      Allowed: last 2 days only · Cannot be before previous step's date.
-                    </p>
                   </div>
 
                   {/* Submit button */}
-                  <Button
+                  {!isReadOnly && <Button
                     onClick={handleStepSubmit}
                     disabled={submittingStep}
                     className="w-full bg-orange-500 hover:bg-orange-600 text-white font-semibold h-10"
@@ -960,7 +1012,7 @@ export function BackendWorkDrawer({ task, onClose }: BackendWorkDrawerProps) {
                       : currentIdx === steps.length - 1
                       ? 'Complete Final Step ✓'
                       : `Mark Step ${currentIdx + 1} Complete →`}
-                  </Button>
+                  </Button>}
                 </div>
               )}
 
@@ -978,7 +1030,7 @@ export function BackendWorkDrawer({ task, onClose }: BackendWorkDrawerProps) {
               ))}
 
               {/* All done banner — show Convert button if not yet converted */}
-              {allStepsDone && task?.pipelineStage !== 'completed' && (
+              {allStepsDone && task?.pipelineStage !== 'completed' && !isReadOnly && (
                 <div className="rounded-xl border-2 border-green-400 bg-green-50 px-4 py-4 flex flex-col gap-3">
                   <div className="text-center">
                     <p className="text-lg font-bold text-green-700">

@@ -1,6 +1,6 @@
 // ─── Auth / Users ──────────────────────────────────────────────────────────────
 
-export type UserRole = 'admin' | 'field' | 'proposal' | 'backend' | 'logistics' | 'installation';
+export type UserRole = 'admin' | 'field' | 'proposal' | 'backend' | 'logistics' | 'installation' | 'view_only' | 'backend_manager';
 
 export interface User {
   id:                string;
@@ -117,6 +117,7 @@ export interface StageHistoryEntry {
   toStage:    PipelineStage;
   fromStage?: PipelineStage;
   timestamp:  Date;
+  actorUid?:  string;
   actorName:  string;
   actorRole:  string;
   note?:      string;
@@ -204,6 +205,8 @@ export interface Task {
   taskNum:          string;
   title:            string;
   titleLower?:      string;
+  priorityScore?:   number;
+  titleWords?:      string[];
   description?:     string;
   district?:        string;
   assignedTo:       string | null;

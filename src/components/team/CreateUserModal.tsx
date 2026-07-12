@@ -119,6 +119,8 @@ export function CreateUserModal({ open, onClose }: CreateUserModalProps) {
                   <SelectItem value="field">Field Engineer</SelectItem>
                   <SelectItem value="proposal">Proposal Engineer</SelectItem>
                   <SelectItem value="backend">Backend Engineer</SelectItem>
+                  <SelectItem value="view_only">View Only</SelectItem>
+                  <SelectItem value="backend_manager">Backend Manager</SelectItem>
                   <SelectItem value="admin">Admin</SelectItem>
                 </SelectContent>
               </Select>
