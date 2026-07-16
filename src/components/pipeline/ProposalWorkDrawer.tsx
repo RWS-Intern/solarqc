@@ -25,6 +25,7 @@ interface ProposalWorkDrawerProps {
 interface FieldReviewDecisionData {
   decision?:     'accepted' | 'rejected' | 'revision';
   revisionNote?: string;
+  decidedAt?:    { toDate?: () => Date } | Date;
 }
 
 function formatDate(d: Date | null | undefined): string {
@@ -160,6 +161,31 @@ export function ProposalWorkDrawer({ task, onClose }: ProposalWorkDrawerProps) {
 
   const isOpen = !!task;
 
+  const latestEntry = task?.stageHistory?.length
+    ? task.stageHistory[task.stageHistory.length - 1]
+    : null;
+  const showReturnBanner = !!(
+    latestEntry &&
+    latestEntry.note &&
+    latestEntry.toStage === 'proposal' &&
+    latestEntry.actorRole === 'admin_override'
+  );
+
+  function toJsDate(v: unknown): Date | null {
+    if (!v) return null;
+    if (v instanceof Date) return v;
+    const maybeTimestamp = v as { toDate?: () => Date };
+    return maybeTimestamp.toDate?.() ?? null;
+  }
+
+  const overrideTime = showReturnBanner ? toJsDate(latestEntry?.timestamp) : null;
+  const revisionTime = (task?.proposalRevisionCount ?? 0) > 0 && fieldReviewData?.revisionNote?.trim()
+    ? toJsDate(fieldReviewData.decidedAt)
+    : null;
+
+  const showBothBanners = !!(overrideTime && revisionTime);
+  const overrideIsNewer = !!(overrideTime && revisionTime && overrideTime.getTime() > revisionTime.getTime());
+
   return (
     <Sheet open={isOpen} onOpenChange={(open) => { if (!open) onClose(); }}>
       <SheetContent
@@ -200,15 +226,39 @@ export function ProposalWorkDrawer({ task, onClose }: ProposalWorkDrawerProps) {
 
         <div className="flex flex-col gap-5 px-5 py-5">
 
-          {/* Revision requested — shown prominently so the Proposal team sees it before uploading */}
-          {(task?.proposalRevisionCount ?? 0) > 0 && fieldReviewData?.revisionNote?.trim() && (
+          {/* Override banner — full, shown first when override is newer or is the only one */}
+          {overrideTime && (!showBothBanners || overrideIsNewer) && (
+            <div className="rounded-lg border-2 border-amber-300 bg-amber-50 px-4 py-3">
+              <p className="text-xs font-bold text-amber-800 uppercase tracking-wide mb-1">
+                ⚠️ Sent Back By Admin{showBothBanners && <span className="ml-1 rounded-full bg-amber-200 px-2 py-0.5 text-[10px]">Latest</span>}
+              </p>
+              <p className="text-sm font-semibold text-amber-900">{latestEntry?.note}</p>
+            </div>
+          )}
+
+          {/* Revision banner — full, shown first when revision is newer or is the only one */}
+          {revisionTime && (!showBothBanners || !overrideIsNewer) && (
             <div className="rounded-lg border-2 border-orange-300 bg-orange-50 px-4 py-3">
               <p className="text-xs font-bold text-orange-700 uppercase tracking-wide mb-1">
-                🔄 Revision Requested
+                🔄 Revision Requested{showBothBanners && <span className="ml-1 rounded-full bg-orange-200 px-2 py-0.5 text-[10px]">Latest</span>}
               </p>
-              <p className="text-sm text-orange-800 whitespace-pre-wrap">
-                {fieldReviewData.revisionNote}
-              </p>
+              <p className="text-sm text-orange-800 whitespace-pre-wrap">{fieldReviewData?.revisionNote}</p>
+            </div>
+          )}
+
+          {/* Override banner — faded, shown second when revision is newer */}
+          {overrideTime && showBothBanners && !overrideIsNewer && (
+            <div className="rounded-lg border-2 border-amber-200 bg-amber-50/50 px-4 py-3 opacity-70">
+              <p className="text-xs font-bold text-amber-700 uppercase tracking-wide mb-1">⚠️ Sent Back By Admin (earlier)</p>
+              <p className="text-sm text-amber-800">{latestEntry?.note}</p>
+            </div>
+          )}
+
+          {/* Revision banner — faded, shown second when override is newer */}
+          {revisionTime && showBothBanners && overrideIsNewer && (
+            <div className="rounded-lg border-2 border-orange-200 bg-orange-50/50 px-4 py-3 opacity-70">
+              <p className="text-xs font-bold text-orange-600 uppercase tracking-wide mb-1">🔄 Revision Requested (earlier)</p>
+              <p className="text-sm text-orange-700 whitespace-pre-wrap">{fieldReviewData?.revisionNote}</p>
             </div>
           )}
 
@@ -217,6 +267,24 @@ export function ProposalWorkDrawer({ task, onClose }: ProposalWorkDrawerProps) {
             <div>
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Description</p>
               <p className="text-sm text-gray-700 whitespace-pre-wrap">{task.description}</p>
+            </div>
+          )}
+
+          {/* Consumer Mobile */}
+          {task?.consumerMobile && (
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Consumer Mobile</p>
+              <p className="text-sm text-gray-700 font-mono">{task.consumerMobile}</p>
+            </div>
+          )}
+
+          {/* District */}
+          {task?.district && (
+            <div className="flex items-center gap-2 text-xs">
+              <span className="text-gray-500">District:</span>
+              <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-600">
+                {task.district}
+              </span>
             </div>
           )}
 

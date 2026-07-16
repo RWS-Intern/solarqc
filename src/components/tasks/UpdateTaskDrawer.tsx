@@ -167,6 +167,16 @@ export function UpdateTaskDrawer({ task, onClose }: UpdateTaskDrawerProps) {
 
   const isReadOnly  = !!(task && task.pipelineStage && task.pipelineStage !== 'survey');
 
+  const latestEntry = task_.stageHistory?.length
+    ? task_.stageHistory[task_.stageHistory.length - 1]
+    : null;
+  const showReturnBanner = !!(
+    latestEntry &&
+    latestEntry.note &&
+    latestEntry.toStage === 'survey' &&
+    latestEntry.actorRole === 'admin_override'
+  );
+
   // ── Handlers ─────────────────────────────────────────────────────────────────
 
   function handleAnswerChange(fieldId: string, value: string) {
@@ -424,11 +434,41 @@ export function UpdateTaskDrawer({ task, onClose }: UpdateTaskDrawerProps) {
         {/* ── Scrollable body ── */}
         <div className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-5">
 
+          {/* Admin override banner */}
+          {showReturnBanner && latestEntry && (
+            <div className="rounded-lg border-2 border-amber-300 bg-amber-50 px-4 py-3 mb-3">
+              <p className="text-xs font-bold text-amber-800 uppercase tracking-wide mb-1">
+                ⚠️ Sent Back By Admin
+              </p>
+              <p className="text-sm font-semibold text-amber-900">
+                {latestEntry.note}
+              </p>
+            </div>
+          )}
+
           {/* Description */}
           {task_.description && (
             <div>
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Description</p>
               <p className="text-sm text-gray-700 whitespace-pre-wrap">{task_.description}</p>
+            </div>
+          )}
+
+          {/* Consumer Mobile */}
+          {task_.consumerMobile && (
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Consumer Mobile</p>
+              <p className="text-sm text-gray-700 font-mono">{task_.consumerMobile}</p>
+            </div>
+          )}
+
+          {/* District */}
+          {task_.district && (
+            <div className="flex items-center gap-2 text-xs">
+              <span className="text-gray-500">District:</span>
+              <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-600">
+                {task_.district}
+              </span>
             </div>
           )}
 

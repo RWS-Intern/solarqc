@@ -1,11 +1,12 @@
 import {
-  collection, doc, addDoc, updateDoc,
+  collection, doc, getDoc, updateDoc,
   runTransaction, serverTimestamp, Timestamp, increment, arrayUnion,
 } from 'firebase/firestore';
 import { db } from '@/firebase/config';
 import { useAuthStore } from '@/store/authStore';
 import { useToast } from '@/components/ui/toast';
 import { computePriorityScore, computeTitleWords } from '@/utils/taskScoring';
+import { resolveDistrictCasing } from '@/utils/districtUtils';
 import type { FieldEngineer } from '@/hooks/useFieldEngineers';
 
 interface CreateTaskData {
@@ -16,6 +17,7 @@ interface CreateTaskData {
   assignedToName:   string;
   assignedToCode:   string;
   assignedToMobile?: string;
+  consumerMobile:   string;
   dueDate:          Date | null;
 }
 
@@ -27,69 +29,79 @@ export function useTaskActions() {
     if (!currentUser) throw new Error('Not authenticated');
 
     const configRef = doc(db, 'appConfig', 'global');
+    const taskRef   = doc(collection(db, 'tasks'));
     let taskNum = '';
-    let templateFields: unknown[] = [];
+    let resolvedDistrict = '';
+    let existingDistricts: string[] = [];
 
     await runTransaction(db, async (tx) => {
       const configSnap = await tx.get(configRef);
       const next = ((configSnap.data()?.['taskNumCounter'] as number | undefined) ?? 0) + 1;
-      taskNum = `T-${String(next).padStart(3, '0')}`;
-      templateFields = (configSnap.data()?.['taskTemplate'] as unknown[]) ?? [];
-      tx.update(configRef, { taskNumCounter: next });
+      taskNum           = `T-${String(next).padStart(3, '0')}`;
+      const templateFields = (configSnap.data()?.['taskTemplate'] as unknown[]) ?? [];
+      existingDistricts    = (configSnap.data()?.['districts']   as string[])   ?? [];
+      resolvedDistrict     = data.district
+        ? resolveDistrictCasing(data.district, existingDistricts)
+        : '';
+
+      tx.update(configRef, {
+        taskNumCounter:                next,
+        'pipelineCounts.survey':       increment(1),
+        'pipelineCounts.total_active': increment(1),
+      });
+
+      tx.set(taskRef, {
+        taskNum,
+        title:            data.title.trim(),
+        titleLower:       data.title.trim().toLowerCase(),
+        titleWords:       computeTitleWords(data.title),
+        priorityScore:    computePriorityScore('survey', 'pending'),
+        description:      data.description?.trim() ?? '',
+        district:         resolvedDistrict,
+        assignedTo:       data.assignedTo,
+        assignedToName:   data.assignedToName,
+        assignedToCode:   data.assignedToCode,
+        assignedToMobile: data.assignedToMobile ?? '',
+        consumerMobile:   data.consumerMobile.trim(),
+        dueDate:          data.dueDate ? Timestamp.fromDate(data.dueDate) : null,
+        followUpDate:     null,
+        status:           'pending',
+        fields:           templateFields,
+        fieldAnswers:     {},
+        fieldPhotos:      {},
+        completionPhotos: [],
+        blockedReason:    null,
+        location:         null,
+        submittedBy:      null,
+        submittedAt:      null,
+        archived:                false,
+        pipelineStage:           'survey' as const,
+        stageHistory:            [],
+        proposalAssignedTo:      null,
+        proposalAssignedToName:  '',
+        backendAssignedTo:       null,
+        backendAssignedToName:   '',
+        proposalRevisionCount:   0,
+        droppedReason:           null,
+        paymentType:             null,
+        applicationJourneySteps: [],
+        currentStepIndex:        0,
+        journeyCompleted:        false,
+        createdBy:               currentUser.uid,
+        createdAt:        serverTimestamp(),
+        updatedAt:        serverTimestamp(),
+      });
     });
 
-    await addDoc(collection(db, 'tasks'), {
-      taskNum,
-      title:            data.title.trim(),
-      titleLower:       data.title.trim().toLowerCase(),
-      titleWords:       computeTitleWords(data.title),
-      priorityScore:    computePriorityScore('survey', 'pending'),
-      description:      data.description?.trim() ?? '',
-      district:         data.district?.trim() ?? '',
-      assignedTo:       data.assignedTo,
-      assignedToName:   data.assignedToName,
-      assignedToCode:   data.assignedToCode,
-      assignedToMobile: data.assignedToMobile ?? '',
-      dueDate:          data.dueDate ? Timestamp.fromDate(data.dueDate) : null,
-      followUpDate:     null,
-      status:           'pending',
-      fields:           templateFields,
-      fieldAnswers:     {},
-      fieldPhotos:      {},
-      completionPhotos: [],
-      blockedReason:    null,
-      location:         null,
-      submittedBy:      null,
-      submittedAt:      null,
-      archived:                false,
-      pipelineStage:           'survey' as const,
-      stageHistory:            [],
-      proposalAssignedTo:      null,
-      proposalAssignedToName:  '',
-      backendAssignedTo:       null,
-      backendAssignedToName:   '',
-      proposalRevisionCount:   0,
-      droppedReason:           null,
-      paymentType:             null,
-      applicationJourneySteps: [],
-      currentStepIndex:        0,
-      journeyCompleted:        false,
-      createdBy:               currentUser.uid,
-      createdAt:        serverTimestamp(),
-      updatedAt:        serverTimestamp(),
-    });
-
-    await updateDoc(doc(db, 'appConfig', 'global'), {
-      'pipelineCounts.survey':       increment(1),
-      'pipelineCounts.total_active': increment(1),
-    });
-
-    // Best-effort: ensure any newly typed district is added to the global list.
-    // Uses arrayUnion so concurrent writes are safe and duplicates are impossible.
-    const district = data.district?.trim();
-    if (district) {
+    // Best-effort: add district to the global list only when it is genuinely new
+    // (no case-insensitive match existed). resolvedDistrict already carries the
+    // canonical casing from existingDistricts, so arrayUnion is safe against
+    // re-adding an existing variant under a different case.
+    if (resolvedDistrict && !existingDistricts.some(
+      (d) => d.toLowerCase() === resolvedDistrict.toLowerCase(),
+    )) {
       updateDoc(doc(db, 'appConfig', 'global'), {
-        districts: arrayUnion(district),
+        districts: arrayUnion(resolvedDistrict),
       }).catch((err) => console.error('[createTask] district arrayUnion failed:', err));
     }
 
@@ -216,6 +228,94 @@ export function useTaskActions() {
     }
   }
 
+  async function updateTaskDueDate(
+    taskId:  string,
+    dueDate: Date | null,
+  ): Promise<void> {
+    if (!currentUser) throw new Error('Not authenticated');
+    try {
+      await updateDoc(doc(db, 'tasks', taskId), {
+        dueDate:   dueDate ? Timestamp.fromDate(dueDate) : null,
+        updatedAt: serverTimestamp(),
+      });
+      showToast(dueDate ? 'Due date updated' : 'Due date cleared', 'success');
+    } catch (err) {
+      console.error('[updateTaskDueDate] failed:', err);
+      showToast('Failed to update due date. Try again.', 'error');
+      throw err;
+    }
+  }
+
+  async function updateTaskDescription(
+    taskId:      string,
+    description: string,
+  ): Promise<void> {
+    if (!currentUser) throw new Error('Not authenticated');
+    try {
+      await updateDoc(doc(db, 'tasks', taskId), {
+        description: description.trim(),
+        updatedAt:   serverTimestamp(),
+      });
+      showToast('Description updated', 'success');
+    } catch (err) {
+      console.error('[updateTaskDescription] failed:', err);
+      showToast('Failed to update description. Try again.', 'error');
+      throw err;
+    }
+  }
+
+  async function updateTaskConsumerMobile(
+    taskId: string,
+    mobile: string,
+  ): Promise<void> {
+    if (!currentUser) throw new Error('Not authenticated');
+    if (!/^\d{10}$/.test(mobile.trim())) {
+      showToast('Consumer mobile must be exactly 10 digits.', 'error');
+      throw new Error('Invalid mobile number');
+    }
+    try {
+      await updateDoc(doc(db, 'tasks', taskId), {
+        consumerMobile: mobile.trim(),
+        updatedAt:      serverTimestamp(),
+      });
+      showToast('Consumer mobile updated', 'success');
+    } catch (err) {
+      console.error('[updateTaskConsumerMobile] failed:', err);
+      showToast('Failed to update consumer mobile. Try again.', 'error');
+      throw err;
+    }
+  }
+
+  async function updateTaskDistrict(taskId: string, district: string): Promise<void> {
+    if (!currentUser) throw new Error('Not authenticated');
+    try {
+      const configSnap = await getDoc(doc(db, 'appConfig', 'global'));
+      const existingDistricts = (configSnap.data()?.['districts'] as string[]) ?? [];
+      const resolved = district.trim()
+        ? resolveDistrictCasing(district.trim(), existingDistricts)
+        : '';
+      await updateDoc(doc(db, 'tasks', taskId), {
+        district:  resolved,
+        updatedAt: serverTimestamp(),
+      });
+
+      // Add to master list only if genuinely new (no case-insensitive match existed)
+      if (resolved && !existingDistricts.some(
+        (d) => d.toLowerCase() === resolved.toLowerCase(),
+      )) {
+        updateDoc(doc(db, 'appConfig', 'global'), {
+          districts: arrayUnion(resolved),
+        }).catch((err) => console.error('[updateTaskDistrict] district arrayUnion failed:', err));
+      }
+
+      showToast('District updated', 'success');
+    } catch (err) {
+      console.error('[updateTaskDistrict] failed:', err);
+      showToast('Failed to update district. Try again.', 'error');
+      throw err;
+    }
+  }
+
   async function unarchiveTask(taskId: string): Promise<void> {
     if (!currentUser) throw new Error('Not authenticated');
     try {
@@ -278,5 +378,5 @@ export function useTaskActions() {
     }
   }
 
-  return { createTask, assignTask, archiveTask, unarchiveTask, updateTaskTitle };
+  return { createTask, assignTask, archiveTask, unarchiveTask, updateTaskTitle, updateTaskDueDate, updateTaskDescription, updateTaskConsumerMobile, updateTaskDistrict };
 }

@@ -23,6 +23,7 @@ export function docToTask(d: { id: string; data: () => Record<string, unknown> }
     assignedToName:   (data['assignedToName']   as string)  ?? '',
     assignedToCode:   (data['assignedToCode']   as string)  ?? '',
     assignedToMobile: (data['assignedToMobile'] as string | undefined) ?? undefined,
+    consumerMobile:   (data['consumerMobile']  as string | undefined) ?? undefined,
     status:           ((data['status']          as string)  ?? 'pending') as TaskStatus,
     dueDate:          (data['dueDate'] as { toDate?: () => Date } | null)?.toDate?.()        ?? null,
     followUpDate:     (data['followUpDate'] as { toDate?: () => Date } | null)?.toDate?.()   ?? null,
@@ -188,6 +189,8 @@ export function useTasks() {
     searchTerm?: string,
     engineerUid?: string,
     districtFilter?: string,
+    dateFilter?: string,
+    dueDateFilter?: string,
   ) {
     const base = collection(db, 'tasks');
 
@@ -219,8 +222,43 @@ export function useTasks() {
       };
     }
 
+    // Date filter — range query on createdAt for a specific day
+    if (dateFilter) {
+      const startOfDay = new Date(dateFilter + 'T00:00:00');
+      const endOfDay   = new Date(dateFilter + 'T23:59:59.999');
+      return {
+        q: query(
+          collection(db, 'tasks'),
+          where('archived',   '==', false),
+          where('createdAt', '>=', Timestamp.fromDate(startOfDay)),
+          where('createdAt', '<=', Timestamp.fromDate(endOfDay)),
+          orderBy('createdAt', 'desc'),
+          limit(200),
+        ),
+        isSearch: false as const,
+      };
+    }
+
+    // Due date filter — range query on dueDate for a specific day
+    if (dueDateFilter) {
+      const startOfDay = new Date(dueDateFilter + 'T00:00:00');
+      const endOfDay   = new Date(dueDateFilter + 'T23:59:59.999');
+      return {
+        q: query(
+          collection(db, 'tasks'),
+          where('archived', '==', false),
+          where('dueDate',  '>=', Timestamp.fromDate(startOfDay)),
+          where('dueDate',  '<=', Timestamp.fromDate(endOfDay)),
+          orderBy('dueDate', 'asc'),
+          limit(200),
+        ),
+        isSearch: false as const,
+      };
+    }
+
     if (searchTerm && searchTerm.trim().length > 0) {
       const term = searchTerm.trim().toLowerCase();
+      const isMobile = /^\d{10}$/.test(searchTerm.trim());
       if (filter === 'my_tasks') {
         const taskNumQuery = query(
           base,
@@ -237,7 +275,10 @@ export function useTasks() {
           where('titleWords', 'array-contains', term),
           limit(PAGE_SIZE),
         );
-        return { taskNumQuery, titleQuery, isSearch: true as const };
+        const mobileQuery = isMobile
+          ? query(base, where('archived', '==', false), where('createdBy', '==', currentUser!.uid), where('consumerMobile', '==', searchTerm.trim()), limit(PAGE_SIZE))
+          : null;
+        return { taskNumQuery, titleQuery, mobileQuery, isSearch: true as const };
       }
       const taskNumQuery = query(
         base,
@@ -252,7 +293,10 @@ export function useTasks() {
         where('titleWords', 'array-contains', term),
         limit(PAGE_SIZE),
       );
-      return { taskNumQuery, titleQuery, isSearch: true as const };
+      const mobileQuery = isMobile
+        ? query(base, where('archived', '==', false), where('consumerMobile', '==', searchTerm.trim()), limit(PAGE_SIZE))
+        : null;
+      return { taskNumQuery, titleQuery, mobileQuery, isSearch: true as const };
     }
 
     let q;
@@ -369,6 +413,8 @@ export function useTasks() {
     searchTerm?: string,
     engineerUid?: string,
     districtFilter?: string,
+    dateFilter?: string,
+    dueDateFilter?: string,
   ) {
     if (currentUser?.role !== 'admin' && currentUser?.role !== 'view_only') return;
 
@@ -382,17 +428,16 @@ export function useTasks() {
     setTasks([]);
     setIsLoadingTasks(true);
 
-    const built = buildAdminQuery(filter, searchTerm, engineerUid, districtFilter);
+    const built = buildAdminQuery(filter, searchTerm, engineerUid, districtFilter, dateFilter, dueDateFilter);
 
     if (built.isSearch) {
-      const { taskNumQuery, titleQuery } = built;
-      Promise.all([
-        getDocs(taskNumQuery),
-        getDocs(titleQuery),
-      ]).then(([numSnap, titleSnap]) => {
+      const { taskNumQuery, titleQuery, mobileQuery } = built;
+      const queryPromises = [getDocs(taskNumQuery), getDocs(titleQuery)];
+      if (mobileQuery) queryPromises.push(getDocs(mobileQuery));
+      Promise.all(queryPromises).then((snaps) => {
         const seen  = new Set<string>();
         const merged: Task[] = [];
-        [...numSnap.docs, ...titleSnap.docs].forEach((d) => {
+        snaps.flatMap((snap) => snap.docs).forEach((d) => {
           if (!seen.has(d.id)) {
             seen.add(d.id);
             merged.push(docToTask(d));
@@ -427,7 +472,8 @@ export function useTasks() {
         setIsConnected(true);
         setIsLoadingTasks(false);
         lastDocRef.current = snap.docs[snap.docs.length - 1] ?? null;
-        setHasMore(snap.docs.length === PAGE_SIZE);
+        const activeLimit = (dateFilter || dueDateFilter) ? 200 : PAGE_SIZE;
+        setHasMore(snap.docs.length === activeLimit);
       },
       (err) => {
         console.error('[useTasks] admin error:', err);
@@ -441,6 +487,46 @@ export function useTasks() {
       if (!lastDocRef.current) return;
       setLoadingMore(true);
       try {
+        // Date filter uses its own range constraints captured from closure
+        if (dateFilter) {
+          const startOfDay = new Date(dateFilter + 'T00:00:00');
+          const endOfDay   = new Date(dateFilter + 'T23:59:59.999');
+          const moreSnap = await getDocs(query(
+            collection(db, 'tasks'),
+            where('archived',   '==', false),
+            where('createdAt', '>=', Timestamp.fromDate(startOfDay)),
+            where('createdAt', '<=', Timestamp.fromDate(endOfDay)),
+            orderBy('createdAt', 'desc'),
+            startAfter(lastDocRef.current),
+            limit(200),
+          ));
+          const moreTasks = moreSnap.docs.map(docToTask);
+          setTasks([...useTaskStore.getState().tasks, ...moreTasks]);
+          lastDocRef.current = moreSnap.docs[moreSnap.docs.length - 1] ?? null;
+          setHasMore(moreSnap.docs.length === 200);
+          setLoadingMore(false);
+          return;
+        }
+        // Due date filter loadMore
+        if (dueDateFilter) {
+          const startOfDay = new Date(dueDateFilter + 'T00:00:00');
+          const endOfDay   = new Date(dueDateFilter + 'T23:59:59.999');
+          const moreSnap = await getDocs(query(
+            collection(db, 'tasks'),
+            where('archived', '==', false),
+            where('dueDate',  '>=', Timestamp.fromDate(startOfDay)),
+            where('dueDate',  '<=', Timestamp.fromDate(endOfDay)),
+            orderBy('dueDate', 'asc'),
+            startAfter(lastDocRef.current),
+            limit(200),
+          ));
+          const moreTasks = moreSnap.docs.map(docToTask);
+          setTasks([...useTaskStore.getState().tasks, ...moreTasks]);
+          lastDocRef.current = moreSnap.docs[moreSnap.docs.length - 1] ?? null;
+          setHasMore(moreSnap.docs.length === 200);
+          setLoadingMore(false);
+          return;
+        }
         const filterConstraints = (() => {
           switch (filter) {
             case 'pending':

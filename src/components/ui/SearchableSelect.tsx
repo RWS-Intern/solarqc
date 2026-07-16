@@ -12,6 +12,7 @@ interface SearchableSelectProps {
   options:      SearchableSelectOption[];
   placeholder?: string;
   className?:   string;
+  disabled?:    boolean;
 }
 
 export function SearchableSelect({
@@ -20,6 +21,7 @@ export function SearchableSelect({
   options,
   placeholder = 'Select...',
   className = '',
+  disabled = false,
 }: SearchableSelectProps) {
   const selectedLabel = options.find((o) => o.value === value)?.label ?? '';
 
@@ -63,18 +65,20 @@ export function SearchableSelect({
   }
 
   return (
-    <div ref={ref} className={`relative ${className}`}>
+    <div ref={ref} className={`relative ${className}${disabled ? ' opacity-50' : ''}`}>
       <div className="relative">
         <input
           type="text"
           value={query}
           placeholder={placeholder}
+          disabled={disabled}
           onChange={(e) => {
+            if (disabled) return;
             setQuery(e.target.value);
             setOpen(true);
           }}
-          onFocus={() => setOpen(true)}
-          className="h-9 w-full rounded-lg border border-input bg-background pl-3 pr-8 text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/30 focus:border-brand-blue text-gray-700"
+          onFocus={() => { if (!disabled) setOpen(true); }}
+          className={`h-9 w-full rounded-lg border border-input bg-background pl-3 pr-8 text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/30 focus:border-brand-blue text-gray-700${disabled ? ' cursor-not-allowed bg-gray-50' : ''}`}
         />
         {value ? (
           <button

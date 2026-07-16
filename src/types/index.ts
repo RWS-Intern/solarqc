@@ -213,6 +213,7 @@ export interface Task {
   assignedToName:   string;
   assignedToCode:   string;
   assignedToMobile?: string;
+  consumerMobile?:  string;
   status:           TaskStatus;
   dueDate:          Date | null;
   followUpDate:     Date | null;

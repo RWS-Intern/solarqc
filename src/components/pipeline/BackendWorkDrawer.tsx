@@ -119,38 +119,6 @@ export function BackendWorkDrawer({ task, onClose, isReadOnly = false }: Backend
   const currentStep = steps[currentIdx] ?? null;
   const allStepsDone = steps.length > 0 && steps.every((s) => s.status === 'done');
 
-  const today2 = new Date();
-  const todayStr = `${today2.getFullYear()}-${String(today2.getMonth()+1).padStart(2,'0')}-${String(today2.getDate()).padStart(2,'0')}`;
-
-  function getMinDate(): string {
-    const twoDaysAgo = new Date();
-    twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
-    twoDaysAgo.setHours(0, 0, 0, 0);
-
-    if (currentIdx === 0) {
-      // Step 1 — no previous step, min = today - 2
-      return `${twoDaysAgo.getFullYear()}-${String(twoDaysAgo.getMonth()+1).padStart(2,'0')}-${String(twoDaysAgo.getDate()).padStart(2,'0')}`;
-    }
-
-    // Find previous step's realDate
-    let prevDate: Date | null = null;
-    for (let i = currentIdx - 1; i >= 0; i--) {
-      if (steps[i]?.realDate) {
-        prevDate = new Date(steps[i].realDate!);
-        prevDate.setHours(0, 0, 0, 0);
-        break;
-      }
-    }
-
-    if (!prevDate) {
-      return `${twoDaysAgo.getFullYear()}-${String(twoDaysAgo.getMonth()+1).padStart(2,'0')}-${String(twoDaysAgo.getDate()).padStart(2,'0')}`;
-    }
-
-    // Min = whichever is LATER: today-2 or previous step date
-    const minDate = prevDate > twoDaysAgo ? prevDate : twoDaysAgo;
-    return `${minDate.getFullYear()}-${String(minDate.getMonth()+1).padStart(2,'0')}-${String(minDate.getDate()).padStart(2,'0')}`;
-  }
-
   function handlePaymentSelect(type: 'cash' | 'loan') {
     setPendingPaymentType(type);
   }
@@ -228,18 +196,7 @@ export function BackendWorkDrawer({ task, onClose, isReadOnly = false }: Backend
       if (!stepDate) return;
     }
 
-    // Final date validation before submit
     if (!stepDate) {
-      setShowErrors(true);
-      return;
-    }
-    const enteredDate = new Date(stepDate);
-    const todayEnd    = new Date();
-    todayEnd.setHours(23, 59, 59, 999);
-    const minDateStr  = getMinDate();
-    const minDate     = new Date(minDateStr);
-    minDate.setHours(0, 0, 0, 0);
-    if (enteredDate > todayEnd || enteredDate < minDate) {
       setShowErrors(true);
       return;
     }
@@ -300,6 +257,16 @@ export function BackendWorkDrawer({ task, onClose, isReadOnly = false }: Backend
     }
   }
 
+  const latestEntry = task?.stageHistory?.length
+    ? task.stageHistory[task.stageHistory.length - 1]
+    : null;
+  const showReturnBanner = !!(
+    latestEntry &&
+    latestEntry.note &&
+    latestEntry.toStage === 'backend' &&
+    latestEntry.actorRole === 'admin_override'
+  );
+
   return (
     <Sheet open={!!task} onOpenChange={(open) => {
       if (!open) {
@@ -358,6 +325,18 @@ export function BackendWorkDrawer({ task, onClose, isReadOnly = false }: Backend
 
         <div className="flex flex-col gap-4 px-5 py-5">
 
+          {/* Admin override banner */}
+          {showReturnBanner && latestEntry && (
+            <div className="rounded-lg border-2 border-amber-300 bg-amber-50 px-4 py-3">
+              <p className="text-xs font-bold text-amber-800 uppercase tracking-wide mb-1">
+                ⚠️ Sent Back By Admin
+              </p>
+              <p className="text-sm font-semibold text-amber-900">
+                {latestEntry.note}
+              </p>
+            </div>
+          )}
+
           {/* Survey Reference */}
           <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm space-y-1">
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
@@ -409,6 +388,24 @@ export function BackendWorkDrawer({ task, onClose, isReadOnly = false }: Backend
             <div>
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Description</p>
               <p className="text-sm text-gray-700 whitespace-pre-wrap">{task.description}</p>
+            </div>
+          )}
+
+          {/* Consumer Mobile */}
+          {task?.consumerMobile && (
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Consumer Mobile</p>
+              <p className="text-sm text-gray-700 font-mono">{task.consumerMobile}</p>
+            </div>
+          )}
+
+          {/* District */}
+          {task?.district && (
+            <div className="flex items-center gap-2 text-xs">
+              <span className="text-gray-500">District:</span>
+              <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-600">
+                {task.district}
+              </span>
             </div>
           )}
 
@@ -946,20 +943,7 @@ export function BackendWorkDrawer({ task, onClose, isReadOnly = false }: Backend
                         <input
                           type="date"
                           value={stepDate}
-                          max={todayStr}
-                          min={getMinDate()}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            if (!val) return;
-                            const entered  = new Date(val);
-                            const today    = new Date();
-                            today.setHours(23, 59, 59, 999);
-                            const minStr   = getMinDate();
-                            const minDate  = new Date(minStr);
-                            minDate.setHours(0, 0, 0, 0);
-                            if (entered > today || entered < minDate) return;
-                            setStepDate(val);
-                          }}
+                          onChange={(e) => setStepDate(e.target.value)}
                           onKeyDown={(e) => {
                             if (e.key !== 'Tab' && e.key !== 'Escape') {
                               e.preventDefault();
@@ -975,28 +959,6 @@ export function BackendWorkDrawer({ task, onClose, isReadOnly = false }: Backend
                         {showErrors && !stepDate && (
                           <p className="text-xs text-red-500">Date is required.</p>
                         )}
-                        {showErrors && stepDate && (() => {
-                          const entered  = new Date(stepDate);
-                          const todayEnd = new Date();
-                          todayEnd.setHours(23, 59, 59, 999);
-                          const minStr   = getMinDate();
-                          const minDate  = new Date(minStr);
-                          minDate.setHours(0, 0, 0, 0);
-                          if (entered > todayEnd) {
-                            return <p className="text-xs text-red-500">Date cannot be in the future.</p>;
-                          }
-                          if (entered < minDate) {
-                            return (
-                              <p className="text-xs text-red-500">
-                                Date must be within the last 2 days and not before the previous step's date.
-                              </p>
-                            );
-                          }
-                          return null;
-                        })()}
-                        <p className="text-xs text-gray-400">
-                          Allowed: last 2 days only · Cannot be before previous step's date.
-                        </p>
                       </>
                     )}
                   </div>

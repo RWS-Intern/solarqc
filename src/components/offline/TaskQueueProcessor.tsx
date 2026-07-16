@@ -8,7 +8,7 @@ import { uploadToCloudinary } from '@/utils/uploadToCloudinary';
 import { _emitToast }         from '@/components/ui/toast';
 import {
   doc, updateDoc, addDoc, collection, serverTimestamp,
-  getDoc, setDoc, arrayUnion, increment, Timestamp,
+  getDoc, arrayUnion, increment, Timestamp, runTransaction,
 } from 'firebase/firestore';
 import { db }                 from '@/firebase/config';
 import { assignLeastLoaded }  from '@/utils/findLeastLoadedUser';
@@ -210,34 +210,28 @@ export function TaskQueueProcessor() {
           note:      '(synced from offline queue)',
         };
 
-        // Write stages/survey subcollection
-        const surveyStageRef = doc(
-          db, 'tasks', item.taskId, 'stages', 'survey'
-        );
-        await setDoc(surveyStageRef, {
-          fieldAnswers:       item.payload.fieldAnswers,
-          fieldPhotos:        finalFieldPhotos,
-          location:           item.payload.location,
-          submittedAt:        serverTimestamp(),
-          submittedBy:        currentUser?.uid ?? '',
-          surveyFormSnapshot: item.payload.fields ?? [],
+        // Move to proposal stage — all three writes atomic in one transaction
+        const surveyStageRef = doc(db, 'tasks', item.taskId, 'stages', 'survey');
+        await runTransaction(db, async (tx) => {
+          tx.set(surveyStageRef, {
+            fieldAnswers:       item.payload.fieldAnswers,
+            fieldPhotos:        finalFieldPhotos,
+            location:           item.payload.location,
+            submittedAt:        serverTimestamp(),
+            submittedBy:        currentUser?.uid ?? '',
+            surveyFormSnapshot: item.payload.fields ?? [],
+          });
+          tx.update(taskRef, {
+            pipelineStage: 'proposal',
+            stageHistory:  arrayUnion(stageHistoryEntry),
+            updatedAt:     serverTimestamp(),
+          });
+          tx.update(doc(db, 'appConfig', 'global'), {
+            'pipelineCounts.survey':              increment(-1),
+            'pipelineCounts.proposal':            increment(1),
+            'pipelineCounts.unassigned_proposal': increment(1),
+          });
         });
-
-        // Move to proposal stage
-        await updateDoc(taskRef, {
-          pipelineStage: 'proposal',
-          stageHistory:  arrayUnion(stageHistoryEntry),
-          updatedAt:     serverTimestamp(),
-        });
-
-        // Update pipelineCounts
-        await updateDoc(doc(db, 'appConfig', 'global'), {
-          'pipelineCounts.survey':              increment(-1),
-          'pipelineCounts.proposal':            increment(1),
-          'pipelineCounts.unassigned_proposal': increment(1),
-        }).catch((err) =>
-          console.error('[Queue] pipelineCounts update failed:', err)
-        );
 
         // Auto-assign to least loaded proposal member
         try {

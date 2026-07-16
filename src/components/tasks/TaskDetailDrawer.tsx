@@ -14,6 +14,7 @@ import { useUserStore }       from '@/store/userStore';
 import { useToast }           from '@/components/ui/toast';
 import { useAppConfig }       from '@/hooks/useAppConfig';
 import { useDrawerBackButton } from '@/hooks/useDrawerBackButton';
+import { checkDuplicateConsumerMobile } from '@/utils/checkDuplicateMobile';
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle,
 } from '@/components/ui/sheet';
@@ -23,6 +24,7 @@ import { PipelineTracker } from '@/components/pipeline/PipelineTracker';
 import { getProposalDocuments }  from '@/utils/proposalDocuments';
 import { ProposalDocumentList }  from '@/components/pipeline/ProposalDocumentList';
 import { EngineerCombobox }      from '@/components/ui/EngineerCombobox';
+import { DistrictCombobox }      from '@/components/ui/DistrictCombobox';
 import type { Task, TaskStatus, TaskUpdate, DocumentsStageData, ProposalStageData, FieldDefinition } from '@/types';
 
 // ─── Inline Title Edit ────────────────────────────────────────────────────────
@@ -94,6 +96,384 @@ function InlineTitleEdit({ task }: { task: Task }) {
           onClick={() => setEditing(false)}
           disabled={saving}
           className="flex-1 rounded-lg border border-white/20 bg-transparent text-white/70 font-medium py-1.5 text-xs disabled:opacity-50 transition-colors hover:bg-white/10"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Inline Due Date Edit ────────────────────────────────────────────────────
+
+function InlineDueDateEdit({ task }: { task: Task }) {
+  const { updateTaskDueDate } = useTaskActions();
+  const { currentUser }       = useAuthStore();
+  const [editing, setEditing] = useState(false);
+  const [value,   setValue]   = useState('');
+  const [saving,  setSaving]  = useState(false);
+  const isAdmin = currentUser?.role === 'admin';
+
+  if (!isAdmin && !task.dueDate) return null;
+
+  if (!isAdmin) return (
+    <div className="flex items-center gap-2 text-gray-600">
+      <Calendar className="h-4 w-4 text-gray-400 shrink-0" />
+      <span>Due {formatDate(task.dueDate)}</span>
+    </div>
+  );
+
+  if (!editing) return (
+    <div className="flex items-center gap-2 group text-gray-600">
+      <Calendar className="h-4 w-4 text-gray-400 shrink-0" />
+      {task.dueDate ? (
+        <span>Due {formatDate(task.dueDate)}</span>
+      ) : (
+        <span className="text-gray-400 italic text-sm">No due date</span>
+      )}
+      <button
+        type="button"
+        onClick={() => {
+          if (task.dueDate) {
+            const d  = task.dueDate;
+            const y  = d.getFullYear();
+            const mo = String(d.getMonth() + 1).padStart(2, '0');
+            const dd = String(d.getDate()).padStart(2, '0');
+            setValue(`${y}-${mo}-${dd}`);
+          } else {
+            setValue('');
+          }
+          setEditing(true);
+        }}
+        className="opacity-0 group-hover:opacity-100 rounded p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-all"
+        title="Edit due date"
+      >
+        <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round"
+            d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+        </svg>
+      </button>
+    </div>
+  );
+
+  return (
+    <div className="flex items-center gap-2">
+      <Calendar className="h-4 w-4 text-gray-400 shrink-0" />
+      <input
+        type="date"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        autoFocus
+        className="flex-1 rounded border border-gray-300 bg-white px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/30"
+      />
+      <button
+        type="button"
+        onClick={async () => {
+          setSaving(true);
+          try {
+            const newDate = value ? new Date(value + 'T00:00:00') : null;
+            await updateTaskDueDate(task.id, newDate);
+            setEditing(false);
+          } catch {
+            // handled in hook
+          } finally {
+            setSaving(false);
+          }
+        }}
+        disabled={saving}
+        className="rounded px-2 py-1 bg-brand-blue text-white text-xs font-medium disabled:opacity-50 transition-colors hover:bg-brand-blue/90"
+      >
+        {saving ? '…' : 'Save'}
+      </button>
+      <button
+        type="button"
+        onClick={() => setEditing(false)}
+        disabled={saving}
+        className="rounded px-2 py-1 border border-gray-200 text-gray-500 text-xs disabled:opacity-50 hover:bg-gray-50 transition-colors"
+      >
+        Cancel
+      </button>
+    </div>
+  );
+}
+
+// ─── Inline Description Edit ─────────────────────────────────────────────────
+
+function InlineDescriptionEdit({ task }: { task: Task }) {
+  const { updateTaskDescription } = useTaskActions();
+  const { currentUser }           = useAuthStore();
+  const [editing, setEditing]     = useState(false);
+  const [value,   setValue]       = useState(task.description ?? '');
+  const [saving,  setSaving]      = useState(false);
+  const isAdmin = currentUser?.role === 'admin';
+
+  if (!isAdmin && !task.description) return null;
+
+  if (!isAdmin) return (
+    <div>
+      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Description</p>
+      <p className="text-sm text-gray-700 whitespace-pre-wrap">{task.description}</p>
+    </div>
+  );
+
+  if (!editing) return (
+    <div className="group">
+      <div className="flex items-center gap-2 mb-1">
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Description</p>
+        <button
+          type="button"
+          onClick={() => { setValue(task.description ?? ''); setEditing(true); }}
+          className="opacity-0 group-hover:opacity-100 rounded p-0.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-all"
+          title="Edit description"
+        >
+          <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round"
+              d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+          </svg>
+        </button>
+      </div>
+      {task.description ? (
+        <p className="text-sm text-gray-700 whitespace-pre-wrap">{task.description}</p>
+      ) : (
+        <p className="text-sm text-gray-400 italic">No description</p>
+      )}
+    </div>
+  );
+
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Description</p>
+      <textarea
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        rows={3}
+        autoFocus
+        placeholder="Add a description…"
+        className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-brand-blue/30"
+      />
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={async () => {
+            setSaving(true);
+            try {
+              await updateTaskDescription(task.id, value);
+              setEditing(false);
+            } catch {
+              // handled in hook
+            } finally {
+              setSaving(false);
+            }
+          }}
+          disabled={saving}
+          className="flex-1 rounded-lg bg-brand-blue hover:bg-brand-blue/90 text-white font-semibold py-1.5 text-xs disabled:opacity-50 transition-colors"
+        >
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+        <button
+          type="button"
+          onClick={() => setEditing(false)}
+          disabled={saving}
+          className="flex-1 rounded-lg border border-gray-200 bg-transparent text-gray-500 font-medium py-1.5 text-xs disabled:opacity-50 hover:bg-gray-50 transition-colors"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Inline Consumer Mobile Edit ─────────────────────────────────────────────
+
+function InlineConsumerMobileEdit({ task }: { task: Task }) {
+  const { updateTaskConsumerMobile } = useTaskActions();
+  const { currentUser }              = useAuthStore();
+  const { showToast }                = useToast();
+  const [editing, setEditing]        = useState(false);
+  const [value,   setValue]          = useState(task.consumerMobile ?? '');
+  const [saving,  setSaving]         = useState(false);
+  const isAdmin = currentUser?.role === 'admin';
+
+  const mobileError = value.length > 0 && value.length !== 10;
+
+  if (!isAdmin && !task.consumerMobile) return null;
+
+  if (!isAdmin) return (
+    <div>
+      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Consumer Mobile</p>
+      <p className="text-sm text-gray-700 font-mono">{task.consumerMobile}</p>
+    </div>
+  );
+
+  if (!editing) return (
+    <div className="group">
+      <div className="flex items-center gap-2 mb-1">
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Consumer Mobile</p>
+        <button
+          type="button"
+          onClick={() => { setValue(task.consumerMobile ?? ''); setEditing(true); }}
+          className="opacity-0 group-hover:opacity-100 rounded p-0.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-all"
+          title="Edit consumer mobile"
+        >
+          <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round"
+              d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+          </svg>
+        </button>
+      </div>
+      {task.consumerMobile ? (
+        <p className="text-sm text-gray-700 font-mono">{task.consumerMobile}</p>
+      ) : (
+        <p className="text-sm text-gray-400 italic">No consumer mobile</p>
+      )}
+    </div>
+  );
+
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Consumer Mobile</p>
+      <input
+        type="tel"
+        inputMode="numeric"
+        maxLength={10}
+        value={value}
+        onChange={(e) => setValue(e.target.value.replace(/\D/g, '').slice(0, 10))}
+        autoFocus
+        placeholder="10-digit mobile number"
+        className={cn(
+          'w-full rounded-lg border px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2',
+          mobileError
+            ? 'border-red-400 bg-red-50 focus:ring-red-300'
+            : 'border-gray-300 bg-white focus:ring-brand-blue/30',
+        )}
+      />
+      {mobileError && (
+        <p className="text-xs text-red-500">Mobile number must be exactly 10 digits</p>
+      )}
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={async () => {
+            setSaving(true);
+            try {
+              let duplicate = null;
+              try {
+                duplicate = await checkDuplicateConsumerMobile(value, task.id);
+              } catch (checkErr) {
+                console.error('[InlineConsumerMobileEdit] duplicate check failed:', checkErr);
+                showToast('Could not check for duplicate mobile numbers — check your connection and try again.', 'error');
+                setSaving(false);
+                return;
+              }
+              if (duplicate) {
+                const confirmed = window.confirm(
+                  `This mobile number already exists on lead ${duplicate.taskNum} ` +
+                  `(${duplicate.title}).\n\nContinue anyway?`
+                );
+                if (!confirmed) {
+                  setSaving(false);
+                  return;
+                }
+              }
+              await updateTaskConsumerMobile(task.id, value);
+              setEditing(false);
+            } catch {
+              // handled in hook
+            } finally {
+              setSaving(false);
+            }
+          }}
+          disabled={saving || value.length !== 10}
+          className="flex-1 rounded-lg bg-brand-blue hover:bg-brand-blue/90 text-white font-semibold py-1.5 text-xs disabled:opacity-50 transition-colors"
+        >
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+        <button
+          type="button"
+          onClick={() => setEditing(false)}
+          disabled={saving}
+          className="flex-1 rounded-lg border border-gray-200 bg-transparent text-gray-500 font-medium py-1.5 text-xs disabled:opacity-50 hover:bg-gray-50 transition-colors"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Inline District Edit ────────────────────────────────────────────────────
+
+function InlineDistrictEdit({ task }: { task: Task }) {
+  const { updateTaskDistrict } = useTaskActions();
+  const { currentUser }        = useAuthStore();
+  const [editing, setEditing]  = useState(false);
+  const [value,   setValue]    = useState(task.district ?? '');
+  const [saving,  setSaving]   = useState(false);
+  const isAdmin = currentUser?.role === 'admin';
+
+  if (!isAdmin && !task.district) return null;
+
+  if (!isAdmin) return (
+    <div className="flex items-center gap-2 text-xs">
+      <span className="text-gray-500">District:</span>
+      <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-600">
+        {task.district}
+      </span>
+    </div>
+  );
+
+  if (!editing) return (
+    <div className="group flex items-center gap-2 text-xs">
+      <span className="text-gray-500">District:</span>
+      {task.district ? (
+        <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-600">
+          {task.district}
+        </span>
+      ) : (
+        <span className="text-gray-400 italic">No district</span>
+      )}
+      <button
+        type="button"
+        onClick={() => { setValue(task.district ?? ''); setEditing(true); }}
+        className="opacity-0 group-hover:opacity-100 rounded p-0.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-all"
+        title="Edit district"
+      >
+        <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round"
+            d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+        </svg>
+      </button>
+    </div>
+  );
+
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">District</p>
+      <DistrictCombobox value={value} onChange={setValue} />
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={async () => {
+            setSaving(true);
+            try {
+              await updateTaskDistrict(task.id, value);
+              setEditing(false);
+            } catch {
+              // handled in hook
+            } finally {
+              setSaving(false);
+            }
+          }}
+          disabled={saving}
+          className="flex-1 rounded-lg bg-brand-blue hover:bg-brand-blue/90 text-white font-semibold py-1.5 text-xs disabled:opacity-50 transition-colors"
+        >
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+        <button
+          type="button"
+          onClick={() => setEditing(false)}
+          disabled={saving}
+          className="flex-1 rounded-lg border border-gray-200 bg-transparent text-gray-500 font-medium py-1.5 text-xs disabled:opacity-50 hover:bg-gray-50 transition-colors"
         >
           Cancel
         </button>
@@ -861,12 +1241,7 @@ export function TaskDetailDrawer({ task, onClose, onUpdate, onAdminUpdate }: Tas
             )}
 
             {/* Due date */}
-            {task.dueDate && (
-              <div className="flex items-center gap-2 text-gray-600">
-                <Calendar className="h-4 w-4 text-gray-400 shrink-0" />
-                <span>Due {formatDate(task.dueDate)}</span>
-              </div>
-            )}
+            <InlineDueDateEdit task={task} />
 
             {/* Follow-up date */}
             {task.followUpDate && (
@@ -879,14 +1254,7 @@ export function TaskDetailDrawer({ task, onClose, onUpdate, onAdminUpdate }: Tas
             )}
 
             {/* District */}
-            {task.district && (
-              <div className="flex items-center gap-2 text-xs">
-                <span className="text-gray-500">District:</span>
-                <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-600">
-                  {task.district}
-                </span>
-              </div>
-            )}
+            <InlineDistrictEdit task={task} />
 
             {/* Created */}
             <div className="flex items-center gap-2 text-gray-400 text-xs">
@@ -895,12 +1263,10 @@ export function TaskDetailDrawer({ task, onClose, onUpdate, onAdminUpdate }: Tas
           </div>
 
           {/* Description */}
-          {task.description && (
-            <div>
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Description</p>
-              <p className="text-sm text-gray-700 whitespace-pre-wrap">{task.description}</p>
-            </div>
-          )}
+          <InlineDescriptionEdit task={task} />
+
+          {/* Consumer Mobile */}
+          <InlineConsumerMobileEdit task={task} />
 
           {/* Blocked reason */}
           {task.status === 'blocked' && task.blockedReason && (

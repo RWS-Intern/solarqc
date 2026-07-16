@@ -1,9 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import { Plus, Search, ClipboardList, ChevronRight, Download, Upload, X } from 'lucide-react';
-import { collection, getDocs, writeBatch, doc as fsDoc } from 'firebase/firestore';
-import { db } from '@/firebase/config';
-import { computePriorityScore, computeTitleWords } from '@/utils/taskScoring';
 import { useTaskStore }       from '@/store/taskStore';
 import { useAuthStore }       from '@/store/authStore';
 import { Button }             from '@/components/ui/button';
@@ -293,10 +290,27 @@ export function TasksPage() {
   const isSearching = search.trim().length > 0;
   const [engineerFilter,   setEngineerFilter]   = useState<string>('');
   const [districtFilter,   setDistrictFilter]   = useState<string>('');
+  const [dateFilter,       setDateFilter]       = useState<string>('');
+  const [dueDateFilter,    setDueDateFilter]    = useState<string>('');
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Admin: re-subscribe when filter, search, engineerFilter, or districtFilter changes.
+  function todayISO() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+  function tomorrowISO() {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+  function yesterdayISO() {
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+
+  // Admin: re-subscribe when filter, search, engineerFilter, districtFilter, dateFilter, or dueDateFilter changes.
   // Search is debounced 350ms so Firestore is not queried on every keystroke.
   useEffect(() => {
     if (currentUser?.role !== 'admin' && currentUser?.role !== 'view_only') return;
@@ -306,23 +320,27 @@ export function TasksPage() {
         subscribeToFilter(
           filter as AdminFilter,
           search.trim(),
-          engineerFilter || undefined,
-          districtFilter || undefined,
+          engineerFilter  || undefined,
+          districtFilter  || undefined,
+          dateFilter      || undefined,
+          dueDateFilter   || undefined,
         );
       }, 350);
     } else {
       subscribeToFilter(
         filter as AdminFilter,
         undefined,
-        engineerFilter || undefined,
-        districtFilter || undefined,
+        engineerFilter  || undefined,
+        districtFilter  || undefined,
+        dateFilter      || undefined,
+        dueDateFilter   || undefined,
       );
     }
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filter, search, currentUser?.uid, engineerFilter, districtFilter]);
+  }, [filter, search, currentUser?.uid, engineerFilter, districtFilter, dateFilter, dueDateFilter]);
   const [showCreate,       setShowCreate]       = useState(false);
   const [showBulk,         setShowBulk]         = useState(false);
   const [detailTask,       setDetailTask]       = useState<Task | null>(null);
@@ -383,7 +401,12 @@ export function TasksPage() {
     };
     tasks.forEach((t) => {
       c['all']++;
-      c[t.status]++;
+      const isTerminal = t.pipelineStage === 'dropped' || t.pipelineStage === 'completed';
+      if ((t.status === 'blocked' || t.status === 'pending' || t.status === 'in_progress') && isTerminal) {
+        // terminal-stage tasks: don't count under their stale survey status
+      } else {
+        c[t.status]++;
+      }
       if (t.followUpDate) c['follow_up']++;
       if (isOverdue(t))   c['overdue']++;
     });
@@ -455,6 +478,24 @@ export function TasksPage() {
         (t.pipelineStage === 'proposal' && !t.proposalAssignedTo) ||
         (t.pipelineStage === 'backend'  && !t.backendAssignedTo)
       );
+      if (filter === 'pending') return (
+        t.status === 'pending' &&
+        t.pipelineStage !== 'dropped' &&
+        t.pipelineStage !== 'completed' &&
+        !t.archived
+      );
+      if (filter === 'in_progress') return (
+        t.status === 'in_progress' &&
+        t.pipelineStage !== 'dropped' &&
+        t.pipelineStage !== 'completed' &&
+        !t.archived
+      );
+      if (filter === 'blocked') return (
+        t.status === 'blocked' &&
+        t.pipelineStage !== 'dropped' &&
+        t.pipelineStage !== 'completed' &&
+        !t.archived
+      );
       if (filter === 'fe_survey_done') return (
         t.status === 'completed' &&
         t.assignedTo === currentUser?.uid && !t.archived
@@ -488,7 +529,8 @@ export function TasksPage() {
         const term = search.trim().toLowerCase();
         const matchesTitle  = t.title.toLowerCase().includes(term);
         const matchesNum    = t.taskNum.toLowerCase().includes(term);
-        if (!matchesTitle && !matchesNum) return false;
+        const matchesMobile = /^\d{10}$/.test(search.trim()) && t.consumerMobile === search.trim();
+        if (!matchesTitle && !matchesNum && !matchesMobile) return false;
       }
 
       return true;
@@ -534,55 +576,36 @@ export function TasksPage() {
       });
     }
 
-    // Field engineer sort (unchanged)
+    // Field engineer sort
     return [...visible].sort((a, b) => {
-      function score(t: Task): number {
+      // Tier 1: follow-up urgency — floats to top
+      function followUpScore(t: Task): number {
         if (t.followUpDate && isToday(t.followUpDate))    return 0;
         if (t.followUpDate && isTomorrow(t.followUpDate)) return 1;
-        if (isOverdue(t))                                 return 2;
+        return 2;
+      }
+      const followUpDiff = followUpScore(a) - followUpScore(b);
+      if (followUpDiff !== 0) return followUpDiff;
+
+      // Tier 2: status priority — In Progress > Pending > Blocked > anything else
+      function statusScore(t: Task): number {
+        if (t.status === 'in_progress') return 0;
+        if (t.status === 'pending')     return 1;
+        if (t.status === 'blocked')     return 2;
         return 3;
       }
-      const diff = score(a) - score(b);
-      if (diff !== 0) return diff;
+      const statusDiff = statusScore(a) - statusScore(b);
+      if (statusDiff !== 0) return statusDiff;
+
+      // Tier 3: within the same status, newest created first.
+      // Overdue is intentionally NOT a sort factor here — it remains only
+      // a visual badge on the card. This is a deliberate decision: forcing
+      // overdue items to the top was burying newer, more relevant tasks
+      // under an ever-growing backlog. The dedicated "Overdue" filter tab
+      // is the reliable way to review all overdue tasks regardless of status.
       return b.createdAt.getTime() - a.createdAt.getTime();
     });
   }, [visible, isAdmin, filter]);
-
-  const [migrating,     setMigrating]     = useState(false);
-  const [migrateResult, setMigrateResult] = useState<string | null>(null);
-
-  async function handleMigrateTasks() {
-    if (!isAdmin) return;
-    setMigrating(true);
-    setMigrateResult(null);
-    try {
-      const snap = await getDocs(collection(db, 'tasks'));
-      const CHUNK = 499;
-      const docs = snap.docs;
-      let updated = 0;
-      for (let i = 0; i < docs.length; i += CHUNK) {
-        const batch = writeBatch(db);
-        docs.slice(i, i + CHUNK).forEach(d => {
-          const data = d.data();
-          const stage  = (data['pipelineStage'] as string) ?? 'survey';
-          const status = (data['status']        as string) ?? 'pending';
-          const title  = (data['title']         as string) ?? '';
-          batch.update(fsDoc(db, 'tasks', d.id), {
-            priorityScore: computePriorityScore(stage, status),
-            titleWords:    computeTitleWords(title),
-          });
-          updated++;
-        });
-        await batch.commit();
-      }
-      setMigrateResult(`✅ Done — ${updated} tasks updated`);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setMigrateResult(`❌ Error: ${msg}`);
-    } finally {
-      setMigrating(false);
-    }
-  }
 
   function handleCardClick(task: Task) {
     if (isAdmin || isViewOnly) {
@@ -614,22 +637,6 @@ export function TasksPage() {
             <Download className="h-3.5 w-3.5" />
             Export Excel
           </Button>
-        )}
-
-        {isAdmin && (
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleMigrateTasks}
-              disabled={migrating}
-              className="text-xs px-3 py-1.5 rounded border border-gray-300
-                         text-gray-600 hover:bg-gray-50 disabled:opacity-50"
-            >
-              {migrating ? 'Migrating...' : '🔧 Migrate Tasks'}
-            </button>
-            {migrateResult && (
-              <span className="text-xs text-gray-500">{migrateResult}</span>
-            )}
-          </div>
         )}
 
         {isAdmin && (
@@ -685,7 +692,7 @@ export function TasksPage() {
             <button
               key={key}
               type="button"
-              onClick={() => setFilter(key)}
+              onClick={() => { setFilter(key); setDateFilter(''); setDueDateFilter(''); }}
               className={cn(
                 'shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition-all border',
                 isActive
@@ -720,7 +727,7 @@ export function TasksPage() {
               <button
                 key={key}
                 type="button"
-                onClick={() => setFilter(key)}
+                onClick={() => { setFilter(key); setDateFilter(''); setDueDateFilter(''); }}
                 className={cn(
                   'shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition-all border',
                   isActive
@@ -743,20 +750,21 @@ export function TasksPage() {
         </div>
       )}
 
-      {/* Engineer / District filters */}
-      {(isAdmin || isViewOnly) && (engineerOptions.length > 0 || (config.districts ?? []).length > 0) && (
+      {/* Engineer / District / Created Date / Due Date filters — mutually exclusive */}
+      {(isAdmin || isViewOnly) && (
         <div className="flex flex-wrap items-center gap-2 mb-3">
           {engineerOptions.length > 0 && (
-            <>
+            <div className="flex items-center gap-1.5">
               <SearchableSelect
                 value={engineerFilter}
-                onChange={setEngineerFilter}
+                onChange={(v) => { setEngineerFilter(v); if (v) { setDateFilter(''); setDueDateFilter(''); } }}
                 options={engineerOptions.map((eng) => ({
                   value: eng.uid,
                   label: `${eng.name} (${eng.code})`,
                 }))}
                 placeholder="All Engineers"
                 className="min-w-[200px]"
+                disabled={!!(dateFilter || dueDateFilter)}
               />
               {engineerFilter && (
                 <button
@@ -768,19 +776,20 @@ export function TasksPage() {
                   Clear
                 </button>
               )}
-            </>
+            </div>
           )}
           {(config.districts ?? []).length > 0 && (
-            <>
+            <div className="flex items-center gap-1.5">
               <SearchableSelect
                 value={districtFilter}
-                onChange={setDistrictFilter}
+                onChange={(v) => { setDistrictFilter(v); if (v) { setDateFilter(''); setDueDateFilter(''); } }}
                 options={(config.districts ?? []).map((d) => ({
                   value: d,
                   label: d,
                 }))}
                 placeholder="All Districts"
                 className="min-w-[160px]"
+                disabled={!!(dateFilter || dueDateFilter)}
               />
               {districtFilter && (
                 <button
@@ -792,8 +801,157 @@ export function TasksPage() {
                   Clear
                 </button>
               )}
-            </>
+            </div>
           )}
+          {!!(dateFilter || dueDateFilter) && (engineerOptions.length > 0 || (config.districts ?? []).length > 0) && (
+            <p className="text-xs text-gray-400 italic w-full">
+              Clear date filter to use Engineer/District filters
+            </p>
+          )}
+          {/* Created Date filter */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {!!(engineerFilter || districtFilter || dueDateFilter) && (
+              <p className="text-xs text-gray-400 italic w-full">
+                Clear other filters to use Created Date filter
+              </p>
+            )}
+            <span className="text-xs text-gray-400 font-medium shrink-0">Created:</span>
+            <button
+              type="button"
+              disabled={!!(engineerFilter || districtFilter || dueDateFilter)}
+              onClick={() => {
+                const next = dateFilter === todayISO() ? '' : todayISO();
+                setDateFilter(next);
+                if (next) { setEngineerFilter(''); setDistrictFilter(''); setDueDateFilter(''); setFilter('all'); }
+              }}
+              className={cn(
+                'rounded-full px-3 py-1.5 text-xs font-medium border transition-all',
+                dateFilter === todayISO()
+                  ? 'bg-brand-blue text-white border-brand-blue'
+                  : (engineerFilter || districtFilter || dueDateFilter)
+                  ? 'bg-white text-gray-300 border-gray-200 cursor-not-allowed'
+                  : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300',
+              )}
+            >
+              Today
+            </button>
+            <button
+              type="button"
+              disabled={!!(engineerFilter || districtFilter || dueDateFilter)}
+              onClick={() => {
+                const next = dateFilter === yesterdayISO() ? '' : yesterdayISO();
+                setDateFilter(next);
+                if (next) { setEngineerFilter(''); setDistrictFilter(''); setDueDateFilter(''); setFilter('all'); }
+              }}
+              className={cn(
+                'rounded-full px-3 py-1.5 text-xs font-medium border transition-all',
+                dateFilter === yesterdayISO()
+                  ? 'bg-brand-blue text-white border-brand-blue'
+                  : (engineerFilter || districtFilter || dueDateFilter)
+                  ? 'bg-white text-gray-300 border-gray-200 cursor-not-allowed'
+                  : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300',
+              )}
+            >
+              Yesterday
+            </button>
+            <input
+              type="date"
+              value={dateFilter}
+              disabled={!!(engineerFilter || districtFilter || dueDateFilter)}
+              onChange={(e) => {
+                setDateFilter(e.target.value);
+                if (e.target.value) { setEngineerFilter(''); setDistrictFilter(''); setDueDateFilter(''); setFilter('all'); }
+              }}
+              className={cn(
+                'rounded-full border px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand-blue/30 focus:border-brand-blue',
+                (engineerFilter || districtFilter || dueDateFilter)
+                  ? 'bg-gray-100 border-gray-200 text-gray-300 cursor-not-allowed'
+                  : 'bg-white border-gray-200 text-gray-600',
+              )}
+            />
+            {dateFilter && (
+              <button
+                type="button"
+                onClick={() => setDateFilter('')}
+                className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1"
+              >
+                <X className="h-3.5 w-3.5" />
+                Clear
+              </button>
+            )}
+          </div>
+          {/* Due Date filter */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {!!(engineerFilter || districtFilter || dateFilter) && (
+              <p className="text-xs text-gray-400 italic w-full">
+                Clear other filters to use Due Date filter
+              </p>
+            )}
+            <span className="text-xs text-gray-400 font-medium shrink-0">Due:</span>
+            <button
+              type="button"
+              disabled={!!(engineerFilter || districtFilter || dateFilter)}
+              onClick={() => {
+                const next = dueDateFilter === todayISO() ? '' : todayISO();
+                setDueDateFilter(next);
+                if (next) { setEngineerFilter(''); setDistrictFilter(''); setDateFilter(''); setFilter('all'); }
+              }}
+              className={cn(
+                'rounded-full px-3 py-1.5 text-xs font-medium border transition-all',
+                dueDateFilter === todayISO()
+                  ? 'bg-brand-blue text-white border-brand-blue'
+                  : (engineerFilter || districtFilter || dateFilter)
+                  ? 'bg-white text-gray-300 border-gray-200 cursor-not-allowed'
+                  : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300',
+              )}
+            >
+              Due Today
+            </button>
+            <button
+              type="button"
+              disabled={!!(engineerFilter || districtFilter || dateFilter)}
+              onClick={() => {
+                const next = dueDateFilter === tomorrowISO() ? '' : tomorrowISO();
+                setDueDateFilter(next);
+                if (next) { setEngineerFilter(''); setDistrictFilter(''); setDateFilter(''); setFilter('all'); }
+              }}
+              className={cn(
+                'rounded-full px-3 py-1.5 text-xs font-medium border transition-all',
+                dueDateFilter === tomorrowISO()
+                  ? 'bg-brand-blue text-white border-brand-blue'
+                  : (engineerFilter || districtFilter || dateFilter)
+                  ? 'bg-white text-gray-300 border-gray-200 cursor-not-allowed'
+                  : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300',
+              )}
+            >
+              Due Tomorrow
+            </button>
+            <input
+              type="date"
+              value={dueDateFilter}
+              disabled={!!(engineerFilter || districtFilter || dateFilter)}
+              onChange={(e) => {
+                setDueDateFilter(e.target.value);
+                if (e.target.value) { setEngineerFilter(''); setDistrictFilter(''); setDateFilter(''); setFilter('all'); }
+              }}
+              className={cn(
+                'rounded-full border px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand-blue/30 focus:border-brand-blue',
+                (engineerFilter || districtFilter || dateFilter)
+                  ? 'bg-gray-100 border-gray-200 text-gray-300 cursor-not-allowed'
+                  : 'bg-white border-gray-200 text-gray-600',
+              )}
+            />
+            {dueDateFilter && (
+              <button
+                type="button"
+                onClick={() => setDueDateFilter('')}
+                className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1"
+              >
+                <X className="h-3.5 w-3.5" />
+                Clear
+              </button>
+            )}
+          </div>
         </div>
       )}
 

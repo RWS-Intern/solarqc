@@ -205,6 +205,14 @@
       "collectionGroup": "tasks",
       "queryScope": "COLLECTION",
       "fields": [
+        { "fieldPath": "archived", "order": "ASCENDING" },
+        { "fieldPath": "dueDate",  "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "tasks",
+      "queryScope": "COLLECTION",
+      "fields": [
         { "fieldPath": "archived",  "order": "ASCENDING" },
         { "fieldPath": "status",    "order": "ASCENDING" },
         { "fieldPath": "dueDate",   "order": "ASCENDING" }
@@ -286,6 +294,23 @@
         { "fieldPath": "archived",   "order": "ASCENDING"      },
         { "fieldPath": "createdBy",  "order": "ASCENDING"      },
         { "fieldPath": "titleWords", "arrayConfig": "CONTAINS" }
+      ]
+    },
+    {
+      "collectionGroup": "tasks",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "archived",        "order": "ASCENDING" },
+        { "fieldPath": "consumerMobile",  "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "tasks",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "archived",        "order": "ASCENDING" },
+        { "fieldPath": "createdBy",       "order": "ASCENDING" },
+        { "fieldPath": "consumerMobile",  "order": "ASCENDING" }
       ]
     }
   ],

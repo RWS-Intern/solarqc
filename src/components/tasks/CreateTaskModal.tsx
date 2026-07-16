@@ -8,8 +8,10 @@ import { Label }    from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useTaskActions }    from '@/hooks/useTaskActions';
 import { useFieldEngineers } from '@/hooks/useFieldEngineers';
+import { useToast }          from '@/components/ui/toast';
 import { DistrictCombobox }   from '@/components/ui/DistrictCombobox';
 import { EngineerCombobox }   from '@/components/ui/EngineerCombobox';
+import { checkDuplicateConsumerMobile } from '@/utils/checkDuplicateMobile';
 
 interface CreateTaskModalProps {
   open:    boolean;
@@ -21,17 +23,22 @@ const today = () => new Date().toISOString().split('T')[0];
 export function CreateTaskModal({ open, onClose }: CreateTaskModalProps) {
   const { createTask }          = useTaskActions();
   const { engineers, loading: engLoading } = useFieldEngineers();
+  const { showToast }           = useToast();
 
-  const [title,       setTitle]       = useState('');
-  const [description, setDescription] = useState('');
-  const [district,    setDistrict]    = useState('');
-  const [assigneeUid, setAssigneeUid] = useState('');
-  const [dueDate,     setDueDate]     = useState('');
-  const [submitting,  setSubmitting]  = useState(false);
+  const [title,          setTitle]          = useState('');
+  const [description,    setDescription]    = useState('');
+  const [consumerMobile, setConsumerMobile] = useState('');
+  const [district,       setDistrict]       = useState('');
+  const [assigneeUid,    setAssigneeUid]    = useState('');
+  const [dueDate,        setDueDate]        = useState('');
+  const [submitting,     setSubmitting]     = useState(false);
+
+  const consumerMobileError = consumerMobile.length > 0 && consumerMobile.length !== 10;
 
   function reset() {
     setTitle('');
     setDescription('');
+    setConsumerMobile('');
     setDistrict('');
     setAssigneeUid('');
     setDueDate('');
@@ -52,14 +59,35 @@ export function CreateTaskModal({ open, onClose }: CreateTaskModalProps) {
     const engineer = engineers.find((eng) => eng.uid === assigneeUid);
 
     try {
+      let duplicate = null;
+      try {
+        duplicate = await checkDuplicateConsumerMobile(consumerMobile);
+      } catch (checkErr) {
+        console.error('[CreateTaskModal] duplicate check failed:', checkErr);
+        showToast('Could not check for duplicate mobile numbers — check your connection and try again.', 'error');
+        setSubmitting(false);
+        return;
+      }
+      if (duplicate) {
+        const confirmed = window.confirm(
+          `This mobile number already exists on lead ${duplicate.taskNum} ` +
+          `(${duplicate.title}, created ${duplicate.createdAt.toLocaleDateString('en-IN')}).\n\n` +
+          `Continue creating a new lead with this same number anyway?`
+        );
+        if (!confirmed) {
+          setSubmitting(false);
+          return;
+        }
+      }
       await createTask({
         title,
-        description: description || undefined,
-        district:    district || undefined,
+        description:      description || undefined,
+        district:         district    || undefined,
         assignedTo:       engineer?.uid          ?? null,
         assignedToName:   engineer?.displayName  ?? '',
         assignedToCode:   engineer?.engineerCode ?? '',
         assignedToMobile: engineer?.mobileNumber ?? '',
+        consumerMobile,
         dueDate: dueDate ? new Date(dueDate) : null,
       });
       reset();
@@ -112,6 +140,28 @@ export function CreateTaskModal({ open, onClose }: CreateTaskModalProps) {
             />
           </div>
 
+          {/* Consumer Mobile */}
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="ct-mobile">
+              Consumer Mobile Number <span className="text-brand-red">*</span>
+            </Label>
+            <Input
+              id="ct-mobile"
+              type="tel"
+              inputMode="numeric"
+              maxLength={10}
+              value={consumerMobile}
+              onChange={(e) => setConsumerMobile(e.target.value.replace(/\D/g, '').slice(0, 10))}
+              placeholder="10-digit mobile number"
+              required
+              autoComplete="off"
+              className={`h-12 ${consumerMobileError ? 'border-brand-red focus-visible:ring-brand-red' : ''}`}
+            />
+            {consumerMobileError && (
+              <p className="text-xs text-brand-red">Mobile number must be exactly 10 digits</p>
+            )}
+          </div>
+
           {/* District */}
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="ct-district">District</Label>
@@ -159,7 +209,7 @@ export function CreateTaskModal({ open, onClose }: CreateTaskModalProps) {
             <Button
               type="submit"
               className="flex-1 h-12 font-semibold"
-              disabled={submitting || !title.trim()}
+              disabled={submitting || !title.trim() || consumerMobile.length !== 10}
             >
               {submitting ? (
                 <span className="flex items-center gap-2">

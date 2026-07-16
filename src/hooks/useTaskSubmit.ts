@@ -1,6 +1,6 @@
 import {
-  doc, updateDoc, addDoc, collection, serverTimestamp, Timestamp, setDoc, arrayUnion,
-  increment,
+  doc, updateDoc, addDoc, collection, serverTimestamp, Timestamp, arrayUnion,
+  increment, runTransaction,
 } from 'firebase/firestore';
 import { db } from '@/firebase/config';
 import { assignLeastLoaded } from '@/utils/findLeastLoadedUser';
@@ -110,21 +110,27 @@ export function useTaskSubmit() {
       let pipelineTransitionErr: unknown;
       for (let attempt = 1; attempt <= 3; attempt++) {
         try {
-          await updateDoc(taskRef, {
-            pipelineStage: 'proposal',
-            priorityScore: computePriorityScore('proposal', 'completed'),
-            stageHistory:  arrayUnion(stageHistoryEntry),
-            updatedAt:     serverTimestamp(),
-          });
-
           const surveyStageRef = doc(db, 'tasks', taskId, 'stages', 'survey');
-          await setDoc(surveyStageRef, {
-            fieldAnswers:       data.fieldAnswers,
-            fieldPhotos:        data.fieldPhotos,
-            location:           data.location,
-            submittedAt:        serverTimestamp(),
-            submittedBy:        currentUser.uid,
-            surveyFormSnapshot: data.fields,
+          await runTransaction(db, async (tx) => {
+            tx.update(taskRef, {
+              pipelineStage: 'proposal',
+              priorityScore: computePriorityScore('proposal', 'completed'),
+              stageHistory:  arrayUnion(stageHistoryEntry),
+              updatedAt:     serverTimestamp(),
+            });
+            tx.set(surveyStageRef, {
+              fieldAnswers:       data.fieldAnswers,
+              fieldPhotos:        data.fieldPhotos,
+              location:           data.location,
+              submittedAt:        serverTimestamp(),
+              submittedBy:        currentUser.uid,
+              surveyFormSnapshot: data.fields,
+            });
+            tx.update(doc(db, 'appConfig', 'global'), {
+              'pipelineCounts.survey':             increment(-1),
+              'pipelineCounts.proposal':           increment(1),
+              'pipelineCounts.unassigned_proposal': increment(1),
+            });
           });
 
           pipelineTransitionErr = undefined;
@@ -142,14 +148,7 @@ export function useTaskSubmit() {
         console.error('[Pipeline] FAILED to transition survey → proposal after 3 attempts:', pipelineTransitionErr);
         showToast('Submission saved, but the stage transition failed. Admin has been notified.', 'error');
       } else {
-        // Update pipeline stage counters
-        await updateDoc(doc(db, 'appConfig', 'global'), {
-          'pipelineCounts.survey':             increment(-1),
-          'pipelineCounts.proposal':           increment(1),
-          'pipelineCounts.unassigned_proposal': increment(1),
-        }).catch((err) => console.error('[Pipeline] pipelineCounts update failed:', err));
-
-        // Auto-assign to least loaded proposal team member
+        // Auto-assign to least loaded proposal team member (best-effort — counts already committed above)
         try {
           const assigned = await assignLeastLoaded(
             taskId,

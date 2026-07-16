@@ -13,6 +13,7 @@ import {
 import { db, firebaseConfig } from '@/firebase/config';
 import { useAuthStore } from '@/store/authStore';
 import { useToast }     from '@/components/ui/toast';
+import { resolveDistrictCasing } from '@/utils/districtUtils';
 import type { UserRole, User } from '@/types';
 
 const secondaryApp =
@@ -87,6 +88,12 @@ export function useUserActions() {
         });
       }
 
+      const configSnap = await getDoc(configRef);
+      const existingDistricts = (configSnap.data()?.['districts'] as string[]) ?? [];
+      const resolvedDistrict = district
+        ? resolveDistrictCasing(district, existingDistricts)
+        : '';
+
       await setDoc(doc(db, 'users', uid), {
         name:              name.trim(),
         email:             email.toLowerCase().trim(),
@@ -96,7 +103,7 @@ export function useUserActions() {
         mobileNumber:      mobileNumber?.trim() || null,
         createdAt:         serverTimestamp(),
         createdBy:         currentUser?.uid ?? '',
-        district:          district?.trim() ?? '',
+        district:          resolvedDistrict,
         fcmToken:          null,
         fcmTokenUpdatedAt: null,
         photoURL:          null,
@@ -410,8 +417,11 @@ export function useUserActions() {
 
   async function updateUserDistrict(userId: string, district: string): Promise<void> {
     try {
+      const configSnap = await getDoc(doc(db, 'appConfig', 'global'));
+      const existingDistricts = (configSnap.data()?.['districts'] as string[]) ?? [];
+      const resolvedDistrict = resolveDistrictCasing(district, existingDistricts);
       await updateDoc(doc(db, 'users', userId), {
-        district: district.trim(),
+        district:  resolvedDistrict,
         updatedAt: serverTimestamp(),
       });
       showToast('District updated', 'success');

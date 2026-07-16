@@ -1,5 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AlertTriangle, Plus, Trash2, ChevronUp, ChevronDown, Save, Check, X, ChevronRight, Pencil, Route, FileText } from 'lucide-react';
+import { collection, doc, getDocs, query, updateDoc, where } from 'firebase/firestore';
+import { db }                 from '@/firebase/config';
+import { toTitleCase }        from '@/utils/districtUtils';
 import { useAppConfig }       from '@/hooks/useAppConfig';
 import { useAuthStore }       from '@/store/authStore';
 import { useTemplateActions } from '@/hooks/useTemplateActions';
@@ -582,6 +585,7 @@ export function TemplatePage() {
   const [newDistrict,     setNewDistrict]      = useState('');
   const [districtsDirty,  setDistrictsDirty]  = useState(false);
   const [savingDistricts, setSavingDistricts]  = useState(false);
+  const [recalculating,   setRecalculating]   = useState(false);
 
   useEffect(() => {
     if (!loading && !districtsDirty) {
@@ -592,8 +596,9 @@ export function TemplatePage() {
 
   function handleAddDistrict() {
     const val = newDistrict.trim();
-    if (!val || districts.includes(val)) return;
-    setDistricts((prev) => [...prev, val]);
+    // Case-insensitive duplicate check — prevents "Nagpur" and "nagpur" coexisting.
+    if (!val || districts.some((d) => d.toLowerCase() === val.toLowerCase())) return;
+    setDistricts((prev) => [...prev, toTitleCase(val)]);
     setNewDistrict('');
     setDistrictsDirty(true);
   }
@@ -612,6 +617,59 @@ export function TemplatePage() {
       // toast shown by saveDistricts
     } finally {
       setSavingDistricts(false);
+    }
+  }
+
+  async function handleRecalculatePipelineCounts() {
+    if (currentUser?.role !== 'admin') return;
+    setRecalculating(true);
+    try {
+      const tasksSnap = await getDocs(
+        query(collection(db, 'tasks'), where('archived', '==', false))
+      );
+
+      const computed: Record<string, number> = {
+        survey: 0, proposal: 0, field_review: 0, documents: 0,
+        backend: 0, completed: 0, dropped: 0,
+        unassigned_proposal: 0, unassigned_backend: 0, total_active: 0,
+      };
+      const activeStages = new Set(['survey', 'proposal', 'field_review', 'documents', 'backend']);
+
+      tasksSnap.forEach((snap) => {
+        const d     = snap.data();
+        const stage = (d['pipelineStage'] as string) ?? 'survey';
+        if (stage in computed) computed[stage]++;
+        if (stage === 'proposal' && !d['proposalAssignedTo']) computed['unassigned_proposal']++;
+        if (stage === 'backend'  && !d['backendAssignedTo'])  computed['unassigned_backend']++;
+        if (activeStages.has(stage)) computed['total_active']++;
+      });
+
+      const stored = (config.pipelineCounts ?? {}) as Record<string, number>;
+      const diffs  = Object.keys(computed).filter((k) => (stored[k] ?? 0) !== computed[k]);
+
+      if (diffs.length === 0) {
+        _emitToast('Pipeline counts are already accurate — no changes needed.', 'success');
+        return;
+      }
+
+      const diffLines = diffs
+        .map((k) => `  ${k}: ${stored[k] ?? 0} → ${computed[k]}`)
+        .join('\n');
+
+      const confirmed = window.confirm(
+        `Pipeline counts mismatch detected:\n\n${diffLines}\n\nUpdate dashboard counters to match actual task data?\nThis cannot be undone.`
+      );
+      if (!confirmed) return;
+
+      await updateDoc(doc(db, 'appConfig', 'global'), { pipelineCounts: computed });
+
+      const summary = diffs.map((k) => `${k}: ${stored[k] ?? 0}→${computed[k]}`).join(', ');
+      _emitToast(`Pipeline counts recalculated — ${summary}`, 'success');
+    } catch (err) {
+      console.error('[recalculate] failed:', err);
+      _emitToast('Failed to recalculate pipeline counts. Try again.', 'error');
+    } finally {
+      setRecalculating(false);
     }
   }
 
@@ -982,21 +1040,23 @@ export function TemplatePage() {
             <h2 className="text-base font-semibold text-gray-900">Districts</h2>
             <p className="text-xs text-gray-500 mt-0.5">Manage district options for tasks and engineers</p>
           </div>
-          {districtsDirty && !isViewOnly && (
-            <Button
-              size="sm"
-              onClick={handleSaveDistricts}
-              disabled={savingDistricts}
-              className="flex items-center gap-1.5"
-            >
-              {savingDistricts ? (
-                <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white border-t-transparent" />
-              ) : (
-                <Save className="h-3.5 w-3.5" />
-              )}
-              Save Districts
-            </Button>
-          )}
+          <div className="flex items-center gap-2">
+            {districtsDirty && !isViewOnly && (
+              <Button
+                size="sm"
+                onClick={handleSaveDistricts}
+                disabled={savingDistricts}
+                className="flex items-center gap-1.5"
+              >
+                {savingDistricts ? (
+                  <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                ) : (
+                  <Save className="h-3.5 w-3.5" />
+                )}
+                Save Districts
+              </Button>
+            )}
+          </div>
         </div>
 
         <div className="flex flex-wrap gap-2 mb-3 min-h-[2rem]">
@@ -1044,6 +1104,30 @@ export function TemplatePage() {
           </Button>
         </div>
       </div>
+
+      {/* Admin Tools */}
+      {currentUser?.role === 'admin' && (
+        <div className="mt-8 border-t border-gray-200 pt-6">
+          <div className="mb-3">
+            <h2 className="text-base font-semibold text-gray-900">Admin Tools</h2>
+            <p className="text-xs text-gray-500 mt-0.5">
+              One-time maintenance actions for fixing data inconsistencies
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleRecalculatePipelineCounts}
+            disabled={recalculating}
+            className="flex items-center gap-2"
+          >
+            {recalculating && (
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-gray-400 border-t-transparent" />
+            )}
+            🔧 Recalculate Pipeline Counts
+          </Button>
+        </div>
+      )}
 
     </div>
   );

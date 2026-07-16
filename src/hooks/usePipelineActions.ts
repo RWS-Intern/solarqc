@@ -1,5 +1,5 @@
 import {
-  doc, updateDoc, setDoc, getDoc,
+  doc, updateDoc,
   serverTimestamp, arrayUnion, Timestamp, increment,
   runTransaction,
 } from 'firebase/firestore';
@@ -42,83 +42,100 @@ export function usePipelineActions() {
     const taskRef          = doc(db, 'tasks', taskId);
     const proposalStageRef = doc(db, 'tasks', taskId, 'stages', 'proposal');
 
+    // Stage history entry uses a client timestamp — serverTimestamp() cannot
+    // be used inside arrayUnion.
+    const stageHistoryEntry = {
+      fromStage: 'proposal' as const,
+      toStage:   'field_review' as const,
+      timestamp: Timestamp.now(),
+      actorUid:  currentUser.uid,
+      actorName: currentUser.name,
+      actorRole: 'proposal',
+      note:      '',
+    };
+
+    let proposalAssignedTo: string | null = null;
+
     try {
-      // Check if a previous proposal exists (revision case)
-      const existingSnap = await getDoc(proposalStageRef);
-      const revisions: ProposalStageData['revisions'] = [];
+      await runTransaction(db, async (tx) => {
+        // Optimistic-lock: abort if this task is no longer in the 'proposal'
+        // stage (i.e. a concurrent submit already advanced it).
+        const taskSnap = await tx.get(taskRef);
+        if (!taskSnap.exists()) throw new Error('Task not found');
 
-      if (existingSnap.exists()) {
-        const existing = existingSnap.data() as ProposalStageData;
-        const existingDocuments = getProposalDocuments(existing);
-        // Move current proposal to revisions before overwriting — works whether
-        // the existing stage doc is old-shape (documentUrl only) or new-shape
-        // (documents array), since getProposalDocuments() normalizes both.
-        if (existingDocuments.length > 0) {
-          revisions.push(...(existing.revisions ?? []), {
-            documentUrl:    existingDocuments[0].url,
-            documentName:   existingDocuments[0].name,
-            uploadedAt:     (existing.uploadedAt as unknown as { toDate?: () => Date })?.toDate?.() ?? new Date(),
-            uploadedBy:     existing.uploadedBy ?? '',
-            uploadedByName: existing.uploadedByName ?? '',
-            revisionNote:   '',
-            documents:      existingDocuments,
-          });
+        const currentStage = taskSnap.data()['pipelineStage'] as string;
+        if (currentStage !== 'proposal') {
+          throw new Error(
+            'This proposal was already submitted by someone else. Please refresh and check the task status.',
+          );
         }
-      }
 
-      // Write stages/proposal document. documentUrl/documentName mirror
-      // documents[0] (dual-write) so any screen not yet updated to read
-      // `documents` keeps seeing the first uploaded file exactly as before.
-      await setDoc(proposalStageRef, {
-        documentUrl:    documents[0].url,
-        documentName:   documents[0].name,
-        documents,
-        uploadedAt:     serverTimestamp(),
-        uploadedBy:     currentUser.uid,
-        uploadedByName: currentUser.name,
-        revisions,
+        proposalAssignedTo = taskSnap.data()['proposalAssignedTo'] as string | null;
+
+        // Read existing proposal stage doc inside the transaction for a
+        // consistent, locked revisions snapshot.
+        const existingSnap = await tx.get(proposalStageRef);
+        const revisions: ProposalStageData['revisions'] = [];
+
+        if (existingSnap.exists()) {
+          const existing = existingSnap.data() as ProposalStageData;
+          const existingDocuments = getProposalDocuments(existing);
+          // Move current proposal to revisions before overwriting — works whether
+          // the existing stage doc is old-shape (documentUrl only) or new-shape
+          // (documents array), since getProposalDocuments() normalizes both.
+          if (existingDocuments.length > 0) {
+            revisions.push(...(existing.revisions ?? []), {
+              documentUrl:    existingDocuments[0].url,
+              documentName:   existingDocuments[0].name,
+              uploadedAt:     (existing.uploadedAt as unknown as { toDate?: () => Date })?.toDate?.() ?? new Date(),
+              uploadedBy:     existing.uploadedBy ?? '',
+              uploadedByName: existing.uploadedByName ?? '',
+              revisionNote:   '',
+              documents:      existingDocuments,
+            });
+          }
+        }
+
+        // Write stages/proposal document. documentUrl/documentName mirror
+        // documents[0] (dual-write) so any screen not yet updated to read
+        // `documents` keeps seeing the first uploaded file exactly as before.
+        tx.set(proposalStageRef, {
+          documentUrl:    documents[0].url,
+          documentName:   documents[0].name,
+          documents,
+          uploadedAt:     serverTimestamp(),
+          uploadedBy:     currentUser.uid,
+          uploadedByName: currentUser.name,
+          revisions,
+        });
+
+        tx.update(taskRef, {
+          pipelineStage:         'field_review',
+          priorityScore:         computePriorityScore('field_review', 'completed'),
+          proposalRevisionCount: revisions.length,
+          stageHistory:          arrayUnion(stageHistoryEntry),
+          updatedAt:             serverTimestamp(),
+        });
+
+        const appConfigUpdate: Record<string, unknown> = {
+          'pipelineCounts.proposal':     increment(-1),
+          'pipelineCounts.field_review': increment(1),
+        };
+        if (proposalAssignedTo) {
+          appConfigUpdate[`memberCounts.${proposalAssignedTo}`] = increment(-1);
+        }
+        tx.update(doc(db, 'appConfig', 'global'), appConfigUpdate);
       });
-
-      // Stage history entry (client timestamp — cannot use serverTimestamp in arrayUnion)
-      const stageHistoryEntry = {
-        fromStage: 'proposal' as const,
-        toStage:   'field_review' as const,
-        timestamp: Timestamp.now(),
-        actorUid:  currentUser.uid,
-        actorName: currentUser.name,
-        actorRole: 'proposal',
-        note:      '',
-      };
-
-      // Read proposalAssignedTo before updateDoc
-      const taskSnap = await getDoc(taskRef);
-      const proposalAssignedTo = taskSnap.data()?.['proposalAssignedTo'] as string | null;
-
-      // Advance pipeline stage on task document
-      await updateDoc(taskRef, {
-        pipelineStage:         'field_review',
-        priorityScore:         computePriorityScore('field_review', 'completed'),
-        proposalRevisionCount: revisions.length,
-        stageHistory:          arrayUnion(stageHistoryEntry),
-        updatedAt:             serverTimestamp(),
-      });
-
-      const appConfigUpdate: Record<string, unknown> = {
-        'pipelineCounts.proposal':     increment(-1),
-        'pipelineCounts.field_review': increment(1),
-      };
-      if (proposalAssignedTo) {
-        appConfigUpdate[`memberCounts.${proposalAssignedTo}`] = increment(-1);
-      }
-      await updateDoc(
-        doc(db, 'appConfig', 'global'),
-        appConfigUpdate,
-      ).catch(console.error);
 
       showToast('Proposal submitted. Task moved to Field Review.', 'success');
     } catch (err) {
       console.error('[submitProposal] failed:', err);
-      showToast('Failed to submit proposal. Try again.', 'error');
+      const alreadySubmitted = err instanceof Error &&
+        err.message.startsWith('This proposal was already submitted');
+      showToast(
+        alreadySubmitted ? err.message : 'Failed to submit proposal. Try again.',
+        'error',
+      );
       throw err;
     }
   }

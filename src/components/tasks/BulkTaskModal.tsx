@@ -10,28 +10,30 @@ import { useFieldEngineers }   from '@/hooks/useFieldEngineers';
 import { useBulkTaskActions }  from '@/hooks/useBulkTaskActions';
 import { useToast }            from '@/components/ui/toast';
 import type { BulkTaskRow }    from '@/hooks/useBulkTaskActions';
+import { checkDuplicateConsumerMobile } from '@/utils/checkDuplicateMobile';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface ParsedRow {
-  rowNum:       number;
-  title:        string;
-  description:  string;
-  engineerCode: string;
-  dueDate:      string;
-  district:     string;
-  valid:        boolean;
-  error:        string;
-  resolved:     BulkTaskRow | null;
+  rowNum:         number;
+  title:          string;
+  description:    string;
+  consumerMobile: string;
+  engineerCode:   string;
+  dueDate:        string;
+  district:       string;
+  valid:          boolean;
+  error:          string;
+  resolved:       BulkTaskRow | null;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function downloadTemplate() {
   const csv = [
-    'title,description,engineerCode,dueDate,district',
-    '"Rooftop inspection - Site A","Check panel condition","ENG-001","2026-07-01","Nagpur"',
-    '"Site survey - Kothrud","","","",""',
+    'title,description,consumerMobile,engineerCode,dueDate,district',
+    '"Rooftop inspection - Site A","Check panel condition","9876543210","ENG-001","2026-07-01","Nagpur"',
+    '"Site survey - Kothrud","","9000011111","","",""',
   ].join('\n');
   const blob = new Blob([csv], { type: 'text/csv' });
   const url  = URL.createObjectURL(blob);
@@ -86,44 +88,88 @@ export function BulkTaskModal({ open, onClose }: BulkTaskModalProps) {
     Papa.parse<Record<string, string>>(file, {
       header:          true,
       skipEmptyLines:  true,
-      complete: (results) => {
-        const parsed: ParsedRow[] = results.data.map((raw, i) => {
-          const rowNum      = i + 2; // 1-indexed, header is row 1
-          const title       = (raw['title'] ?? '').trim();
-          const description = (raw['description'] ?? '').trim();
-          const engineerCode = (raw['engineerCode'] ?? '').trim();
-          const dueDate     = (raw['dueDate'] ?? '').trim();
-          const district    = (raw['district'] ?? '').trim();
+      complete: async (results) => {
+        const parsed: ParsedRow[] = await Promise.all(results.data.map(async (raw, i) => {
+          const rowNum         = i + 2; // 1-indexed, header is row 1
+          const title          = (raw['title']          ?? '').trim();
+          const description    = (raw['description']    ?? '').trim();
+          const consumerMobile = (raw['consumerMobile'] ?? '').replace(/\D/g, '').trim();
+          const engineerCode   = (raw['engineerCode']   ?? '').trim();
+          const dueDate        = (raw['dueDate']        ?? '').trim();
+          const district       = (raw['district']       ?? '').trim();
 
           // Validate
           if (!title) {
-            return { rowNum, title, description, engineerCode, dueDate, district, valid: false, error: 'Title is required', resolved: null };
+            return { rowNum, title, description, consumerMobile, engineerCode, dueDate, district, valid: false, error: 'Title is required', resolved: null };
+          }
+
+          if (!/^\d{10}$/.test(consumerMobile)) {
+            return { rowNum, title, description, consumerMobile, engineerCode, dueDate, district, valid: false, error: 'Consumer mobile number is required and must be exactly 10 digits', resolved: null };
           }
 
           let engineer = null;
           if (engineerCode) {
             const found = engineers.find((e) => e.engineerCode === engineerCode);
             if (!found) {
-              return { rowNum, title, description, engineerCode, dueDate, district, valid: false, error: `Engineer "${engineerCode}" not found`, resolved: null };
+              return { rowNum, title, description, consumerMobile, engineerCode, dueDate, district, valid: false, error: `Engineer "${engineerCode}" not found`, resolved: null };
             }
             engineer = found;
           }
 
           if (dueDate && !isValidDate(dueDate)) {
-            return { rowNum, title, description, engineerCode, dueDate, district, valid: false, error: 'Due date must be YYYY-MM-DD', resolved: null };
+            return { rowNum, title, description, consumerMobile, engineerCode, dueDate, district, valid: false, error: 'Due date must be YYYY-MM-DD', resolved: null };
+          }
+
+          let duplicate = null;
+          try {
+            duplicate = await checkDuplicateConsumerMobile(consumerMobile);
+          } catch (checkErr) {
+            console.error(`[BulkTaskModal] duplicate check failed for row ${rowNum}:`, checkErr);
+            return {
+              rowNum, title, description, consumerMobile, engineerCode, dueDate, district,
+              valid: false,
+              error: 'Could not verify this row against existing leads — check your connection and re-upload.',
+              resolved: null,
+            };
+          }
+          if (duplicate) {
+            return {
+              rowNum, title, description, consumerMobile, engineerCode, dueDate, district,
+              valid: false,
+              error: `Duplicate: this mobile number already exists on lead ${duplicate.taskNum} (${duplicate.title})`,
+              resolved: null,
+            };
           }
 
           const resolved: BulkTaskRow = {
             title,
             description,
+            consumerMobile,
             district: district || undefined,
             engineer,
             dueDate: dueDate ? new Date(dueDate) : null,
           };
 
-          return { rowNum, title, description, engineerCode, dueDate, district, valid: true, error: '', resolved };
+          return { rowNum, title, description, consumerMobile, engineerCode, dueDate, district, valid: true, error: '', resolved };
+        }));
+
+        const seenMobiles = new Map<string, number>();
+        const finalRows = parsed.map((row) => {
+          if (!row.valid || !row.resolved) return row;
+          const mobile = row.consumerMobile;
+          if (seenMobiles.has(mobile)) {
+            return {
+              ...row,
+              valid: false,
+              error: `Duplicate: same mobile number also appears in row ${seenMobiles.get(mobile)} of this file`,
+              resolved: null,
+            };
+          }
+          seenMobiles.set(mobile, row.rowNum);
+          return row;
         });
-        setRows(parsed);
+
+        setRows(finalRows);
       },
       error: () => {
         showToast('Failed to parse CSV file.', 'error');
@@ -181,7 +227,7 @@ export function BulkTaskModal({ open, onClose }: BulkTaskModalProps) {
           <div className="flex items-center justify-between rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
             <div>
               <p className="text-sm font-semibold text-gray-800">Download Template</p>
-              <p className="text-xs text-gray-500 mt-0.5">CSV format: title, description, engineerCode, dueDate, district</p>
+              <p className="text-xs text-gray-500 mt-0.5">CSV format: title, description, consumerMobile, engineerCode, dueDate, district</p>
             </div>
             <Button variant="outline" size="sm" onClick={downloadTemplate} className="flex items-center gap-1.5 shrink-0">
               <Download className="h-3.5 w-3.5" />
@@ -237,6 +283,7 @@ export function BulkTaskModal({ open, onClose }: BulkTaskModalProps) {
                       <th className="text-left px-3 py-2 font-semibold text-gray-500 w-10">#</th>
                       <th className="text-left px-3 py-2 font-semibold text-gray-500 max-w-[160px]">Title</th>
                       <th className="text-left px-3 py-2 font-semibold text-gray-500 max-w-[160px]">Description</th>
+                      <th className="text-left px-3 py-2 font-semibold text-gray-500">Consumer Mobile</th>
                       <th className="text-left px-3 py-2 font-semibold text-gray-500">Engineer</th>
                       <th className="text-left px-3 py-2 font-semibold text-gray-500">Due Date</th>
                       <th className="text-left px-3 py-2 font-semibold text-gray-500">District</th>
@@ -256,6 +303,7 @@ export function BulkTaskModal({ open, onClose }: BulkTaskModalProps) {
                         <td className="px-3 py-2 text-gray-500 max-w-[160px]">
                           <span className="block truncate" title={row.description || ''}>{row.description || '—'}</span>
                         </td>
+                        <td className="px-3 py-2 text-gray-600 font-mono">{row.consumerMobile || '—'}</td>
                         <td className="px-3 py-2 text-gray-600">{row.engineerCode || '—'}</td>
                         <td className="px-3 py-2 text-gray-600">{row.dueDate || '—'}</td>
                         <td className="px-3 py-2 text-gray-600">{row.district || '—'}</td>

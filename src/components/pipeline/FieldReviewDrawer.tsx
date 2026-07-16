@@ -92,6 +92,16 @@ export function FieldReviewDrawer({ task, onClose, onAcceptedToDocuments }: Fiel
   const isOpen = !!task;
   const proposalAvailable = getProposalDocuments(proposalData).length > 0;
 
+  const latestEntry = task?.stageHistory?.length
+    ? task.stageHistory[task.stageHistory.length - 1]
+    : null;
+  const showReturnBanner = !!(
+    latestEntry &&
+    latestEntry.note &&
+    latestEntry.toStage === 'field_review' &&
+    latestEntry.actorRole === 'admin_override'
+  );
+
   function guardedClose() {
     if (!submitting) onClose();
   }
@@ -118,11 +128,41 @@ export function FieldReviewDrawer({ task, onClose, onAcceptedToDocuments }: Fiel
 
         <div className="flex flex-col gap-5 px-5 py-5">
 
+          {/* Admin override banner */}
+          {showReturnBanner && latestEntry && (
+            <div className="rounded-lg border-2 border-amber-300 bg-amber-50 px-4 py-3">
+              <p className="text-xs font-bold text-amber-800 uppercase tracking-wide mb-1">
+                ⚠️ Sent Back By Admin
+              </p>
+              <p className="text-sm font-semibold text-amber-900">
+                {latestEntry.note}
+              </p>
+            </div>
+          )}
+
           {/* Description */}
           {task?.description && (
             <div>
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Description</p>
               <p className="text-sm text-gray-700 whitespace-pre-wrap">{task.description}</p>
+            </div>
+          )}
+
+          {/* Consumer Mobile */}
+          {task?.consumerMobile && (
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Consumer Mobile</p>
+              <p className="text-sm text-gray-700 font-mono">{task.consumerMobile}</p>
+            </div>
+          )}
+
+          {/* District */}
+          {task?.district && (
+            <div className="flex items-center gap-2 text-xs">
+              <span className="text-gray-500">District:</span>
+              <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-600">
+                {task.district}
+              </span>
             </div>
           )}
 

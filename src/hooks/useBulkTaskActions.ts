@@ -1,16 +1,20 @@
-import { useTaskActions } from '@/hooks/useTaskActions';
-import type { FieldEngineer } from '@/hooks/useFieldEngineers';
+import { useTaskActions }         from '@/hooks/useTaskActions';
+import { useAppConfig }           from '@/hooks/useAppConfig';
+import { resolveDistrictCasing }  from '@/utils/districtUtils';
+import type { FieldEngineer }     from '@/hooks/useFieldEngineers';
 
 export interface BulkTaskRow {
-  title:       string;
-  description: string;
-  district?:   string;
-  engineer:    FieldEngineer | null;
-  dueDate:     Date | null;
+  title:          string;
+  description:    string;
+  consumerMobile: string;
+  district?:      string;
+  engineer:       FieldEngineer | null;
+  dueDate:        Date | null;
 }
 
 export function useBulkTaskActions() {
-  const { createTask } = useTaskActions();
+  const { createTask }    = useTaskActions();
+  const { config }        = useAppConfig();
 
   async function createBulkTasks(
     rows: BulkTaskRow[],
@@ -28,11 +32,15 @@ export function useBulkTaskActions() {
       const row = rows[i];
       onProgress(i + 1, rows.length);
       try {
+        const resolvedDistrict = row.district
+          ? resolveDistrictCasing(row.district, config.districts ?? [])
+          : undefined;
         await createTask({
           title:          row.title,
           description:    row.description || undefined,
-          district:       row.district || undefined,
-          assignedTo:     row.engineer?.uid     ?? null,
+          consumerMobile: row.consumerMobile,
+          district:       resolvedDistrict,
+          assignedTo:     row.engineer?.uid          ?? null,
           assignedToName: row.engineer?.displayName  ?? '',
           assignedToCode: row.engineer?.engineerCode ?? '',
           dueDate:        row.dueDate,

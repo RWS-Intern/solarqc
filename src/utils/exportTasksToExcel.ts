@@ -11,8 +11,9 @@ export function exportTasksToExcel(tasks: Task[]): void {
   const summaryRows = sorted.map((t) => ({
     'Task #':              t.taskNum,
     'Title':               t.title,
-    'Description':         t.description ?? '',
-    'District':            t.district    ?? '',
+    'Description':         t.description    ?? '',
+    'Consumer Mobile':     t.consumerMobile ?? '',
+    'District':            t.district       ?? '',
     'Status':              t.status,
     'Assigned To':         t.assignedToName ?? '',
     'Engineer Code':       t.assignedToCode ?? '',
@@ -148,7 +149,7 @@ export function exportTasksToExcel(tasks: Task[]): void {
 
   const ws1 = XLSX.utils.json_to_sheet(summaryRows);
   ws1['!cols'] = [
-    { wch: 8 }, { wch: 40 }, { wch: 30 }, { wch: 18 }, { wch: 12 }, { wch: 20 },
+    { wch: 8 }, { wch: 40 }, { wch: 30 }, { wch: 14 }, { wch: 18 }, { wch: 12 }, { wch: 20 },
     { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 12 },
     { wch: 12 }, { wch: 16 }, { wch: 14 }, { wch: 16 }, { wch: 12 },
     { wch: 18 }, { wch: 18 }, { wch: 30 }, { wch: 12 }, { wch: 14 },
