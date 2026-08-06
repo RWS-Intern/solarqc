@@ -7,7 +7,7 @@ import { useEngineerTaskStats } from '@/hooks/useEngineerTaskStats';
 import { getProposalDoneCount } from '@/utils/engineerStats';
 import { TaskDetailDrawer }    from '@/components/tasks/TaskDetailDrawer';
 import { cn }                  from '@/lib/utils';
-import type { User, Task, TaskStatus } from '@/types';
+import type { User, Task, TaskStatus, PipelineStage } from '@/types';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -228,7 +228,13 @@ export function EngineerDetailDrawer({ engineer, onClose }: EngineerDetailDrawer
                           taskNum:          (data['taskNum']          as string)  ?? '',
                           title:            (data['title']            as string)  ?? '',
                           description:      (data['description']      as string)  ?? undefined,
-                          district:         (data['district']         as string)  ?? undefined,
+                          district:                (data['district']                as string | undefined) ?? undefined,
+                          state:                   (data['state']                   as string | undefined) ?? undefined,
+                          leadSource:              (data['leadSource']              as string | undefined) ?? undefined,
+                          leadSourceEmployeeName:  (data['leadSourceEmployeeName']  as string | undefined) ?? undefined,
+                          leadGeneratedByUid:      (data['leadGeneratedByUid']      as string | null)      ?? null,
+                          leadGeneratedByName:     (data['leadGeneratedByName']     as string | undefined) ?? undefined,
+                          leadGeneratedByNote:     (data['leadGeneratedByNote']     as string | undefined) ?? undefined,
                           assignedTo:       (data['assignedTo']       as string | null) ?? null,
                           assignedToName:   (data['assignedToName']   as string)  ?? '',
                           assignedToCode:   (data['assignedToCode']   as string)  ?? '',
@@ -265,6 +271,19 @@ export function EngineerDetailDrawer({ engineer, onClose }: EngineerDetailDrawer
                           installationAssignedToName:  (data['installationAssignedToName']  as string) ?? '',
                           proposalRevisionCount:   (data['proposalRevisionCount']   as number) ?? 0,
                           droppedReason:           (data['droppedReason']           as string | null) ?? null,
+                          correctionReturnTo:             (data['correctionReturnTo']             as PipelineStage | null | undefined) ?? null,
+                          saleClosed:                     (data['saleClosed']       as boolean | undefined) ?? false,
+                          saleClosedSource:               (data['saleClosedSource'] as 'auto' | 'manual' | null | undefined) ?? null,
+                          correctionReturnAssignedTo:     (data['correctionReturnAssignedTo']     as string | null | undefined)        ?? null,
+                          correctionReturnAssignedToName: (data['correctionReturnAssignedToName'] as string | undefined)               ?? '',
+                          correctionNote:                 (data['correctionNote']                 as string | undefined)               ?? undefined,
+                          correctionSetAt:                (data['correctionSetAt'] as { toDate?: () => Date } | null)?.toDate?.()      ?? null,
+                          backendRemark:           (data['backendRemark']           as string | undefined) ?? undefined,
+                          backendRemarkUpdatedBy:  (data['backendRemarkUpdatedBy']  as string | undefined) ?? undefined,
+                          backendRemarkUpdatedAt:  (data['backendRemarkUpdatedAt'] as { toDate?: () => Date } | null)?.toDate?.() ?? null,
+                          proposalRemark:          (data['proposalRemark']          as string | undefined) ?? undefined,
+                          proposalRemarkUpdatedBy: (data['proposalRemarkUpdatedBy'] as string | undefined) ?? undefined,
+                          proposalRemarkUpdatedAt: (data['proposalRemarkUpdatedAt'] as { toDate?: () => Date } | null)?.toDate?.() ?? null,
                           documentAnswers:         (data['documentAnswers']         as Task['documentAnswers']) ?? {},
                           documentPhotos:          (data['documentPhotos']          as Task['documentPhotos'])  ?? {},
                           documentsCompleted:      (data['documentsCompleted']      as boolean) ?? false,

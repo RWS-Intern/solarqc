@@ -2,30 +2,27 @@ import { useState, useRef, useEffect } from 'react';
 import { X, ChevronDown } from 'lucide-react';
 import { useAppConfig } from '@/hooks/useAppConfig';
 
-interface DistrictComboboxProps {
+interface LeadSourceComboboxProps {
   id?:          string;
   value:        string;
   onChange:     (value: string) => void;
-  districts?:   string[];
-  state?:       string;
+  leadSources?: string[];
   placeholder?: string;
   disabled?:    boolean;
   className?:   string;
 }
 
-export function DistrictCombobox({
+export function LeadSourceCombobox({
   id,
   value,
   onChange,
-  districts: districtsProp,
-  state,
-  placeholder = 'Select or type district...',
+  leadSources: leadSourcesProp,
+  placeholder = 'Select or type lead source...',
   disabled = false,
   className = '',
-}: DistrictComboboxProps) {
-  const { config }  = useAppConfig();
-  const districts   = districtsProp
-    ?? (state ? (config.districtsByState?.[state] ?? []) : (config.districts ?? []));
+}: LeadSourceComboboxProps) {
+  const { config }   = useAppConfig();
+  const leadSources  = leadSourcesProp ?? config.leadSources ?? [];
 
   const [open,  setOpen]  = useState(false);
   const [query, setQuery] = useState(value);
@@ -44,13 +41,13 @@ export function DistrictCombobox({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [value]);
 
-  const filtered = districts.filter((d) =>
+  const filtered = leadSources.filter((d) =>
     d.toLowerCase().includes(query.toLowerCase()),
   );
 
   const showNewOption =
     query.trim().length > 0 &&
-    !districts.some(
+    !leadSources.some(
       (d) => d.toLowerCase() === query.trim().toLowerCase(),
     );
 
@@ -111,10 +108,16 @@ export function DistrictCombobox({
           {showNewOption && (
             <button
               type="button"
-              onMouseDown={(e) => { e.preventDefault(); handleSelect(query.trim()); }}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                const typed = query.trim();
+                const RESERVED = ['Employee', 'Field Engineer'];
+                const reservedMatch = RESERVED.find((r) => r.toLowerCase() === typed.toLowerCase());
+                handleSelect(reservedMatch ?? typed);
+              }}
               className="w-full text-left px-3 py-2 text-sm text-blue-600 hover:bg-blue-50 border-t border-gray-100 transition-colors"
             >
-              + Use "{query.trim()}" as new district
+              + Use "{query.trim()}" as new lead source
             </button>
           )}
         </div>

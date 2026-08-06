@@ -6,8 +6,8 @@ import { Button } from '@/components/ui/button';
 import { Input }  from '@/components/ui/input';
 import { Label }  from '@/components/ui/label';
 import { useUserActions }    from '@/hooks/useUserActions';
-import { useAppConfig }      from '@/hooks/useAppConfig';
 import { DistrictCombobox }  from '@/components/ui/DistrictCombobox';
+import { StateCombobox }     from '@/components/ui/StateCombobox';
 import type { User } from '@/types';
 
 interface EditUserModalProps {
@@ -17,10 +17,9 @@ interface EditUserModalProps {
 
 export function EditUserModal({ user, onClose }: EditUserModalProps) {
   const { updateUserName, updateUserDistrict, updateUserMobile } = useUserActions();
-  const { config }  = useAppConfig();
-  const districts   = config.districts ?? [];
 
   const [name,         setName]         = useState('');
+  const [state,        setState]        = useState('');
   const [district,     setDistrict]     = useState('');
   const [mobileNumber, setMobileNumber] = useState('');
   const [saving,       setSaving]       = useState(false);
@@ -31,6 +30,7 @@ export function EditUserModal({ user, onClose }: EditUserModalProps) {
   useEffect(() => {
     if (user) {
       setName(user.name);
+      setState(user.state ?? '');
       setDistrict(user.district ?? '');
       setMobileNumber(user.mobileNumber ?? '');
       setNameError('');
@@ -48,7 +48,7 @@ export function EditUserModal({ user, onClose }: EditUserModalProps) {
     try {
       await updateUserName(user.id, name, user.role);
       if (user.role === 'field') {
-        await updateUserDistrict(user.id, district);
+        await updateUserDistrict(user.id, district, state);
       }
       // Only sync tasks when mobile actually changed (avoids spurious batch-writes)
       if (mobileNumber.trim() !== (user?.mobileNumber ?? '')) {
@@ -128,16 +128,26 @@ export function EditUserModal({ user, onClose }: EditUserModalProps) {
           </div>
 
           {user?.role === 'field' && (
-            <div className="flex flex-col gap-1.5">
-              <Label>District (optional)</Label>
-              <DistrictCombobox
-                value={district}
-                onChange={setDistrict}
-                districts={districts}
-                placeholder="Select or type district..."
-                disabled={saving}
-              />
-            </div>
+            <>
+              <div className="flex flex-col gap-1.5">
+                <Label>State (optional)</Label>
+                <StateCombobox
+                  value={state}
+                  onChange={(val) => { setState(val); setDistrict(''); }}
+                  disabled={saving}
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label>District (optional)</Label>
+                <DistrictCombobox
+                  value={district}
+                  onChange={setDistrict}
+                  state={state}
+                  placeholder="Select or type district..."
+                  disabled={saving}
+                />
+              </div>
+            </>
           )}
 
           <div className="flex flex-col gap-1.5">

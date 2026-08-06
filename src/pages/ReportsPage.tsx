@@ -5,11 +5,12 @@ import {
 } from 'recharts';
 import { Download } from 'lucide-react';
 import {
-  getDocs, query, collection, where, limit, orderBy,
+  getDocs, query, collection, where, limit, orderBy, getCountFromServer,
 } from 'firebase/firestore';
 import { db } from '@/firebase/config';
 import { useAppConfig } from '@/hooks/useAppConfig';
 import { docToTask } from '@/hooks/useTasks';
+import { useToast } from '@/components/ui/toast';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { Task, TaskStatus } from '@/types';
@@ -150,8 +151,9 @@ function SectionHeader({ title }: { title: string }) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export function ReportsPage() {
-  const { config } = useAppConfig();
-  const pc         = config.pipelineCounts;
+  const { config }    = useAppConfig();
+  const pc            = config.pipelineCounts;
+  const { showToast } = useToast();
 
   // Load status counts independently from Firestore
   const [statusCounts, setStatusCounts] = useState<Record<string, number>>(
@@ -159,12 +161,9 @@ export function ReportsPage() {
   );
   const [totalTaskCount, setTotalTaskCount] = useState(0);
   const [reportLoading, setReportLoading] = useState(true);
-  const [allTasksForChart, setAllTasksForChart] = useState<Array<{
-    assignedToName: string;
-    status:         string;
-    pipelineStage?: string;
-    district?:      string;
-  }>>([]);
+  const [surveyCompletedCount, setSurveyCompletedCount] = useState(0);
+  const [pipelineTruncated, setPipelineTruncated]       = useState(false);
+  const [submissionsTruncated, setSubmissionsTruncated] = useState(false);
   const [allTasksFull, setAllTasksFull] = useState<Task[]>([]);
   const [allSubmittedTasks, setAllSubmittedTasks] = useState<Array<{
     id:             string;
@@ -179,17 +178,17 @@ export function ReportsPage() {
     async function loadReportData() {
       setReportLoading(true);
       try {
-        const [pendingSnap, inProgressSnap, completedSnap, blockedSnap] = await Promise.all([
-          getDocs(query(collection(db, 'tasks'), where('archived', '==', false), where('status', '==', 'pending'),     limit(1000))),
-          getDocs(query(collection(db, 'tasks'), where('archived', '==', false), where('status', '==', 'in_progress'), limit(1000))),
-          getDocs(query(collection(db, 'tasks'), where('archived', '==', false), where('status', '==', 'completed'),   limit(1000))),
-          getDocs(query(collection(db, 'tasks'), where('archived', '==', false), where('status', '==', 'blocked'),     limit(1000))),
+        const [pendingCount, inProgressCount, completedCount, blockedCount] = await Promise.all([
+          getCountFromServer(query(collection(db, 'tasks'), where('archived', '==', false), where('status', '==', 'pending'))),
+          getCountFromServer(query(collection(db, 'tasks'), where('archived', '==', false), where('status', '==', 'in_progress'))),
+          getCountFromServer(query(collection(db, 'tasks'), where('archived', '==', false), where('status', '==', 'completed'))),
+          getCountFromServer(query(collection(db, 'tasks'), where('archived', '==', false), where('status', '==', 'blocked'))),
         ]);
         const counts = {
-          pending:     pendingSnap.size,
-          in_progress: inProgressSnap.size,
-          completed:   completedSnap.size,
-          blocked:     blockedSnap.size,
+          pending:     pendingCount.data().count,
+          in_progress: inProgressCount.data().count,
+          completed:   completedCount.data().count,
+          blocked:     blockedCount.data().count,
         };
         setStatusCounts(counts);
         const total = (pc?.total_active ?? 0) + (pc?.completed ?? 0) + (pc?.dropped ?? 0);
@@ -197,20 +196,17 @@ export function ReportsPage() {
           total || counts.pending + counts.in_progress + counts.completed + counts.blocked,
         );
 
-        // Fetch all tasks for engineer chart
-        const allSnap = await getDocs(query(
+        // Count survey-stage tasks that have been submitted (status==='completed')
+        // for the cumulative funnel chart's "Survey Done" bar.
+        // Pure equality query (pipelineStage==='survey', archived===false, status==='completed')
+        // — no composite index required.
+        const surveyDoneSnap = await getCountFromServer(query(
           collection(db, 'tasks'),
-          where('archived', '==', false),
-          limit(2000),
+          where('archived',      '==', false),
+          where('pipelineStage', '==', 'survey'),
+          where('status',        '==', 'completed'),
         ));
-        setAllTasksForChart(
-          allSnap.docs.map((d) => ({
-            assignedToName: (d.data()['assignedToName'] as string) || 'Unassigned',
-            status:         (d.data()['status']         as string) || 'pending',
-            pipelineStage:  (d.data()['pipelineStage']  as string) || 'survey',
-            district:       (d.data()['district']       as string) || '',
-          }))
-        );
+        setSurveyCompletedCount(surveyDoneSnap.data().count);
 
         // Fetch full task objects (fresh, unfiltered) specifically for CSV export —
         // must not depend on the Tasks page's filtered/paginated global store.
@@ -220,6 +216,7 @@ export function ReportsPage() {
           limit(5000),
         ));
         setAllTasksFull(allFullSnap.docs.map(docToTask));
+        setPipelineTruncated(allFullSnap.size === 5000);
 
         // Fetch submitted tasks for recent submissions table
         const submittedSnap = await getDocs(query(
@@ -229,6 +226,7 @@ export function ReportsPage() {
           orderBy('submittedAt', 'desc'),
           limit(500),
         ));
+        setSubmissionsTruncated(submittedSnap.size === 500);
         setAllSubmittedTasks(
           submittedSnap.docs.map((d) => {
             const data = d.data();
@@ -246,6 +244,7 @@ export function ReportsPage() {
         );
       } catch (err) {
         console.error('[ReportsPage] loadReportData failed:', err);
+        showToast('Failed to load report data. Please refresh the page.', 'error');
       } finally {
         setReportLoading(false);
       }
@@ -264,23 +263,18 @@ export function ReportsPage() {
 
   // ── Bar data ─────────────────────────────────────────────────────────────────
   const barData = useMemo(() => {
-    const map: Record<string, { assigned: number; completed: number }> = {};
-    allTasksForChart.forEach((t) => {
-      const name = t.assignedToName || 'Unassigned';
-      if (!map[name]) map[name] = { assigned: 0, completed: 0 };
-      map[name].assigned++;
-      if (t.pipelineStage === 'completed') map[name].completed++;
-    });
-    return Object.entries(map)
-      .map(([name, { assigned, completed }]) => ({
-        name:    truncate(name, 12),
-        fullName: name,
-        rate:    assigned > 0 ? Math.round((completed / assigned) * 100) : 0,
+    const ec = config.engineerCounts;
+    if (!ec) return [];
+    return Object.entries(ec)
+      .map(([, { assigned, completed, name }]) => ({
+        name:     truncate(name || 'Unknown', 12),
+        fullName: name || 'Unknown',
+        rate:     assigned > 0 ? Math.round((completed / assigned) * 100) : 0,
         assigned,
         completed,
       }))
       .sort((a, b) => b.rate - a.rate);
-  }, [allTasksForChart]);
+  }, [config.engineerCounts]);
 
   // ── Pipeline stage data ──────────────────────────────────────────────────────
   const pipelineStageData = useMemo(() => {
@@ -298,16 +292,9 @@ export function ReportsPage() {
 
   // ── District data ────────────────────────────────────────────────────────────
   const districtData = useMemo(() => {
-    const map: Record<string, { total: number; completed: number }> = {};
-    allTasksForChart.forEach((t) => {
-      if (!t.district) return;
-      if (!map[t.district]) map[t.district] = { total: 0, completed: 0 };
-      map[t.district].total++;
-      if (t.pipelineStage === 'completed') {
-        map[t.district].completed++;
-      }
-    });
-    return Object.entries(map)
+    const dc = config.districtCounts;
+    if (!dc) return [];
+    return Object.entries(dc)
       .map(([name, { total, completed }]) => ({
         name,
         total,
@@ -316,63 +303,32 @@ export function ReportsPage() {
       }))
       .sort((a, b) => b.total - a.total)
       .slice(0, 15);
-  }, [allTasksForChart]);
+  }, [config.districtCounts]);
 
   // ── Funnel data ──────────────────────────────────────────────────────────────
-  // Cumulative funnel: each step counts every task that has EVER reached at
-  // least that stage, not just tasks currently sitting there. Dropped tasks
-  // only ever leave from field_review (confirmed against
-  // usePipelineActions.ts's 'rejected' branch), so they count toward Survey
-  // Done / In Proposal / In Field Review but not In Documents / In Backend.
-  const FUNNEL_STAGE_ORDER = ['survey', 'proposal', 'field_review', 'documents', 'backend'] as const;
-
-  function taskProgressIndex(t: { pipelineStage?: string; status: string }): number | null {
-    const stage = t.pipelineStage || 'survey';
-    if (stage === 'dropped')   return 2; // dropping only ever happens from field_review
-    if (stage === 'completed') return FUNNEL_STAGE_ORDER.length; // reached everything
-    if (stage === 'survey')    return t.status === 'completed' ? 0 : null;
-    const idx = FUNNEL_STAGE_ORDER.indexOf(stage as typeof FUNNEL_STAGE_ORDER[number]);
-    return idx >= 0 ? idx : null;
-  }
-
+  // Cumulative funnel derived purely from pipelineCounts (denormalized counters).
+  // Each bar = tasks that have EVER reached at least that stage.
+  // Dropped tasks only ever leave from field_review, so they count toward
+  // survey/proposal/fieldRev but NOT documents/backend.
   const funnelData = useMemo(() => {
-    const progressIndices = allTasksForChart
-      .map(taskProgressIndex)
-      .filter((i): i is number => i !== null);
-
-    const reachedAtLeast = (stepIndex: number) =>
-      progressIndices.filter((i) => i >= stepIndex).length;
-
-    const surveyDone = reachedAtLeast(0);
-    const proposal   = reachedAtLeast(1);
-    const fieldRev    = reachedAtLeast(2);
-    const documents   = reachedAtLeast(3);
-    const backend     = reachedAtLeast(4);
-
     if (!pc) return {
-      total: 0, survey: surveyDone, proposal,
-      fieldRev, documents, backend,
+      total: 0, survey: 0, proposal: 0,
+      fieldRev: 0, documents: 0, backend: 0,
       converted: 0, dropped: 0,
       convRate: 0, dropRate: 0,
     };
-    const total     = (pc.total_active ?? 0) + (pc.completed ?? 0) + (pc.dropped ?? 0);
-    const converted = pc.completed ?? 0;
-    const dropped   = pc.dropped   ?? 0;
-    const convRate  = total > 0 ? Math.round((converted / total) * 100) : 0;
-    const dropRate  = total > 0 ? Math.round((dropped   / total) * 100) : 0;
-    return {
-      total,
-      survey:    surveyDone,
-      proposal,
-      fieldRev,
-      documents,
-      backend,
-      converted,
-      dropped,
-      convRate,
-      dropRate,
-    };
-  }, [pc, allTasksForChart]);
+    const backend    = (pc.backend      ?? 0) + (pc.completed ?? 0);
+    const documents  = (pc.documents    ?? 0) + backend;
+    const fieldRev   = (pc.field_review ?? 0) + (pc.dropped   ?? 0) + documents;
+    const proposal   = (pc.proposal     ?? 0) + fieldRev;
+    const survey     = surveyCompletedCount + proposal;
+    const total      = (pc.total_active ?? 0) + (pc.completed ?? 0) + (pc.dropped ?? 0);
+    const converted  = pc.completed ?? 0;
+    const dropped    = pc.dropped   ?? 0;
+    const convRate   = total > 0 ? Math.round((converted / total) * 100) : 0;
+    const dropRate   = total > 0 ? Math.round((dropped   / total) * 100) : 0;
+    return { total, survey, proposal, fieldRev, documents, backend, converted, dropped, convRate, dropRate };
+  }, [pc, surveyCompletedCount]);
 
   // ── Recent submissions ───────────────────────────────────────────────────────
   const allSubmitted      = allSubmittedTasks;
@@ -433,8 +389,6 @@ export function ReportsPage() {
       </div>
 
       {/* ── Section 2: Engineer bar chart ── */}
-      {/* Note: engineer chart shows data from current loaded tasks only.
-          For full accuracy across all engineers, a separate query is needed. */}
       <div className="rounded-xl border border-gray-200 bg-white p-5 border-t-4 border-t-brand-blue overflow-hidden">
         <SectionHeader title="Completion Rate by Engineer" />
         {barData.length === 0 ? (
@@ -514,7 +468,7 @@ export function ReportsPage() {
           <SectionHeader title="Tasks by District" />
           <div className="flex flex-col gap-2 mt-2">
             {districtData.map(({ name, total }) => {
-              const allTotal = allTasksForChart.length || 1;
+              const allTotal = funnelData.total || 1;
               const pct      = Math.round((total / allTotal) * 100);
               return (
                 <div key={name} className="flex items-center gap-3">
@@ -595,13 +549,18 @@ export function ReportsPage() {
       {/* ── Section 5: Recent submissions ── */}
       <div className="rounded-xl border border-gray-200 bg-white p-5 border-t-4 border-t-brand-blue overflow-hidden">
         <div className="flex items-center justify-between mb-3">
-          <SectionHeader title={`Recent Submissions${recentSubmissions.length > 0 ? ` (${allSubmitted.length})` : ''}`} />
+          <SectionHeader title={`Recent Submissions${recentSubmissions.length > 0 ? ` (${allSubmitted.length}${submissionsTruncated ? '+' : ''})` : ''}`} />
           <div className="flex items-center gap-2 -mt-1 shrink-0">
             {allTasksFull.length > 0 && (
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => exportPipelineCsv(allTasksFull)}
+                onClick={() => {
+                  if (pipelineTruncated) {
+                    showToast('Export may be incomplete — more than 5,000 tasks exist. Contact admin for a full data export.', 'error');
+                  }
+                  exportPipelineCsv(allTasksFull);
+                }}
                 className="flex items-center gap-1.5 text-xs h-8"
               >
                 <Download className="h-3.5 w-3.5" />
@@ -612,7 +571,12 @@ export function ReportsPage() {
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => exportSubmissionsCsv(allSubmitted)}
+                onClick={() => {
+                  if (submissionsTruncated) {
+                    showToast('Export may be incomplete — more than 500 submissions exist. Contact admin for a full data export.', 'error');
+                  }
+                  exportSubmissionsCsv(allSubmitted);
+                }}
                 className="flex items-center gap-1.5 text-xs h-8"
               >
                 <Download className="h-3.5 w-3.5" />

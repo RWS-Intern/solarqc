@@ -11,29 +11,34 @@ import { useBulkTaskActions }  from '@/hooks/useBulkTaskActions';
 import { useToast }            from '@/components/ui/toast';
 import type { BulkTaskRow }    from '@/hooks/useBulkTaskActions';
 import { checkDuplicateConsumerMobile } from '@/utils/checkDuplicateMobile';
+import { useAppConfig }                 from '@/hooks/useAppConfig';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface ParsedRow {
-  rowNum:         number;
-  title:          string;
-  description:    string;
-  consumerMobile: string;
-  engineerCode:   string;
-  dueDate:        string;
-  district:       string;
-  valid:          boolean;
-  error:          string;
-  resolved:       BulkTaskRow | null;
+  rowNum:                 number;
+  title:                  string;
+  description:            string;
+  consumerMobile:         string;
+  engineerCode:           string;
+  dueDate:                string;
+  state:                  string;
+  district:               string;
+  leadSource:             string;
+  leadSourceEmployeeName: string;
+  leadGeneratedByCode:    string;
+  valid:                  boolean;
+  error:                  string;
+  resolved:               BulkTaskRow | null;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function downloadTemplate() {
   const csv = [
-    'title,description,consumerMobile,engineerCode,dueDate,district',
-    '"Rooftop inspection - Site A","Check panel condition","9876543210","ENG-001","2026-07-01","Nagpur"',
-    '"Site survey - Kothrud","","9000011111","","",""',
+    'title,description,consumerMobile,engineerCode,dueDate,state,district,leadSource,leadSourceEmployeeName,leadGeneratedByCode',
+    '"Rooftop inspection - Site A","Check panel condition","9876543210","ENG-001","2026-07-01","Maharashtra","Nagpur","Field Engineer","","ENG-001"',
+    '"Site survey - Kothrud","","9000011111","","","Maharashtra","","Employee","Ravi Kumar",""',
   ].join('\n');
   const blob = new Blob([csv], { type: 'text/csv' });
   const url  = URL.createObjectURL(blob);
@@ -62,6 +67,7 @@ export function BulkTaskModal({ open, onClose }: BulkTaskModalProps) {
   const { engineers }        = useFieldEngineers();
   const { createBulkTasks }  = useBulkTaskActions();
   const { showToast }        = useToast();
+  const { config }           = useAppConfig();
   const fileInputRef         = useRef<HTMLInputElement>(null);
 
   const [rows,       setRows]       = useState<ParsedRow[]>([]);
@@ -91,33 +97,57 @@ export function BulkTaskModal({ open, onClose }: BulkTaskModalProps) {
       complete: async (results) => {
         const parsed: ParsedRow[] = await Promise.all(results.data.map(async (raw, i) => {
           const rowNum         = i + 2; // 1-indexed, header is row 1
-          const title          = (raw['title']          ?? '').trim();
-          const description    = (raw['description']    ?? '').trim();
-          const consumerMobile = (raw['consumerMobile'] ?? '').replace(/\D/g, '').trim();
-          const engineerCode   = (raw['engineerCode']   ?? '').trim();
-          const dueDate        = (raw['dueDate']        ?? '').trim();
-          const district       = (raw['district']       ?? '').trim();
+          const title                  = (raw['title']                  ?? '').trim();
+          const description            = (raw['description']            ?? '').trim();
+          const consumerMobile         = (raw['consumerMobile']         ?? '').replace(/\D/g, '').trim();
+          const engineerCode           = (raw['engineerCode']           ?? '').trim();
+          const dueDate                = (raw['dueDate']                ?? '').trim();
+          const state                  = (raw['state']                  ?? '').trim();
+          const district               = (raw['district']               ?? '').trim();
+          const leadSource             = (raw['leadSource']             ?? '').trim();
+          const leadSourceEmployeeName = (raw['leadSourceEmployeeName'] ?? '').trim();
+          const leadGeneratedByCode    = (raw['leadGeneratedByCode']    ?? '').trim();
+
+          const baseRow = { rowNum, title, description, consumerMobile, engineerCode, dueDate, state, district, leadSource, leadSourceEmployeeName, leadGeneratedByCode };
 
           // Validate
           if (!title) {
-            return { rowNum, title, description, consumerMobile, engineerCode, dueDate, district, valid: false, error: 'Title is required', resolved: null };
+            return { ...baseRow, valid: false, error: 'Title is required', resolved: null };
           }
 
           if (!/^\d{10}$/.test(consumerMobile)) {
-            return { rowNum, title, description, consumerMobile, engineerCode, dueDate, district, valid: false, error: 'Consumer mobile number is required and must be exactly 10 digits', resolved: null };
+            return { ...baseRow, valid: false, error: 'Consumer mobile number is required and must be exactly 10 digits', resolved: null };
           }
 
           let engineer = null;
           if (engineerCode) {
             const found = engineers.find((e) => e.engineerCode === engineerCode);
             if (!found) {
-              return { rowNum, title, description, consumerMobile, engineerCode, dueDate, district, valid: false, error: `Engineer "${engineerCode}" not found`, resolved: null };
+              return { ...baseRow, valid: false, error: `Engineer "${engineerCode}" not found`, resolved: null };
             }
             engineer = found;
           }
 
           if (dueDate && !isValidDate(dueDate)) {
-            return { rowNum, title, description, consumerMobile, engineerCode, dueDate, district, valid: false, error: 'Due date must be YYYY-MM-DD', resolved: null };
+            return { ...baseRow, valid: false, error: 'Due date must be YYYY-MM-DD', resolved: null };
+          }
+
+          if (state && district) {
+            const validDistricts = config.districtsByState?.[state] ?? [];
+            if (validDistricts.length > 0 && !validDistricts.includes(district)) {
+              return { ...baseRow, valid: false, error: 'District does not belong to the selected state', resolved: null };
+            }
+          }
+
+          let leadGeneratedByUid: string | null = null;
+          let leadGeneratedByName: string = '';
+          if (leadSource.toLowerCase() === 'field engineer' && leadGeneratedByCode) {
+            const found = engineers.find((e) => e.engineerCode === leadGeneratedByCode);
+            if (!found) {
+              return { ...baseRow, valid: false, error: `Lead generated by engineer "${leadGeneratedByCode}" not found`, resolved: null };
+            }
+            leadGeneratedByUid  = found.uid;
+            leadGeneratedByName = found.displayName;
           }
 
           let duplicate = null;
@@ -126,7 +156,7 @@ export function BulkTaskModal({ open, onClose }: BulkTaskModalProps) {
           } catch (checkErr) {
             console.error(`[BulkTaskModal] duplicate check failed for row ${rowNum}:`, checkErr);
             return {
-              rowNum, title, description, consumerMobile, engineerCode, dueDate, district,
+              ...baseRow,
               valid: false,
               error: 'Could not verify this row against existing leads — check your connection and re-upload.',
               resolved: null,
@@ -134,7 +164,7 @@ export function BulkTaskModal({ open, onClose }: BulkTaskModalProps) {
           }
           if (duplicate) {
             return {
-              rowNum, title, description, consumerMobile, engineerCode, dueDate, district,
+              ...baseRow,
               valid: false,
               error: `Duplicate: this mobile number already exists on lead ${duplicate.taskNum} (${duplicate.title})`,
               resolved: null,
@@ -145,12 +175,17 @@ export function BulkTaskModal({ open, onClose }: BulkTaskModalProps) {
             title,
             description,
             consumerMobile,
-            district: district || undefined,
+            state:                   state                 || undefined,
+            district:                district              || undefined,
+            leadSource:              leadSource            || undefined,
+            leadSourceEmployeeName:  leadSourceEmployeeName || undefined,
+            leadGeneratedByUid:      leadGeneratedByUid,
+            leadGeneratedByName:     leadGeneratedByName   || undefined,
             engineer,
             dueDate: dueDate ? new Date(dueDate) : null,
           };
 
-          return { rowNum, title, description, consumerMobile, engineerCode, dueDate, district, valid: true, error: '', resolved };
+          return { ...baseRow, valid: true, error: '', resolved };
         }));
 
         const seenMobiles = new Map<string, number>();
@@ -227,7 +262,7 @@ export function BulkTaskModal({ open, onClose }: BulkTaskModalProps) {
           <div className="flex items-center justify-between rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
             <div>
               <p className="text-sm font-semibold text-gray-800">Download Template</p>
-              <p className="text-xs text-gray-500 mt-0.5">CSV format: title, description, consumerMobile, engineerCode, dueDate, district</p>
+              <p className="text-xs text-gray-500 mt-0.5">CSV format: title, description, consumerMobile, engineerCode, dueDate, state, district, leadSource, leadSourceEmployeeName, leadGeneratedByCode</p>
             </div>
             <Button variant="outline" size="sm" onClick={downloadTemplate} className="flex items-center gap-1.5 shrink-0">
               <Download className="h-3.5 w-3.5" />
@@ -286,7 +321,9 @@ export function BulkTaskModal({ open, onClose }: BulkTaskModalProps) {
                       <th className="text-left px-3 py-2 font-semibold text-gray-500">Consumer Mobile</th>
                       <th className="text-left px-3 py-2 font-semibold text-gray-500">Engineer</th>
                       <th className="text-left px-3 py-2 font-semibold text-gray-500">Due Date</th>
+                      <th className="text-left px-3 py-2 font-semibold text-gray-500">State</th>
                       <th className="text-left px-3 py-2 font-semibold text-gray-500">District</th>
+                      <th className="text-left px-3 py-2 font-semibold text-gray-500">Lead Source</th>
                       <th className="text-left px-3 py-2 font-semibold text-gray-500">Status</th>
                     </tr>
                   </thead>
@@ -306,7 +343,9 @@ export function BulkTaskModal({ open, onClose }: BulkTaskModalProps) {
                         <td className="px-3 py-2 text-gray-600 font-mono">{row.consumerMobile || '—'}</td>
                         <td className="px-3 py-2 text-gray-600">{row.engineerCode || '—'}</td>
                         <td className="px-3 py-2 text-gray-600">{row.dueDate || '—'}</td>
+                        <td className="px-3 py-2 text-gray-600">{row.state || '—'}</td>
                         <td className="px-3 py-2 text-gray-600">{row.district || '—'}</td>
+                        <td className="px-3 py-2 text-gray-600">{row.leadSource || '—'}</td>
                         <td className="px-3 py-2">
                           {row.valid ? (
                             <span className="flex items-center gap-1 text-green-600 font-medium">

@@ -8,6 +8,7 @@ import { useBackendTasks, useLoadMoreBackendHistory } from '@/hooks/useBackendTa
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { BackendWorkDrawer }   from '@/components/pipeline/BackendWorkDrawer';
 import { getProposalDocuments } from '@/utils/proposalDocuments';
+import { logError } from '@/utils/logError';
 import { ProposalDocumentList } from '@/components/pipeline/ProposalDocumentList';
 import { cn }   from '@/lib/utils';
 import type { Task, StageHistoryEntry, FieldDefinition, FieldType, ProposalStageData } from '@/types';
@@ -19,13 +20,24 @@ function BackendTaskCard({ task, onClick }: { task: Task; onClick: () => void })
     <button
       type="button"
       onClick={onClick}
-      className="w-full text-left rounded-xl border border-gray-200 bg-white shadow-sm px-4 py-3.5 hover:border-orange-300 hover:shadow-md transition-all flex flex-col gap-1"
+      className={cn(
+        'w-full text-left rounded-xl border bg-white shadow-sm px-4 py-3.5 hover:shadow-md transition-all flex flex-col gap-1',
+        task.correctionReturnTo
+          ? 'border-amber-400 hover:border-amber-500'
+          : 'border-gray-200 hover:border-orange-300',
+      )}
     >
       <div className="flex items-center gap-2 flex-wrap">
         <span className="font-mono text-xs text-gray-400">{task.taskNum}</span>
-        <span className="rounded-full bg-orange-100 text-orange-700 text-[10px] font-semibold px-2 py-0.5">
-          Backend
-        </span>
+        {task.correctionReturnTo ? (
+          <span className="rounded-full bg-amber-100 text-amber-800 border border-amber-300 text-[10px] font-semibold px-2 py-0.5">
+            ↩ Sent back for correction — will return to {task.correctionReturnTo.replace('_', ' ')}
+          </span>
+        ) : (
+          <span className="rounded-full bg-orange-100 text-orange-700 text-[10px] font-semibold px-2 py-0.5">
+            Backend
+          </span>
+        )}
       </div>
       <p className="text-sm font-semibold text-gray-900 truncate">{task.title}</p>
       {task.backendAssignedToName ? (
@@ -55,13 +67,18 @@ function BackendTaskCard({ task, onClick }: { task: Task; onClick: () => void })
           </span>
         </div>
       )}
-      {task.createdAt && (() => {
-        const days = Math.floor((Date.now() - task.createdAt.getTime()) / (1000 * 60 * 60 * 24));
-        if (days < 1) return null;
+      {(() => {
+        const backendEntry = [...(task.stageHistory ?? [])].reverse().find(e => e.toStage === 'backend');
+        if (!backendEntry?.timestamp) return null;
+        const ts = backendEntry.timestamp;
+        const enteredAt: Date = ts instanceof Date
+          ? ts
+          : (ts as unknown as { toDate?: () => Date })?.toDate?.() ?? new Date(ts as unknown as string);
+        const days = Math.floor((Date.now() - enteredAt.getTime()) / (1000 * 60 * 60 * 24));
         const color = days > 45 ? 'text-red-400' : days > 30 ? 'text-orange-400' : 'text-gray-400';
         return (
           <p className={`text-xs mt-1 ${color}`}>
-            🕐 {days} day{days !== 1 ? 's' : ''} old
+            🕐 {days} day{days !== 1 ? 's' : ''} in Backend
           </p>
         );
       })()}
@@ -168,7 +185,7 @@ function BackendHistoryDetailContent({ task, onClose }: { task: Task | null; onC
           submittedByName:   (d['submittedByName']   as string) ?? '',
         });
       })
-      .catch(() => {});
+      .catch((err) => void logError('backendPage.fetchStageData', err, { taskId: task.id }));
 
     getDoc(doc(db, 'tasks', task.id, 'stages', 'proposal'))
       .then((snap) => {
@@ -176,7 +193,7 @@ function BackendHistoryDetailContent({ task, onClose }: { task: Task | null; onC
           setProposalDoc(snap.data() as ProposalStageData);
         }
       })
-      .catch(() => {});
+      .catch((err) => void logError('backendPage.fetchStageData', err, { taskId: task.id }));
   }, [task?.id]);
 
   if (!task) return null;
@@ -517,7 +534,15 @@ export function BackendPage() {
     backendHistoryTasks, backendHistoryLoading,
   } = useTaskStore();
 
-  useBackendTasks();
+  const {
+    loadMore:      loadMoreActive,
+    hasMore:       activeHasMore,
+    loadingMore:   activeLoadingMore,
+    search:        firestoreSearch,
+    searchResults,
+    isSearching,
+    clearSearch,
+  } = useBackendTasks();
   const { loadMore: loadMoreHistory, hasMore: historyHasMore } = useLoadMoreBackendHistory();
 
   const [activeTab,     setActiveTab]     = useState<'active' | 'history'>('active');
@@ -529,6 +554,24 @@ export function BackendPage() {
   const [historyFilter,  setHistoryFilter]  = useState<BackendHistoryFilter>('all');
   const [historySearch,  setHistorySearch]  = useState('');
   const [historyTaskId,  setHistoryTaskId]  = useState<string | null>(null);
+  const [correctionOnly, setCorrectionOnly] = useState(false);
+
+  // Debounce: fire Firestore search 350 ms after the user stops typing;
+  // clear immediately when the input is empty.
+  useEffect(() => {
+    if (!search.trim()) {
+      clearSearch();
+      return;
+    }
+    const id = setTimeout(() => firestoreSearch(search), 350);
+    return () => clearTimeout(id);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search]);
+
+  const correctionCount = useMemo(
+    () => backendTasks.filter((t) => !!t.correctionReturnTo).length,
+    [backendTasks],
+  );
   const historyTask = historyTaskId
     ? (backendHistoryTasks.find((t) => t.id === historyTaskId) ?? null)
     : null;
@@ -539,24 +582,24 @@ export function BackendPage() {
     dropped:   backendHistoryTasks.filter((t) => t.pipelineStage === 'dropped').length,
   }), [backendHistoryTasks]);
 
+  // When a Firestore search is active show its results; otherwise show the
+  // live-paginated list. The correctionOnly and journey filters apply to both.
+  const displayActive = isSearching ? searchResults : backendTasks;
+
   const inProgressTasks = useMemo(() =>
-    backendTasks.filter((t) => {
-      const match = !search.trim() ||
-        t.title.toLowerCase().includes(search.toLowerCase()) ||
-        t.taskNum.toLowerCase().includes(search.toLowerCase());
-      return match && !t.journeyCompleted;
-    }),
-    [backendTasks, search],
+    displayActive.filter((t) =>
+      !t.journeyCompleted && (!correctionOnly || !!t.correctionReturnTo)
+    ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [displayActive, correctionOnly],
   );
 
   const readyToConvertTasks = useMemo(() =>
-    backendTasks.filter((t) => {
-      const match = !search.trim() ||
-        t.title.toLowerCase().includes(search.toLowerCase()) ||
-        t.taskNum.toLowerCase().includes(search.toLowerCase());
-      return match && t.journeyCompleted === true;
-    }),
-    [backendTasks, search],
+    displayActive.filter((t) =>
+      t.journeyCompleted === true && (!correctionOnly || !!t.correctionReturnTo)
+    ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [displayActive, correctionOnly],
   );
 
   const filteredHistory = useMemo(() => {
@@ -569,7 +612,9 @@ export function BackendPage() {
     if (historySearch.trim()) {
       const q = historySearch.toLowerCase();
       list = list.filter((t) =>
-        t.title.toLowerCase().includes(q) || t.taskNum.toLowerCase().includes(q));
+        t.title.toLowerCase().includes(q) ||
+        t.taskNum.toLowerCase().includes(q) ||
+        (t.consumerMobile ?? '').toLowerCase().includes(q));
     }
     return list;
   }, [backendHistoryTasks, historyFilter, historySearch]);
@@ -694,6 +739,21 @@ export function BackendPage() {
             />
           </div>
 
+          {correctionCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setCorrectionOnly((v) => !v)}
+              className={cn(
+                'self-start rounded-full px-3 py-1 text-xs font-semibold border transition-colors',
+                correctionOnly
+                  ? 'bg-amber-400 text-white border-amber-400'
+                  : 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100',
+              )}
+            >
+              ↩ Needs Correction ({correctionCount})
+            </button>
+          )}
+
           {backendTasksLoading ? (
             <div className="flex justify-center py-12">
               <div className="h-8 w-8 animate-spin rounded-full border-4 border-orange-400 border-t-transparent" />
@@ -756,6 +816,23 @@ export function BackendPage() {
             <p className="text-xs text-gray-400 text-center">
               {inProgressTasks.length + readyToConvertTasks.length} task{(inProgressTasks.length + readyToConvertTasks.length) !== 1 ? 's' : ''}
             </p>
+          )}
+          {!backendTasksLoading && !isSearching && activeHasMore && (
+            <button
+              type="button"
+              onClick={loadMoreActive}
+              disabled={activeLoadingMore}
+              className="w-full rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 font-medium py-3 text-sm transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {activeLoadingMore ? (
+                <>
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-gray-600" />
+                  Loading...
+                </>
+              ) : (
+                'Load More ↓'
+              )}
+            </button>
           )}
         </>
       )}

@@ -35,11 +35,10 @@ export function EngineerCombobox({
   const [query, setQuery] = useState(() => displayOf(engineers.find((e) => e.uid === value)));
   const ref = useRef<HTMLDivElement>(null);
 
-  // Sync display label when value changes from outside (e.g. form reset)
+  // Sync display label when value or engineer list changes (e.g. form reset, async load)
   useEffect(() => {
     setQuery(displayOf(engineers.find((e) => e.uid === value)));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value]);
+  }, [value, engineers]);
 
   // Close and restore display label on click-outside
   useEffect(() => {

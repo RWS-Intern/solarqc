@@ -1,20 +1,22 @@
 import { useTaskActions }         from '@/hooks/useTaskActions';
-import { useAppConfig }           from '@/hooks/useAppConfig';
-import { resolveDistrictCasing }  from '@/utils/districtUtils';
 import type { FieldEngineer }     from '@/hooks/useFieldEngineers';
 
 export interface BulkTaskRow {
   title:          string;
   description:    string;
   consumerMobile: string;
+  state?:         string;
   district?:      string;
+  leadSource?:             string;
+  leadSourceEmployeeName?: string;
+  leadGeneratedByUid?:     string | null;
+  leadGeneratedByName?:    string;
   engineer:       FieldEngineer | null;
   dueDate:        Date | null;
 }
 
 export function useBulkTaskActions() {
-  const { createTask }    = useTaskActions();
-  const { config }        = useAppConfig();
+  const { createTask } = useTaskActions();
 
   async function createBulkTasks(
     rows: BulkTaskRow[],
@@ -32,14 +34,16 @@ export function useBulkTaskActions() {
       const row = rows[i];
       onProgress(i + 1, rows.length);
       try {
-        const resolvedDistrict = row.district
-          ? resolveDistrictCasing(row.district, config.districts ?? [])
-          : undefined;
         await createTask({
-          title:          row.title,
-          description:    row.description || undefined,
-          consumerMobile: row.consumerMobile,
-          district:       resolvedDistrict,
+          title:                   row.title,
+          description:             row.description || undefined,
+          consumerMobile:          row.consumerMobile,
+          state:                   row.state    || undefined,
+          district:                row.district || undefined,
+          leadSource:              row.leadSource,
+          leadSourceEmployeeName:  row.leadSourceEmployeeName,
+          leadGeneratedByUid:      row.leadGeneratedByUid,
+          leadGeneratedByName:     row.leadGeneratedByName,
           assignedTo:     row.engineer?.uid          ?? null,
           assignedToName: row.engineer?.displayName  ?? '',
           assignedToCode: row.engineer?.engineerCode ?? '',

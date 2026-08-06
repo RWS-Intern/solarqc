@@ -3,7 +3,8 @@ import {
   getDocs, query, collection, where, writeBatch, serverTimestamp,
 } from 'firebase/firestore';
 import { db } from './config';
-import type { JourneyStepDefinition } from '@/types';
+import { computeSaleClosedEvidence } from '@/utils/computeSaleClosed';
+import type { JourneyStepDefinition, SaleClosedConfig } from '@/types';
 
 const FULL_TEMPLATE = [
   {
@@ -184,7 +185,11 @@ export async function initAppConfig() {
       total_active:        0,
     },
     memberCounts: {},
-    districts:    [],
+    engineerCounts:   {},
+    districtCounts:   {},
+    districts:        [],
+    leadSources:      [],
+    districtsByState: {},
   });
 
 }
@@ -468,6 +473,45 @@ export async function backfillPipelineCounts(): Promise<void> {
   }
 }
 
+export async function backfillEngineerDistrictCounts(): Promise<void> {
+  try {
+    const snap = await getDocs(query(
+      collection(db, 'tasks'),
+      where('archived', '==', false),
+    ));
+
+    const engineerCounts: Record<string, { assigned: number; completed: number; name: string }> = {};
+    const districtCounts: Record<string, { total: number; completed: number }> = {};
+
+    snap.docs.forEach((d) => {
+      const data     = d.data();
+      const stage    = (data['pipelineStage']  as string)       ?? 'survey';
+      const uid      = data['assignedTo']       as string | null;
+      const name     = (data['assignedToName'] as string)        || '';
+      const district = (data['district']       as string | null) ?? null;
+
+      if (uid) {
+        if (!engineerCounts[uid]) engineerCounts[uid] = { assigned: 0, completed: 0, name };
+        engineerCounts[uid].assigned++;
+        if (stage === 'completed') engineerCounts[uid].completed++;
+      }
+      if (district) {
+        if (!districtCounts[district]) districtCounts[district] = { total: 0, completed: 0 };
+        districtCounts[district].total++;
+        if (stage === 'completed') districtCounts[district].completed++;
+      }
+    });
+
+    await updateDoc(
+      doc(db, 'appConfig', 'global'),
+      { engineerCounts, districtCounts },
+    );
+    console.warn('[backfillEngineerDistrictCounts] Done');
+  } catch (err) {
+    console.error('[backfillEngineerDistrictCounts] failed:', err);
+  }
+}
+
 export async function backfillTitleLower(): Promise<void> {
   try {
     const snap = await getDocs(query(
@@ -642,6 +686,71 @@ export async function backfillCreatedBy(adminUid: string): Promise<void> {
   } catch (err) {
     console.error('[backfillCreatedBy] failed:', err);
   }
+}
+
+export async function reconcileSaleClosed(): Promise<{
+  totalScanned:  number;
+  updated:       number;
+  skippedManual: number;
+}> {
+  const configSnap = await getDoc(doc(db, 'appConfig', 'global'));
+  const saleClosedConfig = configSnap.data()?.['saleClosedConfig'] as SaleClosedConfig | undefined;
+
+  const snap = await getDocs(query(
+    collection(db, 'tasks'),
+    where('archived', '==', false),
+  ));
+
+  let skippedManual = 0;
+  const toUpdate: { id: string; saleClosed: boolean }[] = [];
+
+  snap.docs.forEach((d) => {
+    const data   = d.data();
+    const source = data['saleClosedSource'] as 'auto' | 'manual' | null | undefined;
+
+    // Never touch a lead an admin manually marked/unmarked.
+    if (source === 'manual') {
+      skippedManual++;
+      return;
+    }
+
+    const computed = computeSaleClosedEvidence(
+      {
+        fieldAnswers:    data['fieldAnswers'],
+        fieldPhotos:     data['fieldPhotos'],
+        documentAnswers: data['documentAnswers'],
+        documentPhotos:  data['documentPhotos'],
+      },
+      saleClosedConfig,
+    );
+    const current = (data['saleClosed'] as boolean | undefined) ?? false;
+
+    // Only stage a write if the computed value actually differs.
+    if (computed !== current) {
+      toUpdate.push({ id: d.id, saleClosed: computed });
+    }
+  });
+
+  const CHUNK = 499;
+  for (let i = 0; i < toUpdate.length; i += CHUNK) {
+    const batch = writeBatch(db);
+    toUpdate.slice(i, i + CHUNK).forEach(({ id, saleClosed }) => {
+      batch.update(doc(db, 'tasks', id), {
+        saleClosed,
+        saleClosedSource: 'auto',
+        updatedAt:        serverTimestamp(),
+      });
+    });
+    await batch.commit();
+  }
+
+  const summary = {
+    totalScanned: snap.docs.length,
+    updated:      toUpdate.length,
+    skippedManual,
+  };
+  console.warn('[reconcileSaleClosed] Done:', summary);
+  return summary;
 }
 
 export async function ensureSuperAdmin(uid: string): Promise<void> {

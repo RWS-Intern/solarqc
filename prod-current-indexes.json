@@ -1,0 +1,1402 @@
+﻿[
+  {
+    "density": "SPARSE_ALL",
+    "fields": [
+      {
+        "fieldPath": "archived",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "assignedTo",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "createdAt",
+        "order": "DESCENDING"
+      },
+      {
+        "fieldPath": "__name__",
+        "order": "DESCENDING"
+      }
+    ],
+    "name": "projects/solarops-ritesolar/databases/(default)/collectionGroups/tasks/indexes/CICAgJim14AJ",
+    "queryScope": "COLLECTION",
+    "state": "READY"
+  },
+  {
+    "density": "SPARSE_ALL",
+    "fields": [
+      {
+        "fieldPath": "proposalAssignedTo",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "archived",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "createdAt",
+        "order": "DESCENDING"
+      },
+      {
+        "fieldPath": "__name__",
+        "order": "DESCENDING"
+      }
+    ],
+    "name": "projects/solarops-ritesolar/databases/(default)/collectionGroups/tasks/indexes/CICAgLjRyYIJ",
+    "queryScope": "COLLECTION",
+    "state": "READY"
+  },
+  {
+    "density": "SPARSE_ALL",
+    "fields": [
+      {
+        "fieldPath": "pipelineStage",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "archived",
+        "order": "ASCENDING"
+      },
+      {
+        "arrayConfig": "CONTAINS",
+        "fieldPath": "titleWords"
+      },
+      {
+        "fieldPath": "__name__",
+        "order": "ASCENDING"
+      }
+    ],
+    "name": "projects/solarops-ritesolar/databases/(default)/collectionGroups/tasks/indexes/CICAgPiftYMJ",
+    "queryScope": "COLLECTION",
+    "state": "READY"
+  },
+  {
+    "density": "SPARSE_ALL",
+    "fields": [
+      {
+        "fieldPath": "archived",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "createdBy",
+        "order": "ASCENDING"
+      },
+      {
+        "arrayConfig": "CONTAINS",
+        "fieldPath": "titleWords"
+      },
+      {
+        "fieldPath": "__name__",
+        "order": "ASCENDING"
+      }
+    ],
+    "name": "projects/solarops-ritesolar/databases/(default)/collectionGroups/tasks/indexes/CICAgJjFvYoJ",
+    "queryScope": "COLLECTION",
+    "state": "READY"
+  },
+  {
+    "density": "SPARSE_ALL",
+    "fields": [
+      {
+        "fieldPath": "pipelineStage",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "archived",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "backendAssignedTo",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "taskNum",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "__name__",
+        "order": "ASCENDING"
+      }
+    ],
+    "name": "projects/solarops-ritesolar/databases/(default)/collectionGroups/tasks/indexes/CICAgJiH2JAJ",
+    "queryScope": "COLLECTION",
+    "state": "READY"
+  },
+  {
+    "density": "SPARSE_ALL",
+    "fields": [
+      {
+        "fieldPath": "archived",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "followUpDate",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "__name__",
+        "order": "ASCENDING"
+      }
+    ],
+    "name": "projects/solarops-ritesolar/databases/(default)/collectionGroups/tasks/indexes/CICAgJjmtZUJ",
+    "queryScope": "COLLECTION",
+    "state": "READY"
+  },
+  {
+    "density": "SPARSE_ALL",
+    "fields": [
+      {
+        "fieldPath": "archived",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "createdBy",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "titleLower",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "__name__",
+        "order": "ASCENDING"
+      }
+    ],
+    "name": "projects/solarops-ritesolar/databases/(default)/collectionGroups/tasks/indexes/CICAgPjChIAK",
+    "queryScope": "COLLECTION",
+    "state": "READY"
+  },
+  {
+    "density": "SPARSE_ALL",
+    "fields": [
+      {
+        "fieldPath": "pipelineStage",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "createdAt",
+        "order": "DESCENDING"
+      },
+      {
+        "fieldPath": "__name__",
+        "order": "DESCENDING"
+      }
+    ],
+    "name": "projects/solarops-ritesolar/databases/(default)/collectionGroups/tasks/indexes/CICAgNiav4AK",
+    "queryScope": "COLLECTION",
+    "state": "READY"
+  },
+  {
+    "density": "SPARSE_ALL",
+    "fields": [
+      {
+        "fieldPath": "pipelineStage",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "archived",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "backendAssignedTo",
+        "order": "ASCENDING"
+      },
+      {
+        "arrayConfig": "CONTAINS",
+        "fieldPath": "titleWords"
+      },
+      {
+        "fieldPath": "__name__",
+        "order": "ASCENDING"
+      }
+    ],
+    "name": "projects/solarops-ritesolar/databases/(default)/collectionGroups/tasks/indexes/CICAgITszIAK",
+    "queryScope": "COLLECTION",
+    "state": "READY"
+  },
+  {
+    "density": "SPARSE_ALL",
+    "fields": [
+      {
+        "fieldPath": "archived",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "createdAt",
+        "order": "DESCENDING"
+      },
+      {
+        "fieldPath": "__name__",
+        "order": "DESCENDING"
+      }
+    ],
+    "name": "projects/solarops-ritesolar/databases/(default)/collectionGroups/tasks/indexes/CICAgJim14AK",
+    "queryScope": "COLLECTION",
+    "state": "READY"
+  },
+  {
+    "density": "SPARSE_ALL",
+    "fields": [
+      {
+        "fieldPath": "pipelineStage",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "journeyCompleted",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "archived",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "createdAt",
+        "order": "DESCENDING"
+      },
+      {
+        "fieldPath": "__name__",
+        "order": "DESCENDING"
+      }
+    ],
+    "name": "projects/solarops-ritesolar/databases/(default)/collectionGroups/tasks/indexes/CICAgLjy8IAK",
+    "queryScope": "COLLECTION",
+    "state": "READY"
+  },
+  {
+    "density": "SPARSE_ALL",
+    "fields": [
+      {
+        "fieldPath": "assignedTo",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "status",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "createdAt",
+        "order": "DESCENDING"
+      },
+      {
+        "fieldPath": "__name__",
+        "order": "DESCENDING"
+      }
+    ],
+    "name": "projects/solarops-ritesolar/databases/(default)/collectionGroups/tasks/indexes/CICAgOjXh4EK",
+    "queryScope": "COLLECTION",
+    "state": "READY"
+  },
+  {
+    "density": "SPARSE_ALL",
+    "fields": [
+      {
+        "fieldPath": "archived",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "correctionReturnTo",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "correctionSetAt",
+        "order": "DESCENDING"
+      },
+      {
+        "fieldPath": "__name__",
+        "order": "DESCENDING"
+      }
+    ],
+    "name": "projects/solarops-ritesolar/databases/(default)/collectionGroups/tasks/indexes/CICAgPi9lIEK",
+    "queryScope": "COLLECTION",
+    "state": "READY"
+  },
+  {
+    "density": "SPARSE_ALL",
+    "fields": [
+      {
+        "fieldPath": "pipelineStage",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "backendAssignedTo",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "createdAt",
+        "order": "DESCENDING"
+      },
+      {
+        "fieldPath": "__name__",
+        "order": "DESCENDING"
+      }
+    ],
+    "name": "projects/solarops-ritesolar/databases/(default)/collectionGroups/tasks/indexes/CICAgNiroIEK",
+    "queryScope": "COLLECTION",
+    "state": "READY"
+  },
+  {
+    "density": "SPARSE_ALL",
+    "fields": [
+      {
+        "fieldPath": "pipelineAssignees.backend",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "archived",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "createdAt",
+        "order": "DESCENDING"
+      },
+      {
+        "fieldPath": "__name__",
+        "order": "DESCENDING"
+      }
+    ],
+    "name": "projects/solarops-ritesolar/databases/(default)/collectionGroups/tasks/indexes/CICAgJj7z4EK",
+    "queryScope": "COLLECTION",
+    "state": "READY"
+  },
+  {
+    "density": "SPARSE_ALL",
+    "fields": [
+      {
+        "fieldPath": "archived",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "status",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "dueDate",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "__name__",
+        "order": "ASCENDING"
+      }
+    ],
+    "name": "projects/solarops-ritesolar/databases/(default)/collectionGroups/tasks/indexes/CICAgLiT6IEK",
+    "queryScope": "COLLECTION",
+    "state": "READY"
+  },
+  {
+    "density": "SPARSE_ALL",
+    "fields": [
+      {
+        "fieldPath": "pipelineStage",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "proposalAssignedTo",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "createdAt",
+        "order": "DESCENDING"
+      },
+      {
+        "fieldPath": "__name__",
+        "order": "DESCENDING"
+      }
+    ],
+    "name": "projects/solarops-ritesolar/databases/(default)/collectionGroups/tasks/indexes/CICAgNjpgYIK",
+    "queryScope": "COLLECTION",
+    "state": "READY"
+  },
+  {
+    "density": "SPARSE_ALL",
+    "fields": [
+      {
+        "fieldPath": "archived",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "consumerMobile",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "__name__",
+        "order": "ASCENDING"
+      }
+    ],
+    "name": "projects/solarops-ritesolar/databases/(default)/collectionGroups/tasks/indexes/CICAgPj-pYIK",
+    "queryScope": "COLLECTION",
+    "state": "READY"
+  },
+  {
+    "density": "SPARSE_ALL",
+    "fields": [
+      {
+        "fieldPath": "archived",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "saleClosed",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "createdAt",
+        "order": "DESCENDING"
+      },
+      {
+        "fieldPath": "__name__",
+        "order": "DESCENDING"
+      }
+    ],
+    "name": "projects/solarops-ritesolar/databases/(default)/collectionGroups/tasks/indexes/CICAgJiWxIIK",
+    "queryScope": "COLLECTION",
+    "state": "READY"
+  },
+  {
+    "density": "SPARSE_ALL",
+    "fields": [
+      {
+        "fieldPath": "proposalAssignedTo",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "pipelineStage",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "archived",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "createdAt",
+        "order": "DESCENDING"
+      },
+      {
+        "fieldPath": "__name__",
+        "order": "DESCENDING"
+      }
+    ],
+    "name": "projects/solarops-ritesolar/databases/(default)/collectionGroups/tasks/indexes/CICAgLjRyYIK",
+    "queryScope": "COLLECTION",
+    "state": "READY"
+  },
+  {
+    "density": "SPARSE_ALL",
+    "fields": [
+      {
+        "fieldPath": "archived",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "pipelineStage",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "createdAt",
+        "order": "DESCENDING"
+      },
+      {
+        "fieldPath": "__name__",
+        "order": "DESCENDING"
+      }
+    ],
+    "name": "projects/solarops-ritesolar/databases/(default)/collectionGroups/tasks/indexes/CICAgJjF9oIK",
+    "queryScope": "COLLECTION",
+    "state": "READY"
+  },
+  {
+    "density": "SPARSE_ALL",
+    "fields": [
+      {
+        "fieldPath": "pipelineStage",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "logisticsAssignedTo",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "createdAt",
+        "order": "DESCENDING"
+      },
+      {
+        "fieldPath": "__name__",
+        "order": "DESCENDING"
+      }
+    ],
+    "name": "projects/solarops-ritesolar/databases/(default)/collectionGroups/tasks/indexes/CICAgLiIkYMK",
+    "queryScope": "COLLECTION",
+    "state": "READY"
+  },
+  {
+    "density": "SPARSE_ALL",
+    "fields": [
+      {
+        "fieldPath": "status",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "createdAt",
+        "order": "DESCENDING"
+      },
+      {
+        "fieldPath": "__name__",
+        "order": "DESCENDING"
+      }
+    ],
+    "name": "projects/solarops-ritesolar/databases/(default)/collectionGroups/tasks/indexes/CICAgJiUpoMK",
+    "queryScope": "COLLECTION",
+    "state": "READY"
+  },
+  {
+    "density": "SPARSE_ALL",
+    "fields": [
+      {
+        "fieldPath": "archived",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "correctionReturnTo",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "__name__",
+        "order": "ASCENDING"
+      }
+    ],
+    "name": "projects/solarops-ritesolar/databases/(default)/collectionGroups/tasks/indexes/CICAgPiftYMK",
+    "queryScope": "COLLECTION",
+    "state": "READY"
+  },
+  {
+    "density": "SPARSE_ALL",
+    "fields": [
+      {
+        "fieldPath": "archived",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "createdBy",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "taskNum",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "__name__",
+        "order": "ASCENDING"
+      }
+    ],
+    "name": "projects/solarops-ritesolar/databases/(default)/collectionGroups/tasks/indexes/CICAgPig2YMK",
+    "queryScope": "COLLECTION",
+    "state": "READY"
+  },
+  {
+    "density": "SPARSE_ALL",
+    "fields": [
+      {
+        "fieldPath": "pipelineAssignees.logistics",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "archived",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "createdAt",
+        "order": "DESCENDING"
+      },
+      {
+        "fieldPath": "__name__",
+        "order": "DESCENDING"
+      }
+    ],
+    "name": "projects/solarops-ritesolar/databases/(default)/collectionGroups/tasks/indexes/CICAgNi47oMK",
+    "queryScope": "COLLECTION",
+    "state": "READY"
+  },
+  {
+    "density": "SPARSE_ALL",
+    "fields": [
+      {
+        "fieldPath": "archived",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "dueDate",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "__name__",
+        "order": "ASCENDING"
+      }
+    ],
+    "name": "projects/solarops-ritesolar/databases/(default)/collectionGroups/tasks/indexes/CICAgLjy1YQK",
+    "queryScope": "COLLECTION",
+    "state": "READY"
+  },
+  {
+    "density": "SPARSE_ALL",
+    "fields": [
+      {
+        "fieldPath": "backendAssignedTo",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "pipelineStage",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "journeyCompleted",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "archived",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "createdAt",
+        "order": "DESCENDING"
+      },
+      {
+        "fieldPath": "__name__",
+        "order": "DESCENDING"
+      }
+    ],
+    "name": "projects/solarops-ritesolar/databases/(default)/collectionGroups/tasks/indexes/CICAgJjm4YQK",
+    "queryScope": "COLLECTION",
+    "state": "READY"
+  },
+  {
+    "density": "SPARSE_ALL",
+    "fields": [
+      {
+        "fieldPath": "pipelineStage",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "archived",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "backendAssignedTo",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "updatedAt",
+        "order": "DESCENDING"
+      },
+      {
+        "fieldPath": "__name__",
+        "order": "DESCENDING"
+      }
+    ],
+    "name": "projects/solarops-ritesolar/databases/(default)/collectionGroups/tasks/indexes/CICAgNirhYUK",
+    "queryScope": "COLLECTION",
+    "state": "READY"
+  },
+  {
+    "density": "SPARSE_ALL",
+    "fields": [
+      {
+        "fieldPath": "pipelineAssignees.installation",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "archived",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "createdAt",
+        "order": "DESCENDING"
+      },
+      {
+        "fieldPath": "__name__",
+        "order": "DESCENDING"
+      }
+    ],
+    "name": "projects/solarops-ritesolar/databases/(default)/collectionGroups/tasks/indexes/CICAgJjmnIgK",
+    "queryScope": "COLLECTION",
+    "state": "READY"
+  },
+  {
+    "density": "SPARSE_ALL",
+    "fields": [
+      {
+        "fieldPath": "archived",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "submittedAt",
+        "order": "DESCENDING"
+      },
+      {
+        "fieldPath": "__name__",
+        "order": "DESCENDING"
+      }
+    ],
+    "name": "projects/solarops-ritesolar/databases/(default)/collectionGroups/tasks/indexes/CICAgLjyuogK",
+    "queryScope": "COLLECTION",
+    "state": "READY"
+  },
+  {
+    "density": "SPARSE_ALL",
+    "fields": [
+      {
+        "fieldPath": "archived",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "createdBy",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "createdAt",
+        "order": "DESCENDING"
+      },
+      {
+        "fieldPath": "__name__",
+        "order": "DESCENDING"
+      }
+    ],
+    "name": "projects/solarops-ritesolar/databases/(default)/collectionGroups/tasks/indexes/CICAgNiryokK",
+    "queryScope": "COLLECTION",
+    "state": "READY"
+  },
+  {
+    "density": "SPARSE_ALL",
+    "fields": [
+      {
+        "fieldPath": "archived",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "saleClosed",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "pipelineStage",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "__name__",
+        "order": "ASCENDING"
+      }
+    ],
+    "name": "projects/solarops-ritesolar/databases/(default)/collectionGroups/tasks/indexes/CICAgPi97okK",
+    "queryScope": "COLLECTION",
+    "state": "READY"
+  },
+  {
+    "density": "SPARSE_ALL",
+    "fields": [
+      {
+        "fieldPath": "archived",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "titleLower",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "__name__",
+        "order": "ASCENDING"
+      }
+    ],
+    "name": "projects/solarops-ritesolar/databases/(default)/collectionGroups/tasks/indexes/CICAgOi39IkK",
+    "queryScope": "COLLECTION",
+    "state": "READY"
+  },
+  {
+    "density": "SPARSE_ALL",
+    "fields": [
+      {
+        "fieldPath": "archived",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "status",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "pipelineStage",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "__name__",
+        "order": "ASCENDING"
+      }
+    ],
+    "name": "projects/solarops-ritesolar/databases/(default)/collectionGroups/tasks/indexes/CICAgLjRh4oK",
+    "queryScope": "COLLECTION",
+    "state": "READY"
+  },
+  {
+    "density": "SPARSE_ALL",
+    "fields": [
+      {
+        "fieldPath": "archived",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "priorityScore",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "updatedAt",
+        "order": "DESCENDING"
+      },
+      {
+        "fieldPath": "__name__",
+        "order": "DESCENDING"
+      }
+    ],
+    "name": "projects/solarops-ritesolar/databases/(default)/collectionGroups/tasks/indexes/CICAgJjFvYoK",
+    "queryScope": "COLLECTION",
+    "state": "READY"
+  },
+  {
+    "density": "SPARSE_ALL",
+    "fields": [
+      {
+        "fieldPath": "pipelineStage",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "proposalAssignedTo",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "archived",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "createdAt",
+        "order": "DESCENDING"
+      },
+      {
+        "fieldPath": "__name__",
+        "order": "DESCENDING"
+      }
+    ],
+    "name": "projects/solarops-ritesolar/databases/(default)/collectionGroups/tasks/indexes/CICAgNi4o4sK",
+    "queryScope": "COLLECTION",
+    "state": "READY"
+  },
+  {
+    "density": "SPARSE_ALL",
+    "fields": [
+      {
+        "fieldPath": "archived",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "taskNum",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "__name__",
+        "order": "ASCENDING"
+      }
+    ],
+    "name": "projects/solarops-ritesolar/databases/(default)/collectionGroups/tasks/indexes/CICAgLiI64sK",
+    "queryScope": "COLLECTION",
+    "state": "READY"
+  },
+  {
+    "density": "SPARSE_ALL",
+    "fields": [
+      {
+        "fieldPath": "archived",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "pipelineStage",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "backendAssignedTo",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "createdAt",
+        "order": "DESCENDING"
+      },
+      {
+        "fieldPath": "__name__",
+        "order": "DESCENDING"
+      }
+    ],
+    "name": "projects/solarops-ritesolar/databases/(default)/collectionGroups/tasks/indexes/CICAgJjmq4wK",
+    "queryScope": "COLLECTION",
+    "state": "READY"
+  },
+  {
+    "density": "SPARSE_ALL",
+    "fields": [
+      {
+        "fieldPath": "pipelineStage",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "archived",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "taskNum",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "__name__",
+        "order": "ASCENDING"
+      }
+    ],
+    "name": "projects/solarops-ritesolar/databases/(default)/collectionGroups/tasks/indexes/CICAgPi9ipAK",
+    "queryScope": "COLLECTION",
+    "state": "READY"
+  },
+  {
+    "density": "SPARSE_ALL",
+    "fields": [
+      {
+        "fieldPath": "pipelineStage",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "archived",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "createdAt",
+        "order": "DESCENDING"
+      },
+      {
+        "fieldPath": "__name__",
+        "order": "DESCENDING"
+      }
+    ],
+    "name": "projects/solarops-ritesolar/databases/(default)/collectionGroups/tasks/indexes/CICAgOi3kJAK",
+    "queryScope": "COLLECTION",
+    "state": "READY"
+  },
+  {
+    "density": "SPARSE_ALL",
+    "fields": [
+      {
+        "fieldPath": "backendAssignedTo",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "journeyCompleted",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "archived",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "createdAt",
+        "order": "DESCENDING"
+      },
+      {
+        "fieldPath": "__name__",
+        "order": "DESCENDING"
+      }
+    ],
+    "name": "projects/solarops-ritesolar/databases/(default)/collectionGroups/tasks/indexes/CICAgNirtJAK",
+    "queryScope": "COLLECTION",
+    "state": "READY"
+  },
+  {
+    "density": "SPARSE_ALL",
+    "fields": [
+      {
+        "fieldPath": "pipelineStage",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "archived",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "updatedAt",
+        "order": "DESCENDING"
+      },
+      {
+        "fieldPath": "__name__",
+        "order": "DESCENDING"
+      }
+    ],
+    "name": "projects/solarops-ritesolar/databases/(default)/collectionGroups/tasks/indexes/CICAgJiH2JAK",
+    "queryScope": "COLLECTION",
+    "state": "READY"
+  },
+  {
+    "density": "SPARSE_ALL",
+    "fields": [
+      {
+        "fieldPath": "archived",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "archivedAt",
+        "order": "DESCENDING"
+      },
+      {
+        "fieldPath": "__name__",
+        "order": "DESCENDING"
+      }
+    ],
+    "name": "projects/solarops-ritesolar/databases/(default)/collectionGroups/tasks/indexes/CICAgJjmiJEK",
+    "queryScope": "COLLECTION",
+    "state": "READY"
+  },
+  {
+    "density": "SPARSE_ALL",
+    "fields": [
+      {
+        "fieldPath": "archived",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "updatedAt",
+        "order": "DESCENDING"
+      },
+      {
+        "fieldPath": "__name__",
+        "order": "DESCENDING"
+      }
+    ],
+    "name": "projects/solarops-ritesolar/databases/(default)/collectionGroups/tasks/indexes/CICAgLjyrJEK",
+    "queryScope": "COLLECTION",
+    "state": "READY"
+  },
+  {
+    "density": "SPARSE_ALL",
+    "fields": [
+      {
+        "fieldPath": "district",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "pipelineStage",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "createdAt",
+        "order": "DESCENDING"
+      },
+      {
+        "fieldPath": "__name__",
+        "order": "DESCENDING"
+      }
+    ],
+    "name": "projects/solarops-ritesolar/databases/(default)/collectionGroups/tasks/indexes/CICAgNjaxJEK",
+    "queryScope": "COLLECTION",
+    "state": "READY"
+  },
+  {
+    "density": "SPARSE_ALL",
+    "fields": [
+      {
+        "fieldPath": "archived",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "pipelineStage",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "proposalAssignedTo",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "createdAt",
+        "order": "DESCENDING"
+      },
+      {
+        "fieldPath": "__name__",
+        "order": "DESCENDING"
+      }
+    ],
+    "name": "projects/solarops-ritesolar/databases/(default)/collectionGroups/tasks/indexes/CICAgLiIjZIK",
+    "queryScope": "COLLECTION",
+    "state": "READY"
+  },
+  {
+    "density": "SPARSE_ALL",
+    "fields": [
+      {
+        "fieldPath": "pipelineStage",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "installationAssignedTo",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "createdAt",
+        "order": "DESCENDING"
+      },
+      {
+        "fieldPath": "__name__",
+        "order": "DESCENDING"
+      }
+    ],
+    "name": "projects/solarops-ritesolar/databases/(default)/collectionGroups/tasks/indexes/CICAgNi4-ZIK",
+    "queryScope": "COLLECTION",
+    "state": "READY"
+  },
+  {
+    "density": "SPARSE_ALL",
+    "fields": [
+      {
+        "fieldPath": "pipelineStage",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "archived",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "proposalAssignedTo",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "updatedAt",
+        "order": "DESCENDING"
+      },
+      {
+        "fieldPath": "__name__",
+        "order": "DESCENDING"
+      }
+    ],
+    "name": "projects/solarops-ritesolar/databases/(default)/collectionGroups/tasks/indexes/CICAgLjRnZMK",
+    "queryScope": "COLLECTION",
+    "state": "READY"
+  },
+  {
+    "density": "SPARSE_ALL",
+    "fields": [
+      {
+        "fieldPath": "pipelineAssignees.proposal",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "archived",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "createdAt",
+        "order": "DESCENDING"
+      },
+      {
+        "fieldPath": "__name__",
+        "order": "DESCENDING"
+      }
+    ],
+    "name": "projects/solarops-ritesolar/databases/(default)/collectionGroups/tasks/indexes/CICAgJjFqZMK",
+    "queryScope": "COLLECTION",
+    "state": "READY"
+  },
+  {
+    "density": "SPARSE_ALL",
+    "fields": [
+      {
+        "fieldPath": "archived",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "status",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "createdAt",
+        "order": "DESCENDING"
+      },
+      {
+        "fieldPath": "__name__",
+        "order": "DESCENDING"
+      }
+    ],
+    "name": "projects/solarops-ritesolar/databases/(default)/collectionGroups/tasks/indexes/CICAgJjmtZUK",
+    "queryScope": "COLLECTION",
+    "state": "READY"
+  },
+  {
+    "density": "SPARSE_ALL",
+    "fields": [
+      {
+        "fieldPath": "archived",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "createdBy",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "consumerMobile",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "__name__",
+        "order": "ASCENDING"
+      }
+    ],
+    "name": "projects/solarops-ritesolar/databases/(default)/collectionGroups/tasks/indexes/CICAgNir3pgK",
+    "queryScope": "COLLECTION",
+    "state": "READY"
+  },
+  {
+    "density": "SPARSE_ALL",
+    "fields": [
+      {
+        "fieldPath": "archived",
+        "order": "ASCENDING"
+      },
+      {
+        "arrayConfig": "CONTAINS",
+        "fieldPath": "titleWords"
+      },
+      {
+        "fieldPath": "__name__",
+        "order": "ASCENDING"
+      }
+    ],
+    "name": "projects/solarops-ritesolar/databases/(default)/collectionGroups/tasks/indexes/CICAgLjywZkK",
+    "queryScope": "COLLECTION",
+    "state": "READY"
+  },
+  {
+    "density": "SPARSE_ALL",
+    "fields": [
+      {
+        "fieldPath": "backendAssignedTo",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "pipelineStage",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "archived",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "createdAt",
+        "order": "DESCENDING"
+      },
+      {
+        "fieldPath": "__name__",
+        "order": "DESCENDING"
+      }
+    ],
+    "name": "projects/solarops-ritesolar/databases/(default)/collectionGroups/tasks/indexes/CICAgJjm-pkK",
+    "queryScope": "COLLECTION",
+    "state": "READY"
+  },
+  {
+    "density": "SPARSE_ALL",
+    "fields": [
+      {
+        "fieldPath": "archived",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "titleLower",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "createdAt",
+        "order": "DESCENDING"
+      },
+      {
+        "fieldPath": "__name__",
+        "order": "DESCENDING"
+      }
+    ],
+    "name": "projects/solarops-ritesolar/databases/(default)/collectionGroups/tasks/indexes/CICAgNi4t5oK",
+    "queryScope": "COLLECTION",
+    "state": "READY"
+  },
+  {
+    "density": "SPARSE_ALL",
+    "fields": [
+      {
+        "fieldPath": "district",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "archived",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "updatedAt",
+        "order": "DESCENDING"
+      },
+      {
+        "fieldPath": "__name__",
+        "order": "DESCENDING"
+      }
+    ],
+    "name": "projects/solarops-ritesolar/databases/(default)/collectionGroups/tasks/indexes/CICAgLiI_5oK",
+    "queryScope": "COLLECTION",
+    "state": "READY"
+  },
+  {
+    "density": "SPARSE_ALL",
+    "fields": [
+      {
+        "fieldPath": "pipelineStage",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "archived",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "proposalAssignedTo",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "taskNum",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "__name__",
+        "order": "ASCENDING"
+      }
+    ],
+    "name": "projects/solarops-ritesolar/databases/(default)/collectionGroups/tasks/indexes/CICAgJjFx5sK",
+    "queryScope": "COLLECTION",
+    "state": "READY"
+  },
+  {
+    "density": "SPARSE_ALL",
+    "fields": [
+      {
+        "fieldPath": "pipelineStage",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "archived",
+        "order": "ASCENDING"
+      },
+      {
+        "fieldPath": "proposalAssignedTo",
+        "order": "ASCENDING"
+      },
+      {
+        "arrayConfig": "CONTAINS",
+        "fieldPath": "titleWords"
+      },
+      {
+        "fieldPath": "__name__",
+        "order": "ASCENDING"
+      }
+    ],
+    "name": "projects/solarops-ritesolar/databases/(default)/collectionGroups/tasks/indexes/CICAgJjm350K",
+    "queryScope": "COLLECTION",
+    "state": "READY"
+  }
+]

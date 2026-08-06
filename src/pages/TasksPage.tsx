@@ -1,6 +1,11 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import { Plus, Search, ClipboardList, ChevronRight, Download, Upload, X } from 'lucide-react';
+import {
+  getDocs, collection, query, where, orderBy, startAfter, limit, Timestamp,
+  type Query, type DocumentData, type DocumentSnapshot,
+} from 'firebase/firestore';
+import { db }                 from '@/firebase/config';
 import { useTaskStore }       from '@/store/taskStore';
 import { useAuthStore }       from '@/store/authStore';
 import { Button }             from '@/components/ui/button';
@@ -12,7 +17,7 @@ import { FieldReviewDrawer }   from '@/components/pipeline/FieldReviewDrawer';
 import { DocumentsWorkDrawer } from '@/components/pipeline/DocumentsWorkDrawer';
 import { exportTasksToExcel } from '@/utils/exportTasksToExcel';
 import { cn }                 from '@/lib/utils';
-import { useArchivedTasks, useTasks, type AdminFilter } from '@/hooks/useTasks';
+import { useArchivedTasks, useTasks, useTabCounts, docToTask, type AdminFilter } from '@/hooks/useTasks';
 import { useAppConfig } from '@/hooks/useAppConfig';
 import { useFieldEngineers } from '@/hooks/useFieldEngineers';
 import { useToast } from '@/components/ui/toast';
@@ -39,11 +44,14 @@ const PIPELINE_BADGE: Partial<Record<PipelineStage, { label: string; cls: string
 
 type Filter = 'all' | TaskStatus | 'follow_up' | 'overdue' | 'archived' | 'dropped' | 'converted' |
   'pipeline_proposal' | 'pipeline_field_review' | 'pipeline_documents' | 'pipeline_backend' | 'unassigned' | 'my_tasks' |
-  'fe_review' | 'fe_documents' | 'fe_pipeline' | 'fe_converted' | 'fe_dropped' | 'fe_survey_done';
+  'fe_review' | 'fe_documents' | 'fe_pipeline' | 'fe_converted' | 'fe_dropped' | 'fe_survey_done' | 'needs_correction' |
+  'sales_closed';
 
 const FILTER_TABS: { key: Filter; label: string; adminOnly?: boolean; fieldOnly?: boolean }[] = [
-  { key: 'all',         label: 'All'         },
-  { key: 'my_tasks',    label: '👤 My Leads', adminOnly: true },
+  { key: 'all',              label: 'All'              },
+  { key: 'needs_correction', label: '↩ Needs Correction' },
+  { key: 'sales_closed',     label: '💰 Sales Closed', adminOnly: true },
+  { key: 'my_tasks',         label: '👤 My Leads', adminOnly: true },
   { key: 'pending',     label: 'Pending'     },
   { key: 'in_progress', label: 'In Progress' },
   { key: 'completed',      label: 'Survey Done', adminOnly: true },
@@ -98,6 +106,227 @@ function isOverdue(task: Task): boolean {
   return !!(task.dueDate && isPast(task.dueDate));
 }
 
+function isActiveFollowUp(task: Task): boolean {
+  if (!task.followUpDate) return false;
+  const stillInSurvey = !task.pipelineStage || task.pipelineStage === 'survey';
+  return stillInSurvey && task.status !== 'completed';
+}
+
+// ─── Shared filter predicate ──────────────────────────────────────────────────
+// Single source of truth for "does task T match the current active filters?"
+// Used by both the live `visible` display and the export fetch path.
+
+interface FilterCtx {
+  filter:          string;
+  stateFilter:     string;
+  engineerFilter:  string;
+  districtFilter:  string;
+  leadSourceFilter: string;
+  search:          string;
+  isAdmin:         boolean;
+  isViewOnly:      boolean;
+  currentUserUid?: string;
+}
+
+function taskMatchesActiveFilters(t: Task, ctx: FilterCtx): boolean {
+  const { filter, stateFilter, engineerFilter, districtFilter, leadSourceFilter, search, isAdmin, isViewOnly, currentUserUid } = ctx;
+
+  if (filter === 'archived') return !!t.archived;
+  if (t.archived) return false;
+
+  // State / Engineer / District / Lead Source — independent AND conditions.
+  if ((isAdmin || isViewOnly) && stateFilter      && t.state      !== stateFilter)      return false;
+  if ((isAdmin || isViewOnly) && engineerFilter   && t.assignedTo !== engineerFilter)   return false;
+  if ((isAdmin || isViewOnly) && districtFilter   && t.district   !== districtFilter)   return false;
+  if ((isAdmin || isViewOnly) && leadSourceFilter && t.leadSource !== leadSourceFilter) return false;
+
+  if (filter === 'needs_correction')      return !!t.correctionReturnTo;
+  // Sales Closed intentionally includes dropped leads — a lead that closed
+  // then got dropped is exactly the anomaly this tab exists to surface.
+  if (filter === 'sales_closed')          return !!t.saleClosed;
+  if (filter === 'dropped')               return t.pipelineStage === 'dropped';
+  if (filter === 'converted')             return t.pipelineStage === 'completed';
+  if (filter === 'pipeline_proposal')     return t.pipelineStage === 'proposal';
+  if (filter === 'pipeline_field_review') return t.pipelineStage === 'field_review';
+  if (filter === 'pipeline_documents')    return t.pipelineStage === 'documents';
+  if (filter === 'pipeline_backend')      return t.pipelineStage === 'backend';
+  if (filter === 'unassigned') return (
+    (t.pipelineStage === 'proposal' && !t.proposalAssignedTo) ||
+    (t.pipelineStage === 'backend'  && !t.backendAssignedTo)
+  );
+  if (filter === 'pending')     return t.status === 'pending'     && t.pipelineStage !== 'dropped' && t.pipelineStage !== 'completed';
+  if (filter === 'in_progress') return t.status === 'in_progress' && t.pipelineStage !== 'dropped' && t.pipelineStage !== 'completed';
+  if (filter === 'blocked')     return t.status === 'blocked'     && t.pipelineStage !== 'dropped' && t.pipelineStage !== 'completed';
+  if (filter === 'fe_survey_done') return t.status === 'completed' && t.assignedTo === currentUserUid;
+  if (filter === 'fe_review')    return t.pipelineStage === 'field_review' && t.assignedTo === currentUserUid;
+  if (filter === 'fe_documents') return t.pipelineStage === 'documents'    && t.assignedTo === currentUserUid;
+  if (filter === 'fe_pipeline')  return !!(t.pipelineStage && t.pipelineStage !== 'survey' && t.pipelineStage !== 'field_review' && t.pipelineStage !== 'documents' && t.pipelineStage !== 'completed' && t.pipelineStage !== 'dropped' && t.assignedTo === currentUserUid);
+  if (filter === 'fe_converted') return t.pipelineStage === 'completed' && t.assignedTo === currentUserUid;
+  if (filter === 'fe_dropped')   return t.pipelineStage === 'dropped'   && t.assignedTo === currentUserUid;
+  if (filter === 'my_tasks')     return true;
+  if (filter === 'completed')    return t.status === 'completed' && t.pipelineStage !== 'completed';
+  if (filter === 'follow_up' && !isActiveFollowUp(t)) return false;
+  if (filter === 'overdue'   && !isOverdue(t))        return false;
+  if (filter !== 'all' && filter !== 'follow_up' && filter !== 'overdue' && t.status !== filter) return false;
+
+  // Text search — now applies for ALL roles, not just non-admin. Server-side
+  // admin search already narrows candidates before this runs, so this is a
+  // safe, idempotent re-check in the normal case — and it's what correctly
+  // fixes Engineer+Search / District+Search combos, where the export (and
+  // live page) took a broad engineer/district-only fetch that never applied
+  // any search-specific query.
+  if (search.trim().length > 0) {
+    const term = search.trim().toLowerCase();
+    const matchesTitle  = t.title.toLowerCase().includes(term);
+    const matchesNum    = t.taskNum.toLowerCase().includes(term);
+    const matchesMobile = /^\d{10}$/.test(search.trim()) && t.consumerMobile === search.trim();
+    if (!matchesTitle && !matchesNum && !matchesMobile) return false;
+  }
+
+  return true;
+}
+
+// ─── Export fetch ─────────────────────────────────────────────────────────────
+// Runs a complete (no-limit, cursor-paginated) Firestore query for whatever
+// filters are active, then applies taskMatchesActiveFilters as a final pass.
+
+const EXPORT_BATCH = 500;
+const EXPORT_MAX   = 20000;
+
+async function drainQuery(
+  baseQ: Query<DocumentData>,
+): Promise<{ docs: Task[]; truncated: boolean }> {
+  const docs: Task[] = [];
+  let lastSnap: DocumentSnapshot | null = null;
+  let truncated = false;
+  while (true) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const q: any = lastSnap
+      ? query(baseQ, startAfter(lastSnap), limit(EXPORT_BATCH))
+      : query(baseQ, limit(EXPORT_BATCH));
+    const snap = await getDocs(q as Query<DocumentData>);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    snap.docs.forEach((d: any) => docs.push(docToTask(d)));
+    lastSnap = snap.docs[snap.docs.length - 1] ?? null;
+    if (docs.length >= EXPORT_MAX) { truncated = true; break; }
+    if (snap.docs.length < EXPORT_BATCH) break;
+  }
+  return { docs, truncated };
+}
+
+function mergeDedup(...arrays: Task[][]): Task[] {
+  const seen = new Set<string>();
+  return arrays.flat().filter((t) => { if (seen.has(t.id)) return false; seen.add(t.id); return true; });
+}
+
+async function fetchAllTasksForExport(
+  ctx: FilterCtx & { dateFilter: string; dueDateFilter: string },
+): Promise<{ tasks: Task[]; truncated: boolean }> {
+  const { filter, engineerFilter, districtFilter, dateFilter, dueDateFilter, search } = ctx;
+  const col = collection(db, 'tasks');
+
+  // ── Archived tab ──────────────────────────────────────────────────────────
+  if (filter === 'archived') {
+    const { docs, truncated } = await drainQuery(
+      query(col, where('archived', '==', true), orderBy('archivedAt', 'desc')),
+    );
+    return { tasks: docs, truncated };
+  }
+
+  // ── Engineer filter (highest priority) ────────────────────────────────────
+  if (engineerFilter) {
+    const { docs, truncated } = await drainQuery(
+      query(col, where('assignedTo', '==', engineerFilter), where('archived', '==', false), orderBy('createdAt', 'desc')),
+    );
+    return { tasks: docs.filter((t) => taskMatchesActiveFilters(t, ctx)), truncated };
+  }
+
+  // ── District filter ───────────────────────────────────────────────────────
+  if (districtFilter) {
+    const { docs, truncated } = await drainQuery(
+      query(col, where('district', '==', districtFilter), where('archived', '==', false), orderBy('updatedAt', 'desc')),
+    );
+    return { tasks: docs.filter((t) => taskMatchesActiveFilters(t, ctx)), truncated };
+  }
+
+  // ── Date (createdAt) filter ───────────────────────────────────────────────
+  if (dateFilter) {
+    const start = new Date(dateFilter + 'T00:00:00');
+    const end   = new Date(dateFilter + 'T23:59:59.999');
+    const { docs, truncated } = await drainQuery(
+      query(col, where('archived', '==', false), where('createdAt', '>=', Timestamp.fromDate(start)), where('createdAt', '<=', Timestamp.fromDate(end)), orderBy('createdAt', 'desc')),
+    );
+    return { tasks: docs.filter((t) => taskMatchesActiveFilters(t, ctx)), truncated };
+  }
+
+  // ── Due date filter ───────────────────────────────────────────────────────
+  if (dueDateFilter) {
+    const start = new Date(dueDateFilter + 'T00:00:00');
+    const end   = new Date(dueDateFilter + 'T23:59:59.999');
+    const { docs, truncated } = await drainQuery(
+      query(col, where('archived', '==', false), where('dueDate', '>=', Timestamp.fromDate(start)), where('dueDate', '<=', Timestamp.fromDate(end)), orderBy('dueDate', 'asc')),
+    );
+    return { tasks: docs.filter((t) => taskMatchesActiveFilters(t, ctx)), truncated };
+  }
+
+  // ── Search (multi-query, merged) ──────────────────────────────────────────
+  if (search.trim().length > 0) {
+    const term     = search.trim().toLowerCase();
+    const isMobile = /^\d{10}$/.test(search.trim());
+    const [numResult, titleResult] = await Promise.all([
+      drainQuery(query(col, where('archived', '==', false), where('taskNum', '>=', search.trim().toUpperCase()), where('taskNum', '<=', search.trim().toUpperCase() + ''))),
+      drainQuery(query(col, where('archived', '==', false), where('titleWords', 'array-contains', term), orderBy('createdAt', 'desc'))),
+    ]);
+    const mobileResult = isMobile
+      ? await drainQuery(query(col, where('archived', '==', false), where('consumerMobile', '==', search.trim())))
+      : { docs: [] as Task[], truncated: false };
+    const truncated = numResult.truncated || titleResult.truncated || mobileResult.truncated;
+    const merged    = mergeDedup(numResult.docs, titleResult.docs, mobileResult.docs);
+    return { tasks: merged.filter((t) => taskMatchesActiveFilters(t, ctx)), truncated };
+  }
+
+  // ── Status / pipeline switch ──────────────────────────────────────────────
+  if (filter === 'unassigned') {
+    const [propResult, backResult] = await Promise.all([
+      drainQuery(query(col, where('archived', '==', false), where('pipelineStage', '==', 'proposal'), orderBy('createdAt', 'desc'))),
+      drainQuery(query(col, where('archived', '==', false), where('pipelineStage', '==', 'backend'),  orderBy('createdAt', 'desc'))),
+    ]);
+    const truncated = propResult.truncated || backResult.truncated;
+    const merged    = mergeDedup(propResult.docs, backResult.docs);
+    return { tasks: merged.filter((t) => taskMatchesActiveFilters(t, ctx)), truncated };
+  }
+
+  const baseQMap: Record<string, Query<DocumentData>> = {
+    pending:               query(col, where('archived','==',false), where('status','==','pending'),           orderBy('createdAt','desc')),
+    in_progress:           query(col, where('archived','==',false), where('status','==','in_progress'),       orderBy('createdAt','desc')),
+    completed:             query(col, where('archived','==',false), where('status','==','completed'),         orderBy('createdAt','desc')),
+    blocked:               query(col, where('archived','==',false), where('status','==','blocked'),           orderBy('createdAt','desc')),
+    pipeline_proposal:     query(col, where('archived','==',false), where('pipelineStage','==','proposal'),   orderBy('createdAt','desc')),
+    pipeline_field_review: query(col, where('archived','==',false), where('pipelineStage','==','field_review'), orderBy('createdAt','desc')),
+    pipeline_documents:    query(col, where('archived','==',false), where('pipelineStage','==','documents'),  orderBy('createdAt','desc')),
+    pipeline_backend:      query(col, where('archived','==',false), where('pipelineStage','==','backend'),    orderBy('createdAt','desc')),
+    converted:             query(col, where('archived','==',false), where('pipelineStage','==','completed'),  orderBy('createdAt','desc')),
+    dropped:               query(col, where('archived','==',false), where('pipelineStage','==','dropped'),    orderBy('createdAt','desc')),
+    unassigned_backend:    query(col, where('archived','==',false), where('pipelineStage','==','backend'),    orderBy('createdAt','desc')),
+    follow_up:             query(col, where('archived','==',false), where('followUpDate','!=',null),          orderBy('followUpDate','asc')),
+    my_tasks:              ctx.currentUserUid
+                             ? query(col, where('archived','==',false), where('createdBy','==',ctx.currentUserUid), orderBy('createdAt','desc'))
+                             : query(col, where('archived','==',false), orderBy('createdAt','desc')),
+  };
+
+  if (filter === 'overdue') {
+    const now = new Date();
+    const { docs, truncated } = await drainQuery(
+      query(col, where('archived','==',false), where('status','in',['pending','in_progress','blocked']), where('dueDate','<',Timestamp.fromDate(now)), orderBy('dueDate','asc')),
+    );
+    return { tasks: docs.filter((t) => taskMatchesActiveFilters(t, ctx)), truncated };
+  }
+
+  const baseQ = baseQMap[filter] ?? query(col, where('archived','==',false), orderBy('priorityScore','asc'), orderBy('updatedAt','desc'));
+  const { docs, truncated } = await drainQuery(baseQ);
+  return { tasks: docs.filter((t) => taskMatchesActiveFilters(t, ctx)), truncated };
+}
+
 function daysInStage(task: Task): number | null {
   if (!task.pipelineStage || task.pipelineStage === 'survey') return null;
   if (task.pipelineStage === 'completed' || task.pipelineStage === 'dropped') return null;
@@ -127,7 +356,8 @@ function TaskCard({ task, onClick }: { task: Task; onClick: () => void }) {
       className={cn(
         'w-full text-left rounded-xl border border-gray-100 bg-white px-4 py-4 shadow-sm',
         'hover:shadow-md transition-all flex items-start gap-3 border-l-4',
-        (!task.pipelineStage || task.pipelineStage === 'survey')
+        task.correctionReturnTo ? 'border-l-amber-500'
+          : (!task.pipelineStage || task.pipelineStage === 'survey')
           ? border
           : task.pipelineStage === 'completed'   ? 'border-l-green-500'
           : task.pipelineStage === 'dropped'     ? 'border-l-red-400'
@@ -219,7 +449,11 @@ function TaskCard({ task, onClick }: { task: Task; onClick: () => void }) {
             ⚠ Overdue
           </div>
         )}
-        {task.pipelineStage && task.pipelineStage !== 'survey' && (() => {
+        {task.correctionReturnTo ? (
+          <div className="mt-1 flex items-center gap-1 text-xs font-semibold rounded-full px-2 py-0.5 w-fit bg-amber-100 text-amber-800 border border-amber-300">
+            ↩ Sent back for correction — will return to {task.correctionReturnTo.replace('_', ' ')}
+          </div>
+        ) : task.pipelineStage && task.pipelineStage !== 'survey' && (() => {
           const pb = PIPELINE_BADGE[task.pipelineStage!];
           return pb ? (
             <div className={cn('mt-1 flex items-center gap-1 text-xs font-medium rounded-full px-2 py-0.5 w-fit', pb.cls)}>
@@ -227,6 +461,11 @@ function TaskCard({ task, onClick }: { task: Task; onClick: () => void }) {
             </div>
           ) : null;
         })()}
+        {task.saleClosed === true && task.pipelineStage === 'dropped' && (
+          <div className="mt-1 flex items-center gap-1 text-xs font-semibold rounded-full px-2 py-0.5 w-fit bg-fuchsia-100 text-fuchsia-800 border border-fuchsia-300">
+            ⚠ Dropped after being closed
+          </div>
+        )}
         {task.pipelineStage === 'proposal' && !task.proposalAssignedTo && (
           <span className="mt-1 inline-flex rounded-full bg-red-100 text-red-600 border border-red-200 px-2 py-0.5 text-[10px] font-semibold w-fit">
             ⚠️ Unassigned
@@ -253,7 +492,7 @@ function TaskCard({ task, onClick }: { task: Task; onClick: () => void }) {
       </div>
 
       <div className="flex flex-col items-end gap-2 shrink-0 pt-0.5">
-        {(!task.pipelineStage || task.pipelineStage === 'survey') && (
+        {(!task.pipelineStage || task.pipelineStage === 'survey') && !task.correctionReturnTo && (
           <span className={cn('rounded-full px-2.5 py-0.5 text-xs font-semibold', badge)}>
             {label}
           </span>
@@ -274,6 +513,7 @@ export function TasksPage() {
 
   const { currentUser } = useAuthStore();
   const { subscribeToFilter } = useTasks();
+  const { tabCounts, refreshTabCounts } = useTabCounts();
   const { config } = useAppConfig();
   const pc = config.pipelineCounts;
   const { archivedTasks, loading: archivedLoading, loadArchivedTasks } = useArchivedTasks();
@@ -288,8 +528,10 @@ export function TasksPage() {
   const [search,           setSearch]           = useState('');
 
   const isSearching = search.trim().length > 0;
+  const [stateFilter,      setStateFilter]      = useState<string>('');
   const [engineerFilter,   setEngineerFilter]   = useState<string>('');
   const [districtFilter,   setDistrictFilter]   = useState<string>('');
+  const [leadSourceFilter, setLeadSourceFilter] = useState<string>('');
   const [dateFilter,       setDateFilter]       = useState<string>('');
   const [dueDateFilter,    setDueDateFilter]    = useState<string>('');
 
@@ -341,9 +583,21 @@ export function TasksPage() {
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filter, search, currentUser?.uid, engineerFilter, districtFilter, dateFilter, dueDateFilter]);
+  const [exporting,        setExporting]        = useState(false);
+
   const [showCreate,       setShowCreate]       = useState(false);
   const [showBulk,         setShowBulk]         = useState(false);
   const [detailTask,       setDetailTask]       = useState<Task | null>(null);
+
+  useEffect(() => {
+    if (!detailTask) return;
+    const fresh = tasks.find((t) => t.id === detailTask.id);
+    if (fresh && fresh !== detailTask) {
+      setDetailTask(fresh);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tasks, detailTask]);
+
   const [updateTask,       setUpdateTask]       = useState<Task | null>(null);
   const [adminUpdateTask,  setAdminUpdateTask]  = useState<Task | null>(null);
   const [fieldReviewTask,  setFieldReviewTask]  = useState<Task | null>(null);
@@ -370,8 +624,8 @@ export function TasksPage() {
     // Task found immediately — open it
     pendingOpenTaskId.current = null;
     window.history.replaceState({}, '');
-    if (isAdmin || isViewOnly) { setDetailTask(task); }
-    else                       { setUpdateTask(task); }
+    if (task.archived || isAdmin || isViewOnly) { setDetailTask(task); }
+    else                                        { setUpdateTask(task); }
   }, [location.state]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -385,8 +639,8 @@ export function TasksPage() {
       return;
     }
     pendingOpenTaskId.current = null;
-    if (isAdmin || isViewOnly) { setDetailTask(task); }
-    else                        { setUpdateTask(task); }
+    if (task.archived || isAdmin || isViewOnly) { setDetailTask(task); }
+    else                                        { setUpdateTask(task); }
   }, [isLoadingTasks, tasks]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -399,18 +653,33 @@ export function TasksPage() {
     const c: Record<string, number> = {
       all: 0, pending: 0, in_progress: 0, completed: 0, blocked: 0, follow_up: 0, overdue: 0,
     };
-    tasks.forEach((t) => {
-      c['all']++;
-      const isTerminal = t.pipelineStage === 'dropped' || t.pipelineStage === 'completed';
-      if ((t.status === 'blocked' || t.status === 'pending' || t.status === 'in_progress') && isTerminal) {
-        // terminal-stage tasks: don't count under their stale survey status
-      } else {
-        c[t.status]++;
-      }
-      if (t.followUpDate) c['follow_up']++;
-      if (isOverdue(t))   c['overdue']++;
-    });
-    // Pipeline counts come from appConfig denormalized counters (accurate totals)
+    if (isAdmin || isViewOnly) {
+      // Use server-fetched counts (getCountFromServer) for accuracy — not capped by page size.
+      c['all']              = tabCounts['all']              ?? 0;
+      c['pending']          = tabCounts['pending']          ?? 0;
+      c['in_progress']      = tabCounts['in_progress']      ?? 0;
+      c['completed']        = tabCounts['completed']        ?? 0;
+      c['blocked']          = tabCounts['blocked']          ?? 0;
+      c['follow_up']        = tabCounts['follow_up']        ?? 0;
+      c['overdue']          = tabCounts['overdue']          ?? 0;
+      c['needs_correction'] = tabCounts['needs_correction'] ?? 0;
+      c['sales_closed']     = tabCounts['sales_closed']     ?? 0;
+    } else {
+      tasks.forEach((t) => {
+        c['all']++;
+        const isTerminal  = t.pipelineStage === 'dropped' || t.pipelineStage === 'completed';
+        const isStatusTab = t.status === 'blocked' || t.status === 'pending' || t.status === 'in_progress';
+        if (isStatusTab && isTerminal) {
+          // terminal-stage tasks excluded from status-tab counts
+        } else {
+          c[t.status]++;
+        }
+        if (isActiveFollowUp(t)) c['follow_up']++;
+        if (isOverdue(t))   c['overdue']++;
+      });
+      c['needs_correction'] = tasks.filter((t) => !!t.correctionReturnTo && !t.archived).length;
+    }
+    // Pipeline counts come from appConfig denormalized counters — may include correction-return tasks (known cosmetic gap; list body already excludes them via taskMatchesActiveFilters).
     c['pipeline_proposal']     = pc?.proposal     ?? 0;
     c['pipeline_field_review'] = pc?.field_review  ?? 0;
     c['pipeline_documents']    = pc?.documents     ?? 0;
@@ -437,7 +706,7 @@ export function TasksPage() {
     c['fe_converted'] = tasks.filter((t) => t.pipelineStage === 'completed' && t.assignedTo === currentUser?.uid && !t.archived).length;
     c['fe_dropped']   = tasks.filter((t) => t.pipelineStage === 'dropped'   && t.assignedTo === currentUser?.uid && !t.archived).length;
     return c;
-  }, [tasks, pc]);
+  }, [tasks, pc, isAdmin, isViewOnly, tabCounts]);
 
   const { engineers: allEngineers } = useFieldEngineers();
   const engineerOptions = useMemo(() =>
@@ -453,89 +722,9 @@ export function TasksPage() {
 
   const visible = useMemo(() => {
     if (filter === 'archived') return archivedTasks;
-
-    const source = tasks;
-
-    // When both engineerFilter and districtFilter are set, server-side only
-    // handles engineerFilter — apply district client-side on top.
-    if ((isAdmin || isViewOnly) && engineerFilter && districtFilter) {
-      return source.filter((t) =>
-        !t.archived &&
-        t.assignedTo === engineerFilter &&
-        t.district   === districtFilter,
-      );
-    }
-
-    return source.filter((t) => {
-      // Status / special filter
-      if (filter === 'dropped')              return t.pipelineStage === 'dropped'     && !t.archived;
-      if (filter === 'converted')            return t.pipelineStage === 'completed'   && !t.archived;
-      if (filter === 'pipeline_proposal')    return t.pipelineStage === 'proposal'    && !t.archived;
-      if (filter === 'pipeline_field_review') return t.pipelineStage === 'field_review' && !t.archived;
-      if (filter === 'pipeline_documents')   return t.pipelineStage === 'documents'    && !t.archived;
-      if (filter === 'pipeline_backend')     return t.pipelineStage === 'backend'     && !t.archived;
-      if (filter === 'unassigned') return !t.archived && (
-        (t.pipelineStage === 'proposal' && !t.proposalAssignedTo) ||
-        (t.pipelineStage === 'backend'  && !t.backendAssignedTo)
-      );
-      if (filter === 'pending') return (
-        t.status === 'pending' &&
-        t.pipelineStage !== 'dropped' &&
-        t.pipelineStage !== 'completed' &&
-        !t.archived
-      );
-      if (filter === 'in_progress') return (
-        t.status === 'in_progress' &&
-        t.pipelineStage !== 'dropped' &&
-        t.pipelineStage !== 'completed' &&
-        !t.archived
-      );
-      if (filter === 'blocked') return (
-        t.status === 'blocked' &&
-        t.pipelineStage !== 'dropped' &&
-        t.pipelineStage !== 'completed' &&
-        !t.archived
-      );
-      if (filter === 'fe_survey_done') return (
-        t.status === 'completed' &&
-        t.assignedTo === currentUser?.uid && !t.archived
-      );
-      if (filter === 'fe_review')    return t.pipelineStage === 'field_review' && t.assignedTo === currentUser?.uid && !t.archived;
-      if (filter === 'fe_documents') return t.pipelineStage === 'documents' && t.assignedTo === currentUser?.uid && !t.archived;
-      if (filter === 'fe_pipeline')  return !!(t.pipelineStage && t.pipelineStage !== 'survey' && t.pipelineStage !== 'field_review' && t.pipelineStage !== 'documents' && t.pipelineStage !== 'completed' && t.pipelineStage !== 'dropped' && t.assignedTo === currentUser?.uid && !t.archived);
-      if (filter === 'fe_converted') return t.pipelineStage === 'completed' && t.assignedTo === currentUser?.uid && !t.archived;
-      if (filter === 'fe_dropped')   return t.pipelineStage === 'dropped'   && t.assignedTo === currentUser?.uid && !t.archived;
-      // my_tasks — already filtered server-side
-      if (filter === 'my_tasks') {
-        return !t.archived;
-      }
-      if (filter === 'completed') {
-        return t.status === 'completed' &&
-               t.pipelineStage !== 'completed' &&
-               !t.archived;
-      }
-      if (filter === 'follow_up' && !t.followUpDate) return false;
-      if (filter === 'overdue'   && !isOverdue(t))   return false;
-      if (
-        filter !== 'all' &&
-        filter !== 'follow_up' &&
-        filter !== 'overdue' &&
-        t.status !== filter
-      ) return false;
-
-      // Text search (client-side for field engineers ONLY —
-      // admin and view_only use server-side titleWords search instead)
-      if (!isAdmin && !isViewOnly && isSearching) {
-        const term = search.trim().toLowerCase();
-        const matchesTitle  = t.title.toLowerCase().includes(term);
-        const matchesNum    = t.taskNum.toLowerCase().includes(term);
-        const matchesMobile = /^\d{10}$/.test(search.trim()) && t.consumerMobile === search.trim();
-        if (!matchesTitle && !matchesNum && !matchesMobile) return false;
-      }
-
-      return true;
-    });
-  }, [tasks, archivedTasks, filter, engineerFilter, districtFilter, search, isSearching, isAdmin, isViewOnly]);
+    const ctx: FilterCtx = { filter, stateFilter, engineerFilter, districtFilter, leadSourceFilter, search, isAdmin, isViewOnly, currentUserUid: currentUser?.uid };
+    return tasks.filter((t) => taskMatchesActiveFilters(t, ctx));
+  }, [tasks, archivedTasks, filter, stateFilter, engineerFilter, districtFilter, leadSourceFilter, search, isAdmin, isViewOnly, currentUser?.uid]);
 
   const sorted = useMemo(() => {
     if (isAdmin || isViewOnly) {
@@ -578,10 +767,15 @@ export function TasksPage() {
 
     // Field engineer sort
     return [...visible].sort((a, b) => {
+      // Tier 0: correction-return tasks bubble to top
+      function correctionScore(t: Task): number { return t.correctionReturnTo ? 0 : 1; }
+      const correctionDiff = correctionScore(a) - correctionScore(b);
+      if (correctionDiff !== 0) return correctionDiff;
+
       // Tier 1: follow-up urgency — floats to top
       function followUpScore(t: Task): number {
-        if (t.followUpDate && isToday(t.followUpDate))    return 0;
-        if (t.followUpDate && isTomorrow(t.followUpDate)) return 1;
+        if (isActiveFollowUp(t) && isToday(t.followUpDate!))    return 0;
+        if (isActiveFollowUp(t) && isTomorrow(t.followUpDate!)) return 1;
         return 2;
       }
       const followUpDiff = followUpScore(a) - followUpScore(b);
@@ -608,6 +802,10 @@ export function TasksPage() {
   }, [visible, isAdmin, filter]);
 
   function handleCardClick(task: Task) {
+    if (task.archived) {
+      setDetailTask(task);
+      return;
+    }
     if (isAdmin || isViewOnly) {
       setDetailTask(task);
     } else if (task.pipelineStage === 'field_review' && currentUser?.role === 'field') {
@@ -631,11 +829,43 @@ export function TasksPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => exportTasksToExcel(visible)}
+            disabled={exporting}
+            onClick={async () => {
+              setExporting(true);
+              try {
+                const { tasks: allMatching, truncated } = await fetchAllTasksForExport({
+                  filter, stateFilter, engineerFilter, districtFilter, leadSourceFilter, dateFilter, dueDateFilter,
+                  search, isAdmin, isViewOnly, currentUserUid: currentUser?.uid,
+                });
+                if (truncated) {
+                  showToast('Export may be incomplete — over 20,000 matching records found. Narrow your filters.', 'error');
+                }
+                if (allMatching.length === 0) {
+                  showToast('No tasks match the current filters to export.', 'error');
+                  return;
+                }
+                exportTasksToExcel(allMatching);
+                showToast(`Exported ${allMatching.length} tasks.`, 'success');
+              } catch (err) {
+                console.error('[Export] failed:', err);
+                showToast('Failed to export. Try again.', 'error');
+              } finally {
+                setExporting(false);
+              }
+            }}
             className="flex items-center gap-1.5 text-xs h-9"
           >
-            <Download className="h-3.5 w-3.5" />
-            Export Excel
+            {exporting ? (
+              <>
+                <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-gray-400 border-t-transparent" />
+                Preparing export...
+              </>
+            ) : (
+              <>
+                <Download className="h-3.5 w-3.5" />
+                Export Excel
+              </>
+            )}
           </Button>
         )}
 
@@ -666,7 +896,7 @@ export function TasksPage() {
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
         <input
           type="search"
-          placeholder="Search by title or engineer…"
+          placeholder="Search by title or task number…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="w-full rounded-xl border border-gray-200 bg-white pl-9 pr-4 py-2.5 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-blue/30 focus:border-brand-blue shadow-sm"
@@ -683,7 +913,7 @@ export function TasksPage() {
         {FILTER_TABS.filter(({ adminOnly, fieldOnly, key }) => {
           if (adminOnly && !isAdmin && !isViewOnly) return false;
           if (fieldOnly && (isAdmin || isViewOnly)) return false;
-          const statusTabs = ['all','my_tasks','pending','in_progress','completed','blocked','follow_up','overdue','archived','fe_review','fe_documents','fe_pipeline','fe_converted','fe_dropped','fe_survey_done'];
+          const statusTabs = ['all','needs_correction','sales_closed','my_tasks','pending','in_progress','completed','blocked','follow_up','overdue','archived','fe_review','fe_documents','fe_pipeline','fe_converted','fe_dropped','fe_survey_done'];
           return statusTabs.includes(key);
         }).map(({ key, label }) => {
           const count = counts[key as string] ?? 0;
@@ -753,6 +983,35 @@ export function TasksPage() {
       {/* Engineer / District / Created Date / Due Date filters — mutually exclusive */}
       {(isAdmin || isViewOnly) && (
         <div className="flex flex-wrap items-center gap-2 mb-3">
+          {Object.keys(config.districtsByState ?? {}).length > 0 && (
+            <div className="flex items-center gap-1.5">
+              <SearchableSelect
+                value={stateFilter}
+                onChange={(v) => {
+                  setStateFilter(v);
+                  if (v && districtFilter && !(config.districtsByState?.[v] ?? []).includes(districtFilter)) {
+                    setDistrictFilter('');
+                  }
+                }}
+                options={Object.keys(config.districtsByState ?? {}).map((s) => ({
+                  value: s,
+                  label: s,
+                }))}
+                placeholder="All States"
+                className="min-w-[160px]"
+              />
+              {stateFilter && (
+                <button
+                  type="button"
+                  onClick={() => setStateFilter('')}
+                  className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1"
+                >
+                  <X className="h-3.5 w-3.5" />
+                  Clear
+                </button>
+              )}
+            </div>
+          )}
           {engineerOptions.length > 0 && (
             <div className="flex items-center gap-1.5">
               <SearchableSelect
@@ -778,12 +1037,12 @@ export function TasksPage() {
               )}
             </div>
           )}
-          {(config.districts ?? []).length > 0 && (
+          {(stateFilter ? (config.districtsByState?.[stateFilter] ?? []) : (config.districts ?? [])).length > 0 && (
             <div className="flex items-center gap-1.5">
               <SearchableSelect
                 value={districtFilter}
                 onChange={(v) => { setDistrictFilter(v); if (v) { setDateFilter(''); setDueDateFilter(''); } }}
-                options={(config.districts ?? []).map((d) => ({
+                options={(stateFilter ? (config.districtsByState?.[stateFilter] ?? []) : (config.districts ?? [])).map((d) => ({
                   value: d,
                   label: d,
                 }))}
@@ -795,6 +1054,30 @@ export function TasksPage() {
                 <button
                   type="button"
                   onClick={() => setDistrictFilter('')}
+                  className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1"
+                >
+                  <X className="h-3.5 w-3.5" />
+                  Clear
+                </button>
+              )}
+            </div>
+          )}
+          {(config.leadSources ?? []).length > 0 && (
+            <div className="flex items-center gap-1.5">
+              <SearchableSelect
+                value={leadSourceFilter}
+                onChange={(v) => setLeadSourceFilter(v)}
+                options={(config.leadSources ?? []).map((s) => ({
+                  value: s,
+                  label: s,
+                }))}
+                placeholder="All Lead Sources"
+                className="min-w-[160px]"
+              />
+              {leadSourceFilter && (
+                <button
+                  type="button"
+                  onClick={() => setLeadSourceFilter('')}
                   className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1"
                 >
                   <X className="h-3.5 w-3.5" />
@@ -1132,6 +1415,7 @@ export function TasksPage() {
       )}
 
       {/* Modals / Drawers */}
+
       {isAdmin && (
         <CreateTaskModal
           open={showCreate}
@@ -1151,6 +1435,7 @@ export function TasksPage() {
         onClose={() => setDetailTask(null)}
         onUpdate={!isAdmin ? (t) => { setDetailTask(null); setUpdateTask(t); } : undefined}
         onAdminUpdate={isAdmin ? (t) => { setDetailTask(null); setAdminUpdateTask(t); } : undefined}
+        onSaleClosedChange={refreshTabCounts}
       />
 
       {/* Field engineer update drawer */}

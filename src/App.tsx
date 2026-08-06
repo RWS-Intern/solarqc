@@ -15,6 +15,7 @@ import { ReportsPage }  from '@/pages/ReportsPage';
 import { ProposalPage }        from '@/pages/ProposalPage';
 import { BackendPage }         from '@/pages/BackendPage';
 import { BackendManagerPage }  from '@/pages/BackendManagerPage';
+import { ErrorLogsPage }       from '@/pages/ErrorLogsPage';
 
 function ComingSoonPage() {
   return (
@@ -123,7 +124,8 @@ export default function App() {
             <Route path="/coming-soon" element={<ComingSoonPage />} />
             <Route path="/team"     element={<ProtectedRoute requireAdmin><TeamPage /></ProtectedRoute>} />
             <Route path="/template" element={<ProtectedRoute requireAdmin><TemplatePage /></ProtectedRoute>} />
-            <Route path="/reports"  element={<ProtectedRoute requireAdmin><ReportsPage /></ProtectedRoute>} />
+            <Route path="/reports"     element={<ProtectedRoute requireAdmin><ReportsPage /></ProtectedRoute>} />
+            <Route path="/error-logs"  element={<ProtectedRoute requireAdmin><ErrorLogsPage /></ProtectedRoute>} />
           </Route>
 
           <Route path="*" element={<CatchAll />} />

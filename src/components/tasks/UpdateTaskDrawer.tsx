@@ -462,6 +462,16 @@ export function UpdateTaskDrawer({ task, onClose }: UpdateTaskDrawerProps) {
             </div>
           )}
 
+          {/* State */}
+          {task_.state && (
+            <div className="flex items-center gap-2 text-xs">
+              <span className="text-gray-500">State:</span>
+              <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-600">
+                {task_.state}
+              </span>
+            </div>
+          )}
+
           {/* District */}
           {task_.district && (
             <div className="flex items-center gap-2 text-xs">
@@ -469,6 +479,22 @@ export function UpdateTaskDrawer({ task, onClose }: UpdateTaskDrawerProps) {
               <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-600">
                 {task_.district}
               </span>
+            </div>
+          )}
+
+          {/* Lead Source */}
+          {task_.leadSource && (
+            <div className="flex items-center gap-2 text-xs">
+              <span className="text-gray-500">Lead Source:</span>
+              <span className="inline-flex items-center rounded-full bg-purple-50 px-2 py-0.5 text-xs font-medium text-purple-600">
+                {task_.leadSource}
+              </span>
+              {task_.leadSource === 'Employee' && task_.leadSourceEmployeeName && (
+                <span className="text-gray-400">({task_.leadSourceEmployeeName})</span>
+              )}
+              {task_.leadSource === 'Field Engineer' && task_.leadGeneratedByName && (
+                <span className="text-gray-400">— {task_.leadGeneratedByName}</span>
+              )}
             </div>
           )}
 

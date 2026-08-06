@@ -13,7 +13,7 @@ import {
 import { db, firebaseConfig } from '@/firebase/config';
 import { useAuthStore } from '@/store/authStore';
 import { useToast }     from '@/components/ui/toast';
-import { resolveDistrictCasing } from '@/utils/districtUtils';
+import { resolveAndAutoAddStateDistrict } from '@/utils/districtUtils';
 import type { UserRole, User } from '@/types';
 
 const secondaryApp =
@@ -52,7 +52,7 @@ export function useUserActions() {
   }
 
   async function createUser(
-    name: string, email: string, role: UserRole, district?: string, mobileNumber?: string,
+    name: string, email: string, role: UserRole, district?: string, mobileNumber?: string, state?: string,
   ): Promise<void> {
     const tempPassword =
       Math.random().toString(36).slice(-10) +
@@ -88,11 +88,10 @@ export function useUserActions() {
         });
       }
 
-      const configSnap = await getDoc(configRef);
-      const existingDistricts = (configSnap.data()?.['districts'] as string[]) ?? [];
-      const resolvedDistrict = district
-        ? resolveDistrictCasing(district, existingDistricts)
-        : '';
+      const { resolvedState, resolvedDistrict } =
+        (state || district)
+          ? await resolveAndAutoAddStateDistrict(db, state ?? '', district ?? '')
+          : { resolvedState: '', resolvedDistrict: '' };
 
       await setDoc(doc(db, 'users', uid), {
         name:              name.trim(),
@@ -103,7 +102,8 @@ export function useUserActions() {
         mobileNumber:      mobileNumber?.trim() || null,
         createdAt:         serverTimestamp(),
         createdBy:         currentUser?.uid ?? '',
-        district:          resolvedDistrict,
+        state:             resolvedState    || null,
+        district:          resolvedDistrict || null,
         fcmToken:          null,
         fcmTokenUpdatedAt: null,
         photoURL:          null,
@@ -146,6 +146,20 @@ export function useUserActions() {
         await syncRoleAssignedName(userId, 'proposalAssignedTo', 'proposalAssignedToName', trimmed);
       } else if (role === 'backend') {
         await syncRoleAssignedName(userId, 'backendAssignedTo', 'backendAssignedToName', trimmed);
+      }
+      // Sync engineerCounts.{userId}.name if entry exists — guard with getDoc to avoid
+      // creating a partial entry (name-only, no assigned/completed) for users who have
+      // never had a task assigned to them.
+      try {
+        const configSnap = await getDoc(doc(db, 'appConfig', 'global'));
+        const ec = configSnap.data()?.['engineerCounts'] as Record<string, unknown> | undefined;
+        if (ec && userId in ec) {
+          await updateDoc(doc(db, 'appConfig', 'global'), {
+            [`engineerCounts.${userId}.name`]: trimmed,
+          });
+        }
+      } catch (err) {
+        console.error('[updateUserName] engineerCounts name sync failed:', err);
       }
       showToast('Name updated', 'success');
     } catch (err) {
@@ -415,19 +429,19 @@ export function useUserActions() {
     }
   }
 
-  async function updateUserDistrict(userId: string, district: string): Promise<void> {
+  async function updateUserDistrict(userId: string, district: string, state: string): Promise<void> {
     try {
-      const configSnap = await getDoc(doc(db, 'appConfig', 'global'));
-      const existingDistricts = (configSnap.data()?.['districts'] as string[]) ?? [];
-      const resolvedDistrict = resolveDistrictCasing(district, existingDistricts);
+      const { resolvedState, resolvedDistrict } =
+        await resolveAndAutoAddStateDistrict(db, state, district);
       await updateDoc(doc(db, 'users', userId), {
-        district:  resolvedDistrict,
+        state:     resolvedState    || null,
+        district:  resolvedDistrict || null,
         updatedAt: serverTimestamp(),
       });
-      showToast('District updated', 'success');
+      showToast('Location updated', 'success');
     } catch (err) {
       console.error('[updateUserDistrict] failed:', err);
-      showToast('Failed to update district. Try again.', 'error');
+      showToast('Failed to update location. Try again.', 'error');
       throw err;
     }
   }

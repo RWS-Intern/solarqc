@@ -230,6 +230,23 @@
       "collectionGroup": "tasks",
       "queryScope": "COLLECTION",
       "fields": [
+        { "fieldPath": "archived",           "order": "ASCENDING"  },
+        { "fieldPath": "correctionReturnTo", "order": "ASCENDING"  },
+        { "fieldPath": "correctionSetAt",    "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "tasks",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "archived",           "order": "ASCENDING" },
+        { "fieldPath": "correctionReturnTo", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "tasks",
+      "queryScope": "COLLECTION",
+      "fields": [
         { "fieldPath": "archived",   "order": "ASCENDING"  },
         { "fieldPath": "createdBy",  "order": "ASCENDING"  },
         { "fieldPath": "createdAt",  "order": "DESCENDING" }
@@ -311,6 +328,123 @@
         { "fieldPath": "archived",        "order": "ASCENDING" },
         { "fieldPath": "createdBy",       "order": "ASCENDING" },
         { "fieldPath": "consumerMobile",  "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "tasks",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "pipelineStage", "order": "ASCENDING"  },
+        { "fieldPath": "archived",      "order": "ASCENDING"  },
+        { "fieldPath": "updatedAt",     "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "tasks",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "pipelineStage",      "order": "ASCENDING"  },
+        { "fieldPath": "archived",           "order": "ASCENDING"  },
+        { "fieldPath": "proposalAssignedTo", "order": "ASCENDING"  },
+        { "fieldPath": "updatedAt",          "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "tasks",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "pipelineStage",     "order": "ASCENDING"  },
+        { "fieldPath": "archived",          "order": "ASCENDING"  },
+        { "fieldPath": "backendAssignedTo", "order": "ASCENDING"  },
+        { "fieldPath": "updatedAt",         "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "tasks",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "pipelineStage", "order": "ASCENDING" },
+        { "fieldPath": "archived",      "order": "ASCENDING" },
+        { "fieldPath": "taskNum",       "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "tasks",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "pipelineStage",      "order": "ASCENDING" },
+        { "fieldPath": "archived",           "order": "ASCENDING" },
+        { "fieldPath": "proposalAssignedTo", "order": "ASCENDING" },
+        { "fieldPath": "taskNum",            "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "tasks",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "pipelineStage",     "order": "ASCENDING" },
+        { "fieldPath": "archived",          "order": "ASCENDING" },
+        { "fieldPath": "backendAssignedTo", "order": "ASCENDING" },
+        { "fieldPath": "taskNum",           "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "tasks",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "pipelineStage", "order": "ASCENDING"      },
+        { "fieldPath": "archived",      "order": "ASCENDING"      },
+        { "fieldPath": "titleWords",    "arrayConfig": "CONTAINS" }
+      ]
+    },
+    {
+      "collectionGroup": "tasks",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "pipelineStage",      "order": "ASCENDING"      },
+        { "fieldPath": "archived",           "order": "ASCENDING"      },
+        { "fieldPath": "proposalAssignedTo", "order": "ASCENDING"      },
+        { "fieldPath": "titleWords",         "arrayConfig": "CONTAINS" }
+      ]
+    },
+    {
+      "collectionGroup": "tasks",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "pipelineStage",     "order": "ASCENDING"      },
+        { "fieldPath": "archived",          "order": "ASCENDING"      },
+        { "fieldPath": "backendAssignedTo", "order": "ASCENDING"      },
+        { "fieldPath": "titleWords",        "arrayConfig": "CONTAINS" }
+      ]
+    },
+    {
+      "collectionGroup": "tasks",
+      "queryScope": "COLLECTION",
+      "density": "SPARSE_ALL",
+      "fields": [
+        { "fieldPath": "archived",    "order": "ASCENDING"  },
+        { "fieldPath": "saleClosed",  "order": "ASCENDING"  },
+        { "fieldPath": "createdAt",   "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "tasks",
+      "queryScope": "COLLECTION",
+      "density": "SPARSE_ALL",
+      "fields": [
+        { "fieldPath": "archived",       "order": "ASCENDING" },
+        { "fieldPath": "saleClosed",     "order": "ASCENDING" },
+        { "fieldPath": "pipelineStage",  "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "tasks",
+      "queryScope": "COLLECTION",
+      "density": "SPARSE_ALL",
+      "fields": [
+        { "fieldPath": "archived",       "order": "ASCENDING" },
+        { "fieldPath": "status",         "order": "ASCENDING" },
+        { "fieldPath": "pipelineStage",  "order": "ASCENDING" }
       ]
     }
   ],

@@ -37,17 +37,24 @@ export function useDrawerBackButton(isOpen: boolean, onClose: () => void): void 
         onCloseRef.current();
       };
       window.addEventListener('popstate', handlePopState);
-      return () => window.removeEventListener('popstate', handlePopState);
-    }
 
-    openDrawerCount = Math.max(0, openDrawerCount - 1);
-    // Defer the pop by a tick: if another drawer opens in the same batched
-    // render (incrementing openDrawerCount again before this runs), skip it.
-    queueMicrotask(() => {
-      if (openDrawerCount === 0 && historyEntryPushed) {
-        historyEntryPushed = false;
-        window.history.back();
-      }
-    });
+      // Cleanup runs both when isOpen flips to false AND when the component
+      // unmounts while isOpen is still true. In both cases we must decrement
+      // the counter exactly once to match the increment above.
+      return () => {
+        window.removeEventListener('popstate', handlePopState);
+        openDrawerCount = Math.max(0, openDrawerCount - 1);
+        // Defer the pop by a tick: if another drawer opens in the same batched
+        // render (incrementing openDrawerCount again before this runs), skip it.
+        queueMicrotask(() => {
+          if (openDrawerCount === 0 && historyEntryPushed) {
+            historyEntryPushed = false;
+            window.history.back();
+          }
+        });
+      };
+    }
+    // isOpen is false — the cleanup of the isOpen=true branch above already
+    // decremented the counter and queued the microtask. Nothing to do here.
   }, [isOpen]);
 }

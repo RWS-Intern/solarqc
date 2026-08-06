@@ -1,12 +1,13 @@
 ﻿import { useEffect, useRef, useState } from 'react';
 import {
   collection, query, where, orderBy, limit, onSnapshot,
-  startAfter, getDocs, Timestamp,
+  startAfter, getDocs, getCountFromServer, Timestamp,
   type DocumentSnapshot,
 } from 'firebase/firestore';
 import { db } from '@/firebase/config';
 import { useTaskStore } from '@/store/taskStore';
 import { useAuthStore } from '@/store/authStore';
+import { logError } from '@/utils/logError';
 import type { Task, TaskStatus, PipelineStage, StageHistoryEntry, JourneyStepAnswer } from '@/types';
 
 export function docToTask(d: { id: string; data: () => Record<string, unknown> }): Task {
@@ -18,7 +19,13 @@ export function docToTask(d: { id: string; data: () => Record<string, unknown> }
     priorityScore:    (data['priorityScore']    as number | undefined) ?? 6,
     titleWords:       (data['titleWords']       as string[] | undefined) ?? [],
     description:      (data['description']      as string)  ?? undefined,
-    district:         (data['district']          as string)  ?? undefined,
+    district:                (data['district']                as string | undefined) ?? undefined,
+    state:                   (data['state']                   as string | undefined) ?? undefined,
+    leadSource:              (data['leadSource']              as string | undefined) ?? undefined,
+    leadSourceEmployeeName:  (data['leadSourceEmployeeName']  as string | undefined) ?? undefined,
+    leadGeneratedByUid:      (data['leadGeneratedByUid']      as string | null)      ?? null,
+    leadGeneratedByName:     (data['leadGeneratedByName']     as string | undefined) ?? undefined,
+    leadGeneratedByNote:     (data['leadGeneratedByNote']     as string | undefined) ?? undefined,
     assignedTo:       (data['assignedTo']       as string | null) ?? null,
     assignedToName:   (data['assignedToName']   as string)  ?? '',
     assignedToCode:   (data['assignedToCode']   as string)  ?? '',
@@ -55,6 +62,19 @@ export function docToTask(d: { id: string; data: () => Record<string, unknown> }
     installationAssignedToName:  (data['installationAssignedToName']  as string) ?? '',
     proposalRevisionCount:   (data['proposalRevisionCount']   as number) ?? 0,
     droppedReason:           (data['droppedReason']           as string | null) ?? null,
+    correctionReturnTo:             (data['correctionReturnTo']             as PipelineStage | null | undefined) ?? null,
+    saleClosed:                     (data['saleClosed']       as boolean | undefined) ?? false,
+    saleClosedSource:               (data['saleClosedSource'] as 'auto' | 'manual' | null | undefined) ?? null,
+    correctionReturnAssignedTo:     (data['correctionReturnAssignedTo']     as string | null | undefined)        ?? null,
+    correctionReturnAssignedToName: (data['correctionReturnAssignedToName'] as string | undefined)               ?? '',
+    correctionNote:                 (data['correctionNote']                 as string | undefined)               ?? undefined,
+    correctionSetAt:                (data['correctionSetAt'] as { toDate?: () => Date } | null)?.toDate?.()      ?? null,
+    backendRemark:           (data['backendRemark']           as string | undefined) ?? undefined,
+    backendRemarkUpdatedBy:  (data['backendRemarkUpdatedBy']  as string | undefined) ?? undefined,
+    backendRemarkUpdatedAt:  (data['backendRemarkUpdatedAt'] as { toDate?: () => Date } | null)?.toDate?.() ?? null,
+    proposalRemark:          (data['proposalRemark']          as string | undefined) ?? undefined,
+    proposalRemarkUpdatedBy: (data['proposalRemarkUpdatedBy'] as string | undefined) ?? undefined,
+    proposalRemarkUpdatedAt: (data['proposalRemarkUpdatedAt'] as { toDate?: () => Date } | null)?.toDate?.() ?? null,
     documentAnswers:         (data['documentAnswers']         as Task['documentAnswers']) ?? {},
     documentPhotos:          (data['documentPhotos']          as Task['documentPhotos'])  ?? {},
     documentsCompleted:      (data['documentsCompleted']      as boolean) ?? false,
@@ -131,6 +151,7 @@ export type AdminFilter =
   | 'blocked'
   | 'follow_up'
   | 'overdue'
+  | 'needs_correction'
   | 'archived'
   | 'dropped'
   | 'converted'
@@ -140,7 +161,8 @@ export type AdminFilter =
   | 'pipeline_backend'
   | 'unassigned'
   | 'unassigned_backend'
-  | 'my_tasks';
+  | 'my_tasks'
+  | 'sales_closed';
 
 export function useTasks() {
   const {
@@ -176,6 +198,7 @@ export function useTasks() {
       },
       (err) => {
         console.error('[useTasks] field error:', err);
+        void logError('useTasks.listener', err, {});
         setIsConnected(false);
       },
     );
@@ -390,6 +413,22 @@ export function useTasks() {
           limit(PAGE_SIZE));
         break;
       }
+      case 'needs_correction':
+        q = query(base,
+          where('archived',           '==', false),
+          where('correctionReturnTo', '!=', null),
+          orderBy('correctionReturnTo', 'asc'),
+          orderBy('correctionSetAt',    'desc'),
+          limit(PAGE_SIZE));
+        break;
+      case 'sales_closed':
+        // Includes dropped-after-closed leads by design — this list is not
+        // filtered by pipelineStage, unlike the badge count in useTabCounts.
+        q = query(base,
+          where('archived',   '==', false),
+          where('saleClosed', '==', true),
+          orderBy('createdAt', 'desc'), limit(PAGE_SIZE));
+        break;
       case 'my_tasks':
         q = query(base,
           where('archived',  '==', false),
@@ -452,6 +491,7 @@ export function useTasks() {
         setHasMore(false);
       }).catch((err) => {
         console.error('[useTasks] search error:', err);
+        void logError('useTasks.listener', err, {});
         setIsLoadingTasks(false);
       });
       return;
@@ -466,6 +506,8 @@ export function useTasks() {
           ? rawTasks.filter(t => !t.proposalAssignedTo)
           : filter === 'unassigned_backend'
           ? rawTasks.filter(t => !t.backendAssignedTo)
+          : filter === 'follow_up'
+          ? rawTasks.filter(t => !!t.followUpDate && (!t.pipelineStage || t.pipelineStage === 'survey') && t.status !== 'completed')
           : rawTasks;
         setTasks(filtered);
         setLastUpdated(new Date());
@@ -477,6 +519,7 @@ export function useTasks() {
       },
       (err) => {
         console.error('[useTasks] admin error:', err);
+        void logError('useTasks.listener', err, {});
         setIsConnected(false);
         setIsLoadingTasks(false);
       },
@@ -570,6 +613,19 @@ export function useTasks() {
                 orderBy('dueDate', 'asc'),
               ];
             }
+            case 'needs_correction':
+              return [
+                where('archived',           '==', false),
+                where('correctionReturnTo', '!=', null),
+                orderBy('correctionReturnTo', 'asc'),
+                orderBy('correctionSetAt',    'desc'),
+              ];
+            case 'sales_closed':
+              return [
+                where('archived',   '==', false),
+                where('saleClosed', '==', true),
+                orderBy('createdAt', 'desc'),
+              ];
             default:
               return [where('archived','==',false), orderBy('priorityScore','asc'), orderBy('updatedAt','desc')];
           }
@@ -585,6 +641,8 @@ export function useTasks() {
           ? moreTasks.filter((t) => !t.proposalAssignedTo)
           : filter === 'unassigned_backend'
           ? moreTasks.filter((t) => !t.backendAssignedTo)
+          : filter === 'follow_up'
+          ? moreTasks.filter((t) => !!t.followUpDate && (!t.pipelineStage || t.pipelineStage === 'survey') && t.status !== 'completed')
           : moreTasks;
         const existing = useTaskStore.getState().tasks;
         setTasks([...existing, ...filteredMore]);
@@ -610,3 +668,53 @@ export function useTasks() {
 
   return { subscribeToFilter };
 }
+
+export function useTabCounts() {
+  const { currentUser } = useAuthStore();
+  const [tabCounts, setTabCounts] = useState<Record<string, number>>({});
+  const cancelRef = useRef(false);
+
+  async function fetchCounts() {
+    if (currentUser?.role !== 'admin' && currentUser?.role !== 'view_only') return;
+    const base = collection(db, 'tasks');
+    const now  = new Date();
+    const results = await Promise.allSettled([
+      getCountFromServer(query(base, where('archived', '==', false))),
+      getCountFromServer(query(base, where('archived', '==', false), where('status', '==', 'pending'), where('pipelineStage', 'not-in', ['dropped', 'completed']))),
+      getCountFromServer(query(base, where('archived', '==', false), where('status', '==', 'in_progress'), where('pipelineStage', 'not-in', ['dropped', 'completed']))),
+      getCountFromServer(query(base, where('archived', '==', false), where('status', '==', 'completed'))),
+      getCountFromServer(query(base, where('archived', '==', false), where('status', '==', 'blocked'), where('pipelineStage', 'not-in', ['dropped', 'completed']))),
+      getCountFromServer(query(base, where('archived', '==', false), where('followUpDate', '!=', null))),
+      getCountFromServer(query(base, where('archived', '==', false), where('status', 'in', ['pending', 'in_progress', 'blocked']), where('dueDate', '<', Timestamp.fromDate(now)))),
+      getCountFromServer(query(base, where('archived', '==', false), where('correctionReturnTo', '!=', null))),
+      // Excludes dropped leads for parity with the Dashboard "Sales Closed" card.
+      // The sales_closed TAB LIST (buildAdminQuery) intentionally does NOT apply
+      // this pipelineStage exclusion, so dropped-after-closed anomalies still
+      // show up as rows — this badge count can therefore read a few lower than
+      // the number of rows the tab actually renders. That mismatch is by design.
+      getCountFromServer(query(base, where('archived', '==', false), where('saleClosed', '==', true), where('pipelineStage', '!=', 'dropped'))),
+    ]);
+    if (cancelRef.current) return;
+    const keys = ['all', 'pending', 'in_progress', 'completed', 'blocked', 'follow_up', 'overdue', 'needs_correction', 'sales_closed'];
+    const counts: Record<string, number> = {};
+    results.forEach((r, i) => {
+      counts[keys[i]] = r.status === 'fulfilled' ? r.value.data().count : 0;
+    });
+    setTabCounts(counts);
+  }
+
+  useEffect(() => {
+    if (currentUser?.role !== 'admin' && currentUser?.role !== 'view_only') return;
+    cancelRef.current = false;
+    fetchCounts();
+    const interval = setInterval(fetchCounts, 60_000);
+    return () => {
+      cancelRef.current = true;
+      clearInterval(interval);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser?.uid, currentUser?.role]);
+
+  return { tabCounts, refreshTabCounts: fetchCounts };
+}
+

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle,
 } from '@/components/ui/sheet';
@@ -14,6 +14,8 @@ import { doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db }                 from '@/firebase/config';
 import { getProposalDocuments } from '@/utils/proposalDocuments';
 import { ProposalDocumentList } from '@/components/pipeline/ProposalDocumentList';
+import { logError } from '@/utils/logError';
+import { computeSaleClosedEvidence } from '@/utils/computeSaleClosed';
 import type { Task, SurveyStageData, ProposalStageData } from '@/types';
 
 interface DocumentsWorkDrawerProps {
@@ -38,9 +40,11 @@ export function DocumentsWorkDrawer({ task, onClose }: DocumentsWorkDrawerProps)
   const [proposalDoc, setProposalDoc] = useState<ProposalStageData | null>(null);
   const [saving,      setSaving]      = useState(false);
   const [submitting,  setSubmitting]  = useState(false);
+  const fetchIdRef = useRef(0);
 
   // Load the task's existing document progress + survey/proposal reference data when the drawer opens
   useEffect(() => {
+    const fetchId = ++fetchIdRef.current;
     if (!task) {
       setDocAnswers({});
       setDocPhotos({});
@@ -54,13 +58,16 @@ export function DocumentsWorkDrawer({ task, onClose }: DocumentsWorkDrawerProps)
       getDoc(doc(db, 'tasks', task.id, 'stages', 'survey')),
       getDoc(doc(db, 'tasks', task.id, 'stages', 'proposal')),
     ]).then(([surveySnap, proposalSnap]) => {
+      if (fetchId !== fetchIdRef.current) return;
       setSurveyData(surveySnap.exists() ? (surveySnap.data() as SurveyStageData) : null);
       if (proposalSnap.exists()) {
         setProposalDoc(proposalSnap.data() as ProposalStageData);
       } else {
         setProposalDoc(null);
       }
-    }).catch(() => {
+    }).catch((err) => {
+      if (fetchId !== fetchIdRef.current) return;
+      void logError('documentsWorkDrawer.fetchData', err, { taskId: task?.id });
       setSurveyData(null);
       setProposalDoc(null);
     });
@@ -101,10 +108,31 @@ export function DocumentsWorkDrawer({ task, onClose }: DocumentsWorkDrawerProps)
   }
 
   async function persistProgress(taskId: string) {
+    const cfgSnap = await getDoc(doc(db, 'appConfig', 'global'));
+    const saleClosedConfig = cfgSnap.data()?.['saleClosedConfig'] as
+      import('@/types').SaleClosedConfig | undefined;
+    const curTaskSnap = await getDoc(doc(db, 'tasks', taskId));
+    const curTask = curTaskSnap.data() ?? {};
+    const existingSource = curTask['saleClosedSource'] as
+      'auto' | 'manual' | null | undefined;
+    const newSaleClosed = computeSaleClosedEvidence(
+      {
+        fieldAnswers:    curTask['fieldAnswers'],
+        fieldPhotos:     curTask['fieldPhotos'],
+        documentAnswers: docAnswers,
+        documentPhotos:  docPhotos,
+      },
+      saleClosedConfig,
+    );
+    const saleClosedUpdate = existingSource === 'manual'
+      ? {}
+      : { saleClosed: newSaleClosed, saleClosedSource: 'auto' as const };
+
     await updateDoc(doc(db, 'tasks', taskId), {
       documentAnswers: docAnswers,
       documentPhotos:  docPhotos,
       updatedAt:       serverTimestamp(),
+      ...saleClosedUpdate,
     });
   }
 
@@ -203,6 +231,16 @@ export function DocumentsWorkDrawer({ task, onClose }: DocumentsWorkDrawerProps)
             </div>
           )}
 
+          {/* State */}
+          {task?.state && (
+            <div className="flex items-center gap-2 text-xs">
+              <span className="text-gray-500">State:</span>
+              <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-600">
+                {task.state}
+              </span>
+            </div>
+          )}
+
           {/* District */}
           {task?.district && (
             <div className="flex items-center gap-2 text-xs">
@@ -210,6 +248,22 @@ export function DocumentsWorkDrawer({ task, onClose }: DocumentsWorkDrawerProps)
               <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-600">
                 {task.district}
               </span>
+            </div>
+          )}
+
+          {/* Lead Source */}
+          {task?.leadSource && (
+            <div className="flex items-center gap-2 text-xs">
+              <span className="text-gray-500">Lead Source:</span>
+              <span className="inline-flex items-center rounded-full bg-purple-50 px-2 py-0.5 text-xs font-medium text-purple-600">
+                {task.leadSource}
+              </span>
+              {task.leadSource === 'Employee' && task.leadSourceEmployeeName && (
+                <span className="text-gray-400">({task.leadSourceEmployeeName})</span>
+              )}
+              {task.leadSource === 'Field Engineer' && task.leadGeneratedByName && (
+                <span className="text-gray-400">— {task.leadGeneratedByName}</span>
+              )}
             </div>
           )}
 

@@ -69,6 +69,7 @@ export function TeamPage() {
   const canEdit    = !isViewOnly;
 
   const [search,         setSearch]         = useState('');
+  const [stateFilter,    setStateFilter]    = useState('');
   const [districtFilter, setDistrictFilter] = useState('');
   const [activeTab,      setActiveTab]      = useState<FilterTab>('all');
   const [editUser,       setEditUser]       = useState<User | null>(null);
@@ -92,8 +93,8 @@ export function TeamPage() {
       if (activeTab === 'backend_manager' && u.role !== 'backend_manager') return false;
       if (activeTab === 'disabled' && u.active)           return false;
       if (activeTab !== 'disabled' && !u.active)          return false;
-      if (districtFilter &&
-          (u.district ?? '') !== districtFilter) return false;
+      if (stateFilter    && (u.state    ?? '') !== stateFilter)    return false;
+      if (districtFilter && (u.district ?? '') !== districtFilter) return false;
       if (q) {
         return (
           u.name.toLowerCase().includes(q) ||
@@ -102,7 +103,7 @@ export function TeamPage() {
       }
       return true;
     });
-  }, [users, activeTab, search, districtFilter]);
+  }, [users, activeTab, search, stateFilter, districtFilter]);
 
   const counts = useMemo(() => ({
     all:             users.filter((u) => u.active).length,
@@ -172,7 +173,28 @@ export function TeamPage() {
         />
       </div>
 
-      {(config.districts ?? []).length > 0 && (activeTab === 'all' || activeTab === 'field') && (
+      {Object.keys(config.districtsByState ?? {}).length > 0 && (activeTab === 'all' || activeTab === 'field') && (
+        <div className="mb-3">
+          <select
+            value={stateFilter}
+            onChange={(e) => {
+              const v = e.target.value;
+              setStateFilter(v);
+              if (v && districtFilter && !(config.districtsByState?.[v] ?? []).includes(districtFilter)) {
+                setDistrictFilter('');
+              }
+            }}
+            className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/30 focus:border-brand-blue text-gray-700 min-w-[160px]"
+          >
+            <option value="">All States</option>
+            {Object.keys(config.districtsByState ?? {}).map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {(stateFilter ? (config.districtsByState?.[stateFilter] ?? []) : (config.districts ?? [])).length > 0 && (activeTab === 'all' || activeTab === 'field') && (
         <div className="mb-3">
           <select
             value={districtFilter}
@@ -180,7 +202,7 @@ export function TeamPage() {
             className="h-9 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/30 focus:border-brand-blue text-gray-700 min-w-[160px]"
           >
             <option value="">All Districts</option>
-            {(config.districts ?? []).map((d) => (
+            {(stateFilter ? (config.districtsByState?.[stateFilter] ?? []) : (config.districts ?? [])).map((d) => (
               <option key={d} value={d}>{d}</option>
             ))}
           </select>

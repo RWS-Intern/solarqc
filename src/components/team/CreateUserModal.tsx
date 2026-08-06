@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { CheckCircle2 } from 'lucide-react';
 import { useUserActions }   from '@/hooks/useUserActions';
 import { DistrictCombobox } from '@/components/ui/DistrictCombobox';
+import { StateCombobox }    from '@/components/ui/StateCombobox';
 import {
   Dialog,
   DialogContent,
@@ -31,6 +32,7 @@ export function CreateUserModal({ open, onClose }: CreateUserModalProps) {
   const [name,          setName]          = useState('');
   const [email,         setEmail]         = useState('');
   const [role,          setRole]          = useState<UserRole>('field');
+  const [state,         setState]         = useState('');
   const [district,      setDistrict]      = useState('');
   const [mobileNumber,  setMobileNumber]  = useState('');
   const [submitting,    setSubmitting]    = useState(false);
@@ -42,6 +44,7 @@ export function CreateUserModal({ open, onClose }: CreateUserModalProps) {
     setName('');
     setEmail('');
     setRole('field');
+    setState('');
     setDistrict('');
     setMobileNumber('');
     setSubmitting(false);
@@ -54,10 +57,10 @@ export function CreateUserModal({ open, onClose }: CreateUserModalProps) {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!name.trim() || !email.trim()) return;
+    if (!name.trim() || !email.trim() || mobileError) return;
     setSubmitting(true);
     try {
-      await createUser(name.trim(), email.trim(), role, district || undefined, mobileNumber || undefined);
+      await createUser(name.trim(), email.trim(), role, district || undefined, mobileNumber || undefined, state || undefined);
       setCreatedEmail(email.trim());
     } catch {
       // Error toast already shown inside createUser
@@ -127,10 +130,16 @@ export function CreateUserModal({ open, onClose }: CreateUserModalProps) {
             </div>
 
             {role === 'field' && (
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="cu-district">District</Label>
-                <DistrictCombobox id="cu-district" value={district} onChange={setDistrict} />
-              </div>
+              <>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="cu-state">State</Label>
+                  <StateCombobox id="cu-state" value={state} onChange={(val) => { setState(val); setDistrict(''); }} />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="cu-district">District</Label>
+                  <DistrictCombobox id="cu-district" value={district} onChange={setDistrict} state={state} />
+                </div>
+              </>
             )}
 
             <div className="flex flex-col gap-1.5">

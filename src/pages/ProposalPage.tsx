@@ -8,6 +8,8 @@ import { useAuthStore }       from '@/store/authStore';
 import { ProposalWorkDrawer } from '@/components/pipeline/ProposalWorkDrawer';
 import { getProposalDocuments } from '@/utils/proposalDocuments';
 import { ProposalDocumentList } from '@/components/pipeline/ProposalDocumentList';
+import { getProposalNoteRecipientLabel } from '@/utils/proposalNoteLabel';
+import { logError } from '@/utils/logError';
 import type { Task, PipelineStage, StageHistoryEntry, ProposalStageData } from '@/types';
 import { doc, getDoc } from 'firebase/firestore';
 import { db }          from '@/firebase/config';
@@ -26,12 +28,19 @@ function ProposalTaskCard({ task, onClick }: { task: Task; onClick: () => void }
     <button
       type="button"
       onClick={onClick}
-      className="w-full text-left rounded-xl border border-gray-100 bg-white px-4 py-4 shadow-sm hover:shadow-md transition-all flex items-start gap-3 border-l-4 border-l-purple-400"
+      className={cn(
+        'w-full text-left rounded-xl border border-gray-100 bg-white px-4 py-4 shadow-sm hover:shadow-md transition-all flex items-start gap-3 border-l-4',
+        task.correctionReturnTo ? 'border-l-amber-500' : 'border-l-purple-400',
+      )}
     >
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 mb-1">
+        <div className="flex items-center gap-2 mb-1 flex-wrap">
           <span className="font-mono text-xs text-gray-400">{task.taskNum}</span>
-          {(task.proposalRevisionCount ?? 0) > 0 && (
+          {task.correctionReturnTo ? (
+            <span className="rounded-full bg-amber-100 text-amber-800 border border-amber-300 px-2 py-0.5 text-[10px] font-semibold">
+              ↩ Sent back for correction — will return to {task.correctionReturnTo.replace('_', ' ')}
+            </span>
+          ) : (task.proposalRevisionCount ?? 0) > 0 && (
             <span className="rounded-full bg-orange-100 text-orange-700 px-2 py-0.5 text-[10px] font-semibold">
               Revision {task.proposalRevisionCount}
             </span>
@@ -150,20 +159,34 @@ const STAGE_NAME_MAP: Record<string, string> = {
   completed: 'Completed', dropped: 'Dropped',
 };
 
+interface FieldReviewStageSnap {
+  decision?:      string;
+  revisionNote?:  string;
+  decidedByName?: string;
+  decidedAt?:     { toDate?: () => Date } | Date | null;
+}
+
 function HistoryDetailContent({ task, onClose }: { task: Task | null; onClose: () => void }) {
-  const [proposalDoc, setProposalDoc] = useState<ProposalStageData | null>(null);
+  const [proposalDoc,    setProposalDoc]    = useState<ProposalStageData | null>(null);
+  const [fieldReviewData, setFieldReviewData] = useState<FieldReviewStageSnap | null>(null);
 
   useEffect(() => {
-    if (!task) { setProposalDoc(null); return; }
-    getDoc(doc(db, 'tasks', task.id, 'stages', 'proposal'))
-      .then((snap) => {
-        if (snap.exists()) {
-          setProposalDoc(snap.data() as ProposalStageData);
-        } else {
-          setProposalDoc(null);
-        }
-      })
-      .catch(() => setProposalDoc(null));
+    if (!task) {
+      setProposalDoc(null);
+      setFieldReviewData(null);
+      return;
+    }
+    Promise.all([
+      getDoc(doc(db, 'tasks', task.id, 'stages', 'proposal')),
+      getDoc(doc(db, 'tasks', task.id, 'stages', 'field_review')),
+    ]).then(([proposalSnap, frSnap]) => {
+      setProposalDoc(proposalSnap.exists() ? (proposalSnap.data() as ProposalStageData) : null);
+      setFieldReviewData(frSnap.exists() ? (frSnap.data() as FieldReviewStageSnap) : null);
+    }).catch((err) => {
+      void logError('proposalPage.fetchStageData', err, { taskId: task?.id });
+      setProposalDoc(null);
+      setFieldReviewData(null);
+    });
   }, [task?.id]);
 
   if (!task) return null;
@@ -301,11 +324,143 @@ function HistoryDetailContent({ task, onClose }: { task: Task | null; onClose: (
           </div>
         )}
 
-        {/* Proposal document */}
+        {/* Proposal Remark (internal) — read-only historical view */}
+        {task.proposalRemark && (
+          <div className="rounded-lg border border-purple-200 bg-purple-50 px-4 py-3">
+            <p className="text-xs font-semibold text-purple-700 uppercase tracking-wide mb-2">
+              Proposal Remark (internal)
+            </p>
+            <p className="text-sm text-gray-800 whitespace-pre-wrap">{task.proposalRemark}</p>
+            {task.proposalRemarkUpdatedBy && (
+              <p className="text-[10px] text-purple-600 mt-1">
+                Last updated by {task.proposalRemarkUpdatedBy}
+                {task.proposalRemarkUpdatedAt && ` on ${task.proposalRemarkUpdatedAt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}`}
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Current proposal document + note */}
         {getProposalDocuments(proposalDoc).length > 0 && (
           <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3">
-            <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide mb-2">Proposal Document</p>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide">Proposal Document</p>
+              {proposalDoc?.uploadedByName && (
+                <p className="text-[10px] text-blue-500">
+                  {proposalDoc.uploadedByName}
+                  {proposalDoc.uploadedAt && (() => {
+                    const d = typeof (proposalDoc.uploadedAt as any).toDate === 'function'
+                      ? (proposalDoc.uploadedAt as any).toDate()
+                      : proposalDoc.uploadedAt as Date;
+                    return ` · ${d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}`;
+                  })()}
+                </p>
+              )}
+            </div>
             <ProposalDocumentList documents={getProposalDocuments(proposalDoc)} />
+            {proposalDoc?.proposalNote && (
+              <div className="rounded-lg border border-blue-100 bg-white px-3 py-2 mt-2">
+                <p className="text-xs text-blue-700">
+                  📝 {getProposalNoteRecipientLabel(proposalDoc.submittedToStage)}: {proposalDoc.proposalNote}
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Proposal Revision History — newest first, stable chronological labels */}
+        {(proposalDoc?.revisions?.length ?? 0) > 0 && (
+          <div className="flex flex-col gap-2">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+              Proposal Revision History
+              <span className="ml-1 text-gray-400">({proposalDoc!.revisions.length})</span>
+            </p>
+            <div className="flex flex-col gap-2">
+              {[...proposalDoc!.revisions].reverse().map((rev, revIdx) => {
+                const docs = rev.documents?.length
+                  ? rev.documents
+                  : rev.documentUrl
+                  ? [{ url: rev.documentUrl, name: rev.documentName ?? 'Document' }]
+                  : [];
+                const uploadedAt = rev.uploadedAt as unknown as { toDate?: () => Date } | Date | null;
+                const uploadDate = uploadedAt
+                  ? (typeof (uploadedAt as any).toDate === 'function'
+                      ? (uploadedAt as any).toDate()
+                      : uploadedAt as Date)
+                  : null;
+                const revisionLabel = proposalDoc!.revisions.length - revIdx;
+                return (
+                  <div key={revIdx} className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="text-xs font-medium text-gray-700">Revision {revisionLabel}</p>
+                      <p className="text-[10px] text-gray-400">
+                        {rev.uploadedByName ?? ''}
+                        {uploadDate ? ` · ${uploadDate.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}` : ''}
+                      </p>
+                    </div>
+                    {docs.length > 0 && <ProposalDocumentList documents={docs} />}
+                    {rev.revisionNote && (
+                      <p className="text-xs text-gray-500 italic mt-1">
+                        📝 {getProposalNoteRecipientLabel(rev.submittedToStage)}: {rev.revisionNote}
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Field Review Decision */}
+        {fieldReviewData && (
+          <div className={cn(
+            'rounded-lg border px-4 py-3',
+            fieldReviewData.decision === 'accepted'
+              ? 'border-green-200 bg-green-50'
+              : fieldReviewData.decision === 'rejected'
+              ? 'border-red-200 bg-red-50'
+              : 'border-orange-200 bg-orange-50',
+          )}>
+            <div className="flex items-center justify-between mb-1">
+              <p className={cn(
+                'text-xs font-semibold uppercase tracking-wide',
+                fieldReviewData.decision === 'accepted' ? 'text-green-700'
+                : fieldReviewData.decision === 'rejected' ? 'text-red-700'
+                : 'text-orange-700',
+              )}>
+                Field Review Decision
+              </p>
+              <span className={cn(
+                'rounded-full px-2 py-0.5 text-[10px] font-bold',
+                fieldReviewData.decision === 'accepted'
+                  ? 'bg-green-100 text-green-700'
+                  : fieldReviewData.decision === 'rejected'
+                  ? 'bg-red-100 text-red-700'
+                  : 'bg-orange-100 text-orange-700',
+              )}>
+                {fieldReviewData.decision === 'accepted'
+                  ? '✅ Accepted'
+                  : fieldReviewData.decision === 'rejected'
+                  ? '❌ Rejected'
+                  : '🔄 Revision Requested'}
+              </span>
+            </div>
+            {fieldReviewData.revisionNote && (
+              <p className="text-sm text-gray-700 mt-1 whitespace-pre-wrap">
+                {fieldReviewData.revisionNote}
+              </p>
+            )}
+            {fieldReviewData.decidedByName && (
+              <p className="text-[10px] text-gray-400 mt-1">
+                {fieldReviewData.decidedByName}
+                {fieldReviewData.decidedAt && (() => {
+                  const d = typeof (fieldReviewData.decidedAt as any).toDate === 'function'
+                    ? (fieldReviewData.decidedAt as any).toDate()
+                    : fieldReviewData.decidedAt as Date;
+                  return ` · ${d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}`;
+                })()}
+              </p>
+            )}
           </div>
         )}
 
@@ -373,13 +528,22 @@ const HISTORY_FILTERS: { key: HistoryFilter; label: string }[] = [
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export function ProposalPage() {
-  useProposalTasks();
+  const {
+    loadMore:      loadMoreActive,
+    hasMore:       activeHasMore,
+    loadingMore:   activeLoadingMore,
+    search:        firestoreSearch,
+    searchResults,
+    isSearching,
+    clearSearch,
+  } = useProposalTasks();
   const { proposalTasks, proposalTasksLoading, proposalHistoryTasks, proposalHistoryLoading } = useTaskStore();
   const { loadMore: loadMoreHistory, hasMore: historyHasMore } = useLoadMoreProposalHistory();
   const { currentUser } = useAuthStore();
-  const [search,        setSearch]        = useState('');
-  const [activeTask,    setActiveTask]    = useState<Task | null>(null);
-  const [activeTab,     setActiveTab]     = useState<'active' | 'history'>('active');
+  const [search,          setSearch]          = useState('');
+  const [correctionOnly,  setCorrectionOnly]  = useState(false);
+  const [activeTask,      setActiveTask]      = useState<Task | null>(null);
+  const [activeTab,       setActiveTab]       = useState<'active' | 'history'>('active');
   const [historyFilter, setHistoryFilter] = useState<HistoryFilter>('all');
   const [historySearch, setHistorySearch] = useState('');
   const [historyTaskId, setHistoryTaskId] = useState<string | null>(null);
@@ -397,19 +561,36 @@ export function ProposalPage() {
     had_revision: proposalHistoryTasks.filter((t) => (t.proposalRevisionCount ?? 0) > 0).length,
   }), [proposalHistoryTasks]);
 
+  // Debounce: fire Firestore search 350 ms after the user stops typing;
+  // clear immediately when the input is empty.
+  useEffect(() => {
+    if (!search.trim()) {
+      clearSearch();
+      return;
+    }
+    const id = setTimeout(() => firestoreSearch(search), 350);
+    return () => clearTimeout(id);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search]);
+
   if (currentUser?.role === 'admin') {
     return <Navigate to="/tasks" replace />;
   }
 
-  const filteredActive = proposalTasks.filter((t) =>
-    t.title.toLowerCase().includes(search.toLowerCase()) ||
-    t.taskNum.toLowerCase().includes(search.toLowerCase()),
-  );
+  // When a Firestore search is active show its results; otherwise show the
+  // live-paginated list. The correctionOnly chip applies to both sources.
+  const displayActive = isSearching ? searchResults : proposalTasks;
+  const filteredActive = displayActive.filter((t) => {
+    if (correctionOnly && !t.correctionReturnTo) return false;
+    return true;
+  });
+  const correctionCount = proposalTasks.filter((t) => !!t.correctionReturnTo).length;
 
   const filteredHistory = proposalHistoryTasks.filter((t) => {
     const matchesSearch =
       t.title.toLowerCase().includes(historySearch.toLowerCase()) ||
-      t.taskNum.toLowerCase().includes(historySearch.toLowerCase());
+      t.taskNum.toLowerCase().includes(historySearch.toLowerCase()) ||
+      (t.consumerMobile ?? '').toLowerCase().includes(historySearch.toLowerCase());
     if (!matchesSearch) return false;
     if (historyFilter === 'in_review')    return ['field_review', 'documents', 'backend'].includes(t.pipelineStage ?? '');
     if (historyFilter === 'completed')    return t.pipelineStage === 'completed';
@@ -508,6 +689,30 @@ export function ProposalPage() {
             />
           </div>
 
+          {/* Needs Correction filter */}
+          {correctionCount > 0 && (
+            <div className="flex gap-1">
+              <button
+                type="button"
+                onClick={() => setCorrectionOnly(!correctionOnly)}
+                className={cn(
+                  'shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition-all border',
+                  correctionOnly
+                    ? 'bg-amber-500 text-white border-amber-500'
+                    : 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100',
+                )}
+              >
+                ↩ Needs Correction
+                <span className={cn(
+                  'ml-1.5 rounded-full px-1.5 text-[10px] font-bold',
+                  correctionOnly ? 'bg-white/30 text-white' : 'bg-amber-200 text-amber-800',
+                )}>
+                  {correctionCount}
+                </span>
+              </button>
+            </div>
+          )}
+
           {/* Task list */}
           {proposalTasksLoading ? (
             <div className="flex justify-center py-12">
@@ -537,6 +742,23 @@ export function ProposalPage() {
             <p className="text-xs text-gray-400 text-center">
               {filteredActive.length} task{filteredActive.length !== 1 ? 's' : ''}
             </p>
+          )}
+          {!proposalTasksLoading && !isSearching && activeHasMore && (
+            <button
+              type="button"
+              onClick={loadMoreActive}
+              disabled={activeLoadingMore}
+              className="w-full rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 font-medium py-3 text-sm transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {activeLoadingMore ? (
+                <>
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-gray-600" />
+                  Loading...
+                </>
+              ) : (
+                'Load More ↓'
+              )}
+            </button>
           )}
         </>
       ) : (

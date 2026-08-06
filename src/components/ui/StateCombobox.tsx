@@ -2,30 +2,27 @@ import { useState, useRef, useEffect } from 'react';
 import { X, ChevronDown } from 'lucide-react';
 import { useAppConfig } from '@/hooks/useAppConfig';
 
-interface DistrictComboboxProps {
+interface StateComboboxProps {
   id?:          string;
   value:        string;
   onChange:     (value: string) => void;
-  districts?:   string[];
-  state?:       string;
+  states?:      string[];
   placeholder?: string;
   disabled?:    boolean;
   className?:   string;
 }
 
-export function DistrictCombobox({
+export function StateCombobox({
   id,
   value,
   onChange,
-  districts: districtsProp,
-  state,
-  placeholder = 'Select or type district...',
+  states: statesProp,
+  placeholder = 'Select or type state...',
   disabled = false,
   className = '',
-}: DistrictComboboxProps) {
-  const { config }  = useAppConfig();
-  const districts   = districtsProp
-    ?? (state ? (config.districtsByState?.[state] ?? []) : (config.districts ?? []));
+}: StateComboboxProps) {
+  const { config } = useAppConfig();
+  const states     = statesProp ?? (config.districtsByState ? Object.keys(config.districtsByState) : []);
 
   const [open,  setOpen]  = useState(false);
   const [query, setQuery] = useState(value);
@@ -44,19 +41,17 @@ export function DistrictCombobox({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [value]);
 
-  const filtered = districts.filter((d) =>
-    d.toLowerCase().includes(query.toLowerCase()),
+  const filtered = states.filter((s) =>
+    s.toLowerCase().includes(query.toLowerCase()),
   );
 
   const showNewOption =
     query.trim().length > 0 &&
-    !districts.some(
-      (d) => d.toLowerCase() === query.trim().toLowerCase(),
-    );
+    !states.some((s) => s.toLowerCase() === query.trim().toLowerCase());
 
-  function handleSelect(d: string) {
-    onChange(d);
-    setQuery(d);
+  function handleSelect(s: string) {
+    onChange(s);
+    setQuery(s);
     setOpen(false);
   }
 
@@ -98,14 +93,14 @@ export function DistrictCombobox({
 
       {open && (filtered.length > 0 || showNewOption) && (
         <div className="absolute z-50 mt-1 w-full rounded-lg border border-gray-200 bg-white shadow-lg max-h-48 overflow-y-auto">
-          {filtered.map((d) => (
+          {filtered.map((s) => (
             <button
-              key={d}
+              key={s}
               type="button"
-              onMouseDown={(e) => { e.preventDefault(); handleSelect(d); }}
+              onMouseDown={(e) => { e.preventDefault(); handleSelect(s); }}
               className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 hover:text-blue-700 transition-colors"
             >
-              {d}
+              {s}
             </button>
           ))}
           {showNewOption && (
@@ -114,7 +109,7 @@ export function DistrictCombobox({
               onMouseDown={(e) => { e.preventDefault(); handleSelect(query.trim()); }}
               className="w-full text-left px-3 py-2 text-sm text-blue-600 hover:bg-blue-50 border-t border-gray-100 transition-colors"
             >
-              + Use "{query.trim()}" as new district
+              + Use &ldquo;{query.trim()}&rdquo; as new state
             </button>
           )}
         </div>

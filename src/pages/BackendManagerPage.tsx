@@ -1,27 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Search } from 'lucide-react';
-import { collection, query, where, orderBy, onSnapshot } from 'firebase/firestore';
-import { db }                  from '@/firebase/config';
-import { BackendWorkDrawer }   from '@/components/pipeline/BackendWorkDrawer';
-import { cn }                  from '@/lib/utils';
-import type { Task }           from '@/types';
-
-function fromFirestore(id: string, data: Record<string, unknown>): Task {
-  function toDate(v: unknown): Date | null {
-    if (!v) return null;
-    if (v instanceof Date) return v;
-    if (typeof v === 'object' && 'toDate' in (v as object)) return (v as { toDate(): Date }).toDate();
-    return null;
-  }
-  return {
-    ...data,
-    id,
-    createdAt:  toDate(data.createdAt)  ?? new Date(),
-    updatedAt:  toDate(data.updatedAt)  ?? null,
-    dueDate:    toDate(data.dueDate)    ?? null,
-    surveyDate: toDate(data.surveyDate) ?? null,
-  } as unknown as Task;
-}
+import { BackendWorkDrawer }  from '@/components/pipeline/BackendWorkDrawer';
+import { cn }                 from '@/lib/utils';
+import { useStageTaskList }   from '@/hooks/useStageTaskList';
+import { docToBackendTask }   from '@/hooks/useBackendTasks';
+import type { Task }          from '@/types';
 
 function BackendTaskCard({ task, onClick }: { task: Task; onClick: () => void }) {
   const steps      = task.applicationJourneySteps ?? [];
@@ -86,33 +69,39 @@ function BackendTaskCard({ task, onClick }: { task: Task; onClick: () => void })
 }
 
 export function BackendManagerPage() {
-  const [tasks,       setTasks]       = useState<Task[]>([]);
-  const [loading,     setLoading]     = useState(true);
-  const [search,      setSearch]      = useState('');
-  const [activeTask,  setActiveTask]  = useState<Task | null>(null);
+  const [search,     setSearch]     = useState('');
+  const [activeTask, setActiveTask] = useState<Task | null>(null);
 
+  const {
+    tasks,
+    isLoading,
+    hasMore,
+    loadingMore,
+    loadMore,
+    search:        firestoreSearch,
+    searchResults,
+    isSearching,
+    clearSearch,
+  } = useStageTaskList(
+    'backend',
+    null,        // unscoped — manager sees ALL backend-stage tasks org-wide
+    undefined,
+    docToBackendTask,
+  );
+
+  // Debounce: fire Firestore search 350 ms after the user stops typing;
+  // clear immediately when the input is empty.
   useEffect(() => {
-    const q = query(
-      collection(db, 'tasks'),
-      where('pipelineStage', '==', 'backend'),
-      where('archived', '==', false),
-      orderBy('updatedAt', 'desc'),
-    );
-    const unsub = onSnapshot(q, (snap) => {
-      setTasks(snap.docs.map((d) => fromFirestore(d.id, d.data() as Record<string, unknown>)));
-      setLoading(false);
-    }, () => setLoading(false));
-    return unsub;
-  }, []);
-
-  const filtered = tasks.filter((t) => {
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      if (!t.title.toLowerCase().includes(q) && !t.taskNum.toLowerCase().includes(q)) return false;
+    if (!search.trim()) {
+      clearSearch();
+      return;
     }
-    return true;
-  });
+    const id = setTimeout(() => firestoreSearch(search), 350);
+    return () => clearTimeout(id);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search]);
 
+  const displayTasks = isSearching ? searchResults : tasks;
   const inProgress   = tasks.filter((t) => !t.journeyCompleted).length;
   const readyCount   = tasks.filter((t) => t.journeyCompleted).length;
 
@@ -138,27 +127,45 @@ export function BackendManagerPage() {
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
         <input
           type="text"
-          placeholder="Search tasks…"
+          placeholder="Search by name, task number, or mobile…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="w-full pl-9 pr-4 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/30 focus:border-brand-blue bg-white"
         />
       </div>
 
-      {loading ? (
+      {isLoading ? (
         <div className="flex items-center justify-center py-16">
           <div className="h-8 w-8 animate-spin rounded-full border-4 border-orange-400 border-t-transparent" />
         </div>
-      ) : filtered.length === 0 ? (
+      ) : displayTasks.length === 0 ? (
         <p className="text-center text-sm text-gray-400 py-16">
           {search ? 'No tasks match your search.' : 'No active backend tasks.'}
         </p>
       ) : (
         <div className="flex flex-col gap-3">
-          {filtered.map((task) => (
+          {displayTasks.map((task) => (
             <BackendTaskCard key={task.id} task={task} onClick={() => setActiveTask(task)} />
           ))}
         </div>
+      )}
+
+      {!isLoading && !isSearching && hasMore && (
+        <button
+          type="button"
+          onClick={loadMore}
+          disabled={loadingMore}
+          className="w-full rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 font-medium py-3 text-sm transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+        >
+          {loadingMore ? (
+            <>
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-gray-600" />
+              Loading...
+            </>
+          ) : (
+            'Load More ↓'
+          )}
+        </button>
       )}
 
       <BackendWorkDrawer

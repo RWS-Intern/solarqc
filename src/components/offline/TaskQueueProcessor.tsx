@@ -10,9 +10,13 @@ import {
   doc, updateDoc, addDoc, collection, serverTimestamp,
   getDoc, arrayUnion, increment, Timestamp, runTransaction,
 } from 'firebase/firestore';
-import { db }                 from '@/firebase/config';
-import { assignLeastLoaded }  from '@/utils/findLeastLoadedUser';
-import type { QueuedTaskUpdate } from '@/types';
+import { db }                       from '@/firebase/config';
+import { assignLeastLoaded }        from '@/utils/findLeastLoadedUser';
+import { resolveCorrectionReturn }  from '@/hooks/usePipelineActions';
+import { computePriorityScore }     from '@/utils/taskScoring';
+import { logError }               from '@/utils/logError';
+import { computeSaleClosedEvidence } from '@/utils/computeSaleClosed';
+import type { QueuedTaskUpdate, PipelineStage } from '@/types';
 
 function base64ToFile(base64: string, filename: string): File {
   const arr   = base64.split(',');
@@ -62,6 +66,7 @@ async function uploadFieldPhotos(
           return await uploadIfBase64(url, taskNum, 'field', i, fieldId, engineerCode, engineerName);
         } catch (err) {
           console.error(`[Queue] Photo upload failed for field ${fieldId} index ${i}:`, err);
+          void logError('offlineQueue.photoUploadFailed', err, { fieldId, index: i });
           return url; // keep original URL on failure
         }
       })
@@ -99,6 +104,7 @@ export function TaskQueueProcessor() {
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : 'Unknown error';
         await updateQueueItem(item.id!, { attempts: item.attempts + 1, lastError: message });
+        void logError('offlineQueue.syncFailed', err, { taskId: item.taskId, attempts: item.attempts });
         failed++;
         continue;
       }
@@ -152,6 +158,31 @@ export function TaskQueueProcessor() {
     const finalCompletionPhotos = rawCompletionPhotos.filter((u): u is string => u !== null);
 
     const taskRef = doc(db, 'tasks', item.taskId);
+
+    // Read the current sale-closed field mapping and the task's existing
+    // saleClosedSource once, up front, so the write below can carry the
+    // recomputed flag without ever overwriting a manual admin override —
+    // same rule as useTaskSubmit.ts and submitDocuments.
+    const cfgSnap = await getDoc(doc(db, 'appConfig', 'global'));
+    const saleClosedConfig = cfgSnap.data()?.['saleClosedConfig'] as
+      import('@/types').SaleClosedConfig | undefined;
+    const curTaskSnap = await getDoc(taskRef);
+    const curTask = curTaskSnap.data() ?? {};
+    const existingSource = curTask['saleClosedSource'] as
+      'auto' | 'manual' | null | undefined;
+    const newSaleClosed = computeSaleClosedEvidence(
+      {
+        fieldAnswers:    item.payload.fieldAnswers,
+        fieldPhotos:     finalFieldPhotos,
+        documentAnswers: curTask['documentAnswers'],
+        documentPhotos:  curTask['documentPhotos'],
+      },
+      saleClosedConfig,
+    );
+    const saleClosedUpdate = existingSource === 'manual'
+      ? {}
+      : { saleClosed: newSaleClosed, saleClosedSource: 'auto' as const };
+
     await updateDoc(taskRef, {
       status:           item.payload.status,
       blockedReason:    item.payload.blockedReason ?? null,
@@ -165,6 +196,7 @@ export function TaskQueueProcessor() {
       submittedBy:      currentUser?.uid ?? '',
       submittedAt:      serverTimestamp(),
       updatedAt:        serverTimestamp(),
+      ...saleClosedUpdate,
     });
 
     if (!item.historyWritten) {
@@ -185,9 +217,6 @@ export function TaskQueueProcessor() {
     }
 
     // ── Pipeline transition for completed survey ──────────────
-    // If engineer submitted as completed while offline,
-    // the pipeline transition (survey → proposal) was not
-    // queued. Trigger it now if still needed.
     if (item.payload.status === 'completed') {
       try {
         const freshSnap = await getDoc(taskRef);
@@ -196,23 +225,59 @@ export function TaskQueueProcessor() {
         const freshData = freshSnap.data();
         const stage     = freshData['pipelineStage'] as string;
 
-        // Only trigger if still at survey stage
-        // (avoid re-triggering if already moved)
+        // Only trigger if still at survey stage (avoid re-triggering if already moved)
         if (stage !== 'survey') return;
 
-        const stageHistoryEntry = {
-          fromStage: 'survey'   as const,
-          toStage:   'proposal' as const,
-          timestamp: Timestamp.now(),
-          actorUid:  currentUser?.uid   ?? '',
-          actorName: currentUser?.name  ?? '',
-          actorRole: 'field',
-          note:      '(synced from offline queue)',
-        };
+        let offlineTargetStage:      PipelineStage = 'proposal';
+        let offlineIsReturning                     = false;
+        let offlineReturnAssignedTo: string | null = null;
+        let offlineReturnAssignedToName            = '';
 
-        // Move to proposal stage — all three writes atomic in one transaction
         const surveyStageRef = doc(db, 'tasks', item.taskId, 'stages', 'survey');
         await runTransaction(db, async (tx) => {
+          const taskSnap = await tx.get(taskRef);
+          if (!taskSnap.exists()) return;
+
+          const corrResult = resolveCorrectionReturn(taskSnap.data() as Record<string, unknown>, 'proposal');
+          offlineTargetStage          = corrResult.targetStage;
+          offlineIsReturning          = corrResult.isReturning;
+          offlineReturnAssignedTo     = corrResult.returnAssignedTo;
+          offlineReturnAssignedToName = corrResult.returnAssignedToName;
+
+          const stageHistoryEntry = {
+            fromStage: 'survey' as const,
+            toStage:   offlineTargetStage,
+            timestamp: Timestamp.now(),
+            actorUid:  currentUser?.uid  ?? '',
+            actorName: currentUser?.name ?? '',
+            actorRole: 'field',
+            note:      '(synced from offline queue)',
+          };
+
+          const taskUpdates: Record<string, unknown> = {
+            pipelineStage: offlineTargetStage,
+            priorityScore: computePriorityScore(offlineTargetStage, 'completed'),
+            stageHistory:  arrayUnion(stageHistoryEntry),
+            updatedAt:     serverTimestamp(),
+          };
+
+          if (offlineIsReturning) {
+            taskUpdates['correctionReturnTo']             = null;
+            taskUpdates['correctionReturnAssignedTo']     = null;
+            taskUpdates['correctionReturnAssignedToName'] = '';
+            taskUpdates['correctionNote']                 = '';
+            taskUpdates['correctionSetAt']                = null;
+            if (offlineReturnAssignedTo) {
+              if (offlineTargetStage === 'proposal') {
+                taskUpdates['proposalAssignedTo']     = offlineReturnAssignedTo;
+                taskUpdates['proposalAssignedToName'] = offlineReturnAssignedToName;
+              } else if (offlineTargetStage === 'backend') {
+                taskUpdates['backendAssignedTo']     = offlineReturnAssignedTo;
+                taskUpdates['backendAssignedToName'] = offlineReturnAssignedToName;
+              }
+            }
+          }
+
           tx.set(surveyStageRef, {
             fieldAnswers:       item.payload.fieldAnswers,
             fieldPhotos:        finalFieldPhotos,
@@ -221,39 +286,60 @@ export function TaskQueueProcessor() {
             submittedBy:        currentUser?.uid ?? '',
             surveyFormSnapshot: item.payload.fields ?? [],
           });
-          tx.update(taskRef, {
-            pipelineStage: 'proposal',
-            stageHistory:  arrayUnion(stageHistoryEntry),
-            updatedAt:     serverTimestamp(),
-          });
-          tx.update(doc(db, 'appConfig', 'global'), {
-            'pipelineCounts.survey':              increment(-1),
-            'pipelineCounts.proposal':            increment(1),
-            'pipelineCounts.unassigned_proposal': increment(1),
-          });
+          tx.update(taskRef, taskUpdates);
+
+          const countUpdates: Record<string, unknown> = {
+            'pipelineCounts.survey':                       increment(-1),
+            [`pipelineCounts.${offlineTargetStage}`]:      increment(1),
+          };
+          if (offlineIsReturning && offlineReturnAssignedTo) {
+            countUpdates[`memberCounts.${offlineReturnAssignedTo}`] = increment(1);
+          } else if (!offlineIsReturning || !offlineReturnAssignedTo) {
+            if (offlineTargetStage === 'proposal') {
+              countUpdates['pipelineCounts.unassigned_proposal'] = increment(1);
+            } else if (offlineTargetStage === 'backend') {
+              countUpdates['pipelineCounts.unassigned_backend'] = increment(1);
+            }
+          }
+          if (['completed', 'dropped'].includes(offlineTargetStage as string)) {
+            countUpdates['pipelineCounts.total_active'] = increment(-1);
+          }
+          tx.update(doc(db, 'appConfig', 'global'), countUpdates);
         });
 
-        // Auto-assign to least loaded proposal member
-        try {
-          const assigned = await assignLeastLoaded(
-            item.taskId,
-            'proposal',
-            'proposalAssignedTo',
-            'proposalAssignedToName',
-          );
-          if (assigned) {
-            await updateDoc(doc(db, 'appConfig', 'global'), {
-              'pipelineCounts.unassigned_proposal': increment(-1),
-            }).catch(console.error);
+        if (offlineIsReturning && offlineReturnAssignedTo) {
+          // Assignee restored directly in transaction — nothing more to do
+        } else if ((offlineTargetStage as string) === 'backend') {
+          try {
+            const assigned = await assignLeastLoaded(item.taskId, 'backend', 'backendAssignedTo', 'backendAssignedToName');
+            if (assigned) {
+              await updateDoc(doc(db, 'appConfig', 'global'), {
+                'pipelineCounts.unassigned_backend': increment(-1),
+              }).catch(console.error);
+            }
+          } catch (assignErr) {
+            console.error('[Queue] offline auto-assign backend failed:', assignErr);
           }
-        } catch (assignErr) {
-          console.error('[Queue] offline auto-assign failed:', assignErr);
+        } else if ((offlineTargetStage as string) === 'proposal') {
+          try {
+            const assigned = await assignLeastLoaded(item.taskId, 'proposal', 'proposalAssignedTo', 'proposalAssignedToName');
+            if (assigned) {
+              await updateDoc(doc(db, 'appConfig', 'global'), {
+                'pipelineCounts.unassigned_proposal': increment(-1),
+              }).catch(console.error);
+            }
+          } catch (assignErr) {
+            console.error('[Queue] offline auto-assign proposal failed:', assignErr);
+          }
         }
+        // else: target is field_review, documents, completed, or dropped —
+        // none of these have an assignable team member, do nothing.
 
+        if (offlineIsReturning) {
+          console.log(`[Queue] Correction resolved for offline item ${item.taskId} — task returned to ${offlineTargetStage}`);
+        }
         console.warn('[Queue] Pipeline transition triggered for offline survey completion:', item.taskId);
       } catch (pipelineErr) {
-        // Non-fatal — log but don't fail the queue item
-        // The main task data was already saved successfully
         console.error('[Queue] Pipeline transition failed for offline item:', pipelineErr);
       }
     }

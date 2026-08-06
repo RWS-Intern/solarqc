@@ -1,14 +1,17 @@
 import {
   doc, updateDoc, addDoc, collection, serverTimestamp, Timestamp, arrayUnion,
-  increment, runTransaction,
+  increment, runTransaction, getDoc,
 } from 'firebase/firestore';
 import { db } from '@/firebase/config';
 import { assignLeastLoaded } from '@/utils/findLeastLoadedUser';
+import { resolveCorrectionReturn } from '@/hooks/usePipelineActions';
 import { useAuthStore } from '@/store/authStore';
 import { useToast } from '@/components/ui/toast';
 import { computePriorityScore } from '@/utils/taskScoring';
 import { enqueueTaskUpdate } from '@/hooks/useTaskOfflineQueue';
-import type { TaskStatus, FieldType, FieldDefinition } from '@/types';
+import { logError } from '@/utils/logError';
+import { computeSaleClosedEvidence } from '@/utils/computeSaleClosed';
+import type { TaskStatus, FieldType, FieldDefinition, PipelineStage } from '@/types';
 
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -34,6 +37,29 @@ export function useTaskSubmit() {
 
     const taskRef = doc(db, 'tasks', taskId);
 
+    // Read the current sale-closed field mapping and the task's existing
+    // saleClosedSource once, up front, so the Step-1 write below can carry
+    // the recomputed flag without ever overwriting a manual admin override.
+    const cfgSnap = await getDoc(doc(db, 'appConfig', 'global'));
+    const saleClosedConfig = cfgSnap.data()?.['saleClosedConfig'] as
+      import('@/types').SaleClosedConfig | undefined;
+    const curTaskSnap = await getDoc(taskRef);
+    const curTask = curTaskSnap.data() ?? {};
+    const existingSource = curTask['saleClosedSource'] as
+      'auto' | 'manual' | null | undefined;
+    const newSaleClosed = computeSaleClosedEvidence(
+      {
+        fieldAnswers:    data.fieldAnswers,
+        fieldPhotos:     data.fieldPhotos,
+        documentAnswers: curTask['documentAnswers'],
+        documentPhotos:  curTask['documentPhotos'],
+      },
+      saleClosedConfig,
+    );
+    const saleClosedUpdate = existingSource === 'manual'
+      ? {}
+      : { saleClosed: newSaleClosed, saleClosedSource: 'auto' as const };
+
     // Step 1: Save main task data — retried up to 3 times on transient errors.
     // Photos are already in Cloudinary at this point (uploaded at capture time in
     // PhotoZone.tsx). Retrying guarantees the https:// URLs are committed to Firestore
@@ -53,6 +79,7 @@ export function useTaskSubmit() {
           submittedBy:   currentUser.uid,
           submittedAt:   serverTimestamp(),
           updatedAt:     serverTimestamp(),
+          ...saleClosedUpdate,
         });
         lastWriteErr = undefined;
         break;
@@ -63,6 +90,8 @@ export function useTaskSubmit() {
         if (attempt < 3) {
           console.warn(`[useTaskSubmit] Retrying main write, attempt ${attempt + 1} of 3`);
           await wait(RETRY_DELAYS[attempt - 1]);
+        } else {
+          void logError('taskSubmit.mainWrite', err, { taskId, attempt });
         }
       }
     }
@@ -95,29 +124,63 @@ export function useTaskSubmit() {
       }
     }
 
-    // Step 2: Pipeline transition — survey → proposal (only on completed)
+    // Step 2: Pipeline transition — survey → proposal (or correction-return stage)
     if (data.status === 'completed') {
-      const stageHistoryEntry = {
-        fromStage: 'survey' as const,
-        toStage:   'proposal' as const,
-        timestamp: Timestamp.now(),
-        actorUid:  currentUser.uid,
-        actorName: currentUser.name,
-        actorRole: 'field',
-        note:      '',
-      };
+      let surveyTargetStage:      PipelineStage = 'proposal';
+      let surveyIsReturning                     = false;
+      let surveyReturnAssignedTo: string | null = null;
+      let surveyReturnAssignedToName            = '';
 
       let pipelineTransitionErr: unknown;
       for (let attempt = 1; attempt <= 3; attempt++) {
         try {
           const surveyStageRef = doc(db, 'tasks', taskId, 'stages', 'survey');
           await runTransaction(db, async (tx) => {
-            tx.update(taskRef, {
-              pipelineStage: 'proposal',
-              priorityScore: computePriorityScore('proposal', 'completed'),
+            const taskSnap = await tx.get(taskRef);
+            if (!taskSnap.exists()) throw new Error('Task not found');
+
+            const corrResult = resolveCorrectionReturn(taskSnap.data() as Record<string, unknown>, 'proposal');
+            surveyTargetStage          = corrResult.targetStage;
+            surveyIsReturning          = corrResult.isReturning;
+            surveyReturnAssignedTo     = corrResult.returnAssignedTo;
+            surveyReturnAssignedToName = corrResult.returnAssignedToName;
+
+            const stageHistoryEntry = {
+              fromStage: 'survey' as const,
+              toStage:   surveyTargetStage,
+              timestamp: Timestamp.now(),
+              actorUid:  currentUser.uid,
+              actorName: currentUser.name,
+              actorRole: 'field',
+              note:      '',
+            };
+
+            const taskUpdates: Record<string, unknown> = {
+              pipelineStage: surveyTargetStage,
+              priorityScore: computePriorityScore(surveyTargetStage, 'completed'),
               stageHistory:  arrayUnion(stageHistoryEntry),
               updatedAt:     serverTimestamp(),
-            });
+            };
+
+            if (surveyIsReturning) {
+              taskUpdates['correctionReturnTo']             = null;
+              taskUpdates['correctionReturnAssignedTo']     = null;
+              taskUpdates['correctionReturnAssignedToName'] = '';
+              taskUpdates['correctionNote']                 = '';
+              taskUpdates['correctionSetAt']                = null;
+              if (surveyReturnAssignedTo) {
+                if (surveyTargetStage === 'proposal') {
+                  taskUpdates['proposalAssignedTo']     = surveyReturnAssignedTo;
+                  taskUpdates['proposalAssignedToName'] = surveyReturnAssignedToName;
+                } else if (surveyTargetStage === 'backend') {
+                  taskUpdates['backendAssignedTo']     = surveyReturnAssignedTo;
+                  taskUpdates['backendAssignedToName'] = surveyReturnAssignedToName;
+                }
+              }
+            }
+
+            tx.update(taskRef, taskUpdates);
+
             tx.set(surveyStageRef, {
               fieldAnswers:       data.fieldAnswers,
               fieldPhotos:        data.fieldPhotos,
@@ -126,11 +189,24 @@ export function useTaskSubmit() {
               submittedBy:        currentUser.uid,
               surveyFormSnapshot: data.fields,
             });
-            tx.update(doc(db, 'appConfig', 'global'), {
-              'pipelineCounts.survey':             increment(-1),
-              'pipelineCounts.proposal':           increment(1),
-              'pipelineCounts.unassigned_proposal': increment(1),
-            });
+
+            const countUpdates: Record<string, unknown> = {
+              'pipelineCounts.survey':                    increment(-1),
+              [`pipelineCounts.${surveyTargetStage}`]:    increment(1),
+            };
+            if (surveyIsReturning && surveyReturnAssignedTo) {
+              countUpdates[`memberCounts.${surveyReturnAssignedTo}`] = increment(1);
+            } else if (!surveyIsReturning || !surveyReturnAssignedTo) {
+              if (surveyTargetStage === 'proposal') {
+                countUpdates['pipelineCounts.unassigned_proposal'] = increment(1);
+              } else if (surveyTargetStage === 'backend') {
+                countUpdates['pipelineCounts.unassigned_backend'] = increment(1);
+              }
+            }
+            if (['completed', 'dropped'].includes(surveyTargetStage as string)) {
+              countUpdates['pipelineCounts.total_active'] = increment(-1);
+            }
+            tx.update(doc(db, 'appConfig', 'global'), countUpdates);
           });
 
           pipelineTransitionErr = undefined;
@@ -140,6 +216,8 @@ export function useTaskSubmit() {
           if (attempt < 3) {
             console.warn(`[Pipeline] Retrying survey → proposal transition, attempt ${attempt + 1} of 3`);
             await wait(RETRY_DELAYS[attempt - 1]);
+          } else {
+            void logError('taskSubmit.pipelineTransition', err, { taskId, attempt });
           }
         }
       }
@@ -147,28 +225,36 @@ export function useTaskSubmit() {
       if (pipelineTransitionErr !== undefined) {
         console.error('[Pipeline] FAILED to transition survey → proposal after 3 attempts:', pipelineTransitionErr);
         showToast('Submission saved, but the stage transition failed. Admin has been notified.', 'error');
-      } else {
-        // Auto-assign to least loaded proposal team member (best-effort — counts already committed above)
+      } else if (surveyIsReturning && surveyReturnAssignedTo) {
+        // Assignee restored directly in transaction — nothing more to do
+      } else if ((surveyTargetStage as string) === 'backend') {
         try {
-          const assigned = await assignLeastLoaded(
-            taskId,
-            'proposal',
-            'proposalAssignedTo',
-            'proposalAssignedToName',
-          );
+          const assigned = await assignLeastLoaded(taskId, 'backend', 'backendAssignedTo', 'backendAssignedToName');
           if (assigned) {
-            // Decrement unassigned counter
+            await updateDoc(doc(db, 'appConfig', 'global'), {
+              'pipelineCounts.unassigned_backend': increment(-1),
+            }).catch((err) => console.error('[Pipeline] unassigned decrement failed:', err));
+          }
+        } catch (assignErr) {
+          console.error('[Pipeline] auto-assign backend failed:', assignErr);
+        }
+      } else if ((surveyTargetStage as string) === 'proposal') {
+        try {
+          const assigned = await assignLeastLoaded(taskId, 'proposal', 'proposalAssignedTo', 'proposalAssignedToName');
+          if (assigned) {
             await updateDoc(doc(db, 'appConfig', 'global'), {
               'pipelineCounts.unassigned_proposal': increment(-1),
-            }).catch((err) =>
-              console.error('[Pipeline] unassigned decrement failed:', err)
-            );
+            }).catch((err) => console.error('[Pipeline] unassigned decrement failed:', err));
           }
-          // If assigned is null: task stays unassigned
-          // Admin sees it in unassigned filter
         } catch (assignErr) {
           console.error('[Pipeline] auto-assign proposal failed:', assignErr);
         }
+      }
+      // else: target is field_review, documents, completed, or dropped —
+      // none of these have an assignable team member, do nothing.
+
+      if (pipelineTransitionErr === undefined && surveyIsReturning) {
+        showToast(`Correction resolved — task returned to ${(surveyTargetStage as string).replace('_', ' ')}.`, 'success');
       }
     }
 
@@ -189,6 +275,7 @@ export function useTaskSubmit() {
       });
     } catch (err) {
       console.error('[Firestore] Failed to write update history:', err);
+      void logError('taskSubmit.updateHistory', err, { taskId });
     }
 
     showToast('Update submitted', 'success');

@@ -12,6 +12,7 @@ import { doc, getDoc }        from 'firebase/firestore';
 import { db }                 from '@/firebase/config';
 import { getProposalDocuments } from '@/utils/proposalDocuments';
 import { ProposalDocumentList } from '@/components/pipeline/ProposalDocumentList';
+import { logError } from '@/utils/logError';
 import type { Task, ProposalStageData, SurveyStageData } from '@/types';
 
 interface ProposalWorkDrawerProps {
@@ -40,7 +41,7 @@ function formatFileSize(bytes: number): string {
 }
 
 export function ProposalWorkDrawer({ task, onClose }: ProposalWorkDrawerProps) {
-  const { submitProposal } = usePipelineActions();
+  const { submitProposal, updateProposalRemark } = usePipelineActions();
   const { showToast }      = useToast();
   const fileInputRef       = useRef<HTMLInputElement>(null);
 
@@ -52,37 +53,55 @@ export function ProposalWorkDrawer({ task, onClose }: ProposalWorkDrawerProps) {
   const [loadingExisting, setLoadingExisting] = useState(false);
   const [surveyData,      setSurveyData]      = useState<SurveyStageData | null>(null);
   const [fieldReviewData, setFieldReviewData] = useState<FieldReviewDecisionData | null>(null);
+  const fetchIdRef = useRef(0);
+
+  // Per-upload note
+  const [uploadNote, setUploadNote] = useState('');
+
+  // Universal proposal remark
+  const [proposalRemark,        setProposalRemark]        = useState('');
+  const [editingProposalRemark, setEditingProposalRemark] = useState(false);
+  const [proposalRemarkSaving,  setProposalRemarkSaving]  = useState(false);
 
   // Load existing proposal + survey + field_review stage data when drawer opens
   useEffect(() => {
+    const fetchId = ++fetchIdRef.current;
     if (!task) {
       setSelectedFiles([]);
       setFileProgress([]);
+      setUploadNote('');
       setExistingData(null);
       setSurveyData(null);
       setFieldReviewData(null);
+      setProposalRemark('');
+      setEditingProposalRemark(false);
       return;
     }
+    setProposalRemark(task.proposalRemark ?? '');
+    setEditingProposalRemark(false);
     setLoadingExisting(true);
     getDoc(doc(db, 'tasks', task.id, 'stages', 'proposal'))
       .then((snap) => {
+        if (fetchId !== fetchIdRef.current) return;
         if (snap.exists()) setExistingData(snap.data() as ProposalStageData);
         else setExistingData(null);
       })
-      .catch(() => setExistingData(null))
-      .finally(() => setLoadingExisting(false));
+      .catch((err) => { if (fetchId !== fetchIdRef.current) return; void logError('proposalWorkDrawer.fetchExistingData', err, { taskId: task?.id }); setExistingData(null); })
+      .finally(() => { if (fetchId !== fetchIdRef.current) return; setLoadingExisting(false); });
     getDoc(doc(db, 'tasks', task.id, 'stages', 'survey'))
       .then((snap) => {
+        if (fetchId !== fetchIdRef.current) return;
         if (snap.exists()) setSurveyData(snap.data() as SurveyStageData);
         else setSurveyData(null);
       })
-      .catch(() => setSurveyData(null));
+      .catch((err) => { if (fetchId !== fetchIdRef.current) return; void logError('proposalWorkDrawer.fetchSurveyData', err, { taskId: task?.id }); setSurveyData(null); });
     getDoc(doc(db, 'tasks', task.id, 'stages', 'field_review'))
       .then((snap) => {
+        if (fetchId !== fetchIdRef.current) return;
         if (snap.exists()) setFieldReviewData(snap.data() as FieldReviewDecisionData);
         else setFieldReviewData(null);
       })
-      .catch(() => setFieldReviewData(null));
+      .catch((err) => { if (fetchId !== fetchIdRef.current) return; void logError('proposalWorkDrawer.fetchFieldReviewData', err, { taskId: task?.id }); setFieldReviewData(null); });
   }, [task?.id]);
 
   function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
@@ -93,11 +112,11 @@ export function ProposalWorkDrawer({ task, onClose }: ProposalWorkDrawerProps) {
     const validFiles: File[] = [];
     for (const file of files) {
       if (file.type !== 'application/pdf') {
-        alert(`"${file.name}" is not a PDF. Only PDF files are allowed for proposals.`);
+        showToast(`"${file.name}" is not a PDF. Only PDF files are allowed for proposals.`, 'error');
         continue;
       }
       if (file.size > 20 * 1024 * 1024) {
-        alert(`"${file.name}" exceeds the 20MB limit.`);
+        showToast(`"${file.name}" exceeds the 20MB limit.`, 'error');
         continue;
       }
       validFiles.push(file);
@@ -133,15 +152,17 @@ export function ProposalWorkDrawer({ task, onClose }: ProposalWorkDrawerProps) {
           })
             .then((result) => ({ url: result.url, name: file.name }))
             .catch((err) => {
+              void logError('proposalWorkDrawer.fileUpload', err, { taskId: task?.id });
               throw new Error(`Failed to upload "${file.name}": ${err instanceof Error ? err.message : 'unknown error'}`);
             })
         ),
       );
       setUploading(false);
 
-      await submitProposal(task.id, results);
+      await submitProposal(task.id, results, uploadNote.trim() || undefined);
       setSelectedFiles([]);
       setFileProgress([]);
+      setUploadNote('');
       onClose();
     } catch (err) {
       console.error('[ProposalWorkDrawer] submit failed:', err);
@@ -262,6 +283,79 @@ export function ProposalWorkDrawer({ task, onClose }: ProposalWorkDrawerProps) {
             </div>
           )}
 
+          {/* ── Proposal Remark (universal / lead-level, internal only) ── */}
+          <div className="rounded-lg border border-purple-200 bg-purple-50 px-4 py-3">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-semibold text-purple-700 uppercase tracking-wide">
+                Proposal Remark
+              </p>
+              {!editingProposalRemark && (
+                <button
+                  type="button"
+                  onClick={() => { setProposalRemark(task?.proposalRemark ?? ''); setEditingProposalRemark(true); }}
+                  className="flex items-center gap-1 text-[10px] text-purple-600 hover:text-purple-800 transition-colors"
+                >
+                  <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                  </svg>
+                  Edit
+                </button>
+              )}
+            </div>
+            {editingProposalRemark ? (
+              <div className="flex flex-col gap-1.5">
+                <textarea
+                  value={proposalRemark}
+                  onChange={(e) => setProposalRemark(e.target.value)}
+                  rows={3}
+                  autoFocus
+                  placeholder="Add an internal note about this lead..."
+                  className="w-full rounded-lg border border-purple-200 bg-white px-3 py-2 text-sm text-gray-700 resize-none focus:outline-none focus:ring-2 focus:ring-purple-300 placeholder:text-gray-300"
+                />
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    disabled={proposalRemarkSaving}
+                    onClick={async () => {
+                      if (!task) return;
+                      setProposalRemarkSaving(true);
+                      try {
+                        await updateProposalRemark(task.id, proposalRemark);
+                        setEditingProposalRemark(false);
+                      } catch {
+                        // error toast in hook
+                      } finally {
+                        setProposalRemarkSaving(false);
+                      }
+                    }}
+                    className="rounded-lg bg-purple-500 hover:bg-purple-600 disabled:opacity-40 text-white text-xs font-semibold px-3 py-1.5 transition-all"
+                  >
+                    {proposalRemarkSaving ? 'Saving...' : 'Save Remark'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setEditingProposalRemark(false); setProposalRemark(task?.proposalRemark ?? ''); }}
+                    className="rounded-lg border border-gray-200 text-gray-600 text-xs font-medium px-3 py-1.5 hover:bg-gray-50 transition-all"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : task?.proposalRemark ? (
+              <>
+                <p className="text-sm text-gray-800 whitespace-pre-wrap">{task.proposalRemark}</p>
+                {task.proposalRemarkUpdatedBy && (
+                  <p className="text-[10px] text-purple-600 mt-1">
+                    Last updated by {task.proposalRemarkUpdatedBy}
+                    {task.proposalRemarkUpdatedAt && ` on ${task.proposalRemarkUpdatedAt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}`}
+                  </p>
+                )}
+              </>
+            ) : (
+              <p className="text-sm text-gray-400 italic">No internal remark yet.</p>
+            )}
+          </div>
+
           {/* Description */}
           {task?.description && (
             <div>
@@ -278,6 +372,16 @@ export function ProposalWorkDrawer({ task, onClose }: ProposalWorkDrawerProps) {
             </div>
           )}
 
+          {/* State */}
+          {task?.state && (
+            <div className="flex items-center gap-2 text-xs">
+              <span className="text-gray-500">State:</span>
+              <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-600">
+                {task.state}
+              </span>
+            </div>
+          )}
+
           {/* District */}
           {task?.district && (
             <div className="flex items-center gap-2 text-xs">
@@ -285,6 +389,22 @@ export function ProposalWorkDrawer({ task, onClose }: ProposalWorkDrawerProps) {
               <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-600">
                 {task.district}
               </span>
+            </div>
+          )}
+
+          {/* Lead Source */}
+          {task?.leadSource && (
+            <div className="flex items-center gap-2 text-xs">
+              <span className="text-gray-500">Lead Source:</span>
+              <span className="inline-flex items-center rounded-full bg-purple-50 px-2 py-0.5 text-xs font-medium text-purple-600">
+                {task.leadSource}
+              </span>
+              {task.leadSource === 'Employee' && task.leadSourceEmployeeName && (
+                <span className="text-gray-400">({task.leadSourceEmployeeName})</span>
+              )}
+              {task.leadSource === 'Field Engineer' && task.leadGeneratedByName && (
+                <span className="text-gray-400">— {task.leadGeneratedByName}</span>
+              )}
             </div>
           )}
 
@@ -425,6 +545,11 @@ export function ProposalWorkDrawer({ task, onClose }: ProposalWorkDrawerProps) {
                 Previous Proposal
               </p>
               <ProposalDocumentList documents={getProposalDocuments(existingData)} />
+              {existingData.proposalNote && (
+                <p className="text-xs text-blue-700 mt-2 italic">
+                  💬 Your note from last upload: {existingData.proposalNote}
+                </p>
+              )}
               {(existingData.revisions?.length ?? 0) > 0 && (
                 <p className="text-xs text-blue-500 mt-1">
                   + {existingData.revisions.length} earlier version{existingData.revisions.length !== 1 ? 's' : ''}
@@ -503,6 +628,21 @@ export function ProposalWorkDrawer({ task, onClose }: ProposalWorkDrawerProps) {
             />
           </div>
 
+          {/* Per-upload note */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm font-semibold text-gray-700">
+              Note for Field Engineer{' '}
+              <span className="font-normal text-gray-400">(optional)</span>
+            </label>
+            <textarea
+              value={uploadNote}
+              onChange={(e) => setUploadNote(e.target.value)}
+              rows={2}
+              placeholder="Any context the field engineer should know..."
+              className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 resize-none focus:outline-none focus:ring-2 focus:ring-gray-300 placeholder:text-gray-300"
+            />
+          </div>
+
           {/* Submit button */}
           <Button
             onClick={handleSubmit}
@@ -531,27 +671,7 @@ export function ProposalWorkDrawer({ task, onClose }: ProposalWorkDrawerProps) {
                 Proposal History
               </p>
 
-              {/* All previous revisions */}
-              {(existingData.revisions ?? []).map((rev, i) => {
-                const revDate = (rev.uploadedAt as unknown as { toDate?: () => Date })?.toDate?.()
-                  ?? (rev.uploadedAt instanceof Date ? rev.uploadedAt : new Date());
-                return (
-                  <div key={i} className="flex items-center gap-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
-                    <span className="text-lg">📄</span>
-                    <div className="flex-1 min-w-0">
-                      <ProposalDocumentList documents={getProposalDocuments(rev)} />
-                      <p className="text-xs text-gray-400">
-                        Revision {i + 1} · {rev.uploadedByName} ·{' '}
-                        {revDate.toLocaleDateString('en-IN', {
-                          day: '2-digit', month: 'short', year: 'numeric',
-                        })}
-                      </p>
-                    </div>
-                  </div>
-                );
-              })}
-
-              {/* Current submitted proposal */}
+              {/* Current submitted proposal — always at the top (newest of all) */}
               <div className="flex items-center gap-3 rounded-lg border border-purple-200 bg-purple-50 px-3 py-2">
                 <span className="text-lg">📄</span>
                 <div className="flex-1 min-w-0">
@@ -565,6 +685,32 @@ export function ProposalWorkDrawer({ task, onClose }: ProposalWorkDrawerProps) {
                   </p>
                 </div>
               </div>
+
+              {/* Past revisions — newest first, but chronological label (Revision 1 = first ever) */}
+              {[...(existingData.revisions ?? [])].reverse().map((rev, revIdx) => {
+                const totalRevisions = existingData.revisions?.length ?? 0;
+                const revDate = (rev.uploadedAt as unknown as { toDate?: () => Date })?.toDate?.()
+                  ?? (rev.uploadedAt instanceof Date ? rev.uploadedAt : new Date());
+                // Original chronological label: newest item displayed (revIdx=0) gets the highest number
+                const revisionLabel = totalRevisions - revIdx;
+                return (
+                  <div key={revIdx} className="flex items-center gap-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+                    <span className="text-lg">📄</span>
+                    <div className="flex-1 min-w-0">
+                      <ProposalDocumentList documents={getProposalDocuments(rev)} />
+                      <p className="text-xs text-gray-400">
+                        Revision {revisionLabel} · {rev.uploadedByName} ·{' '}
+                        {revDate.toLocaleDateString('en-IN', {
+                          day: '2-digit', month: 'short', year: 'numeric',
+                        })}
+                      </p>
+                      {rev.revisionNote && (
+                        <p className="text-xs text-gray-500 italic mt-0.5">💬 {rev.revisionNote}</p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>

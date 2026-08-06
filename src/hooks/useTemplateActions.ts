@@ -191,5 +191,58 @@ export function useTemplateActions() {
     }
   }
 
-  return { saveTemplate, saveDocumentTemplate, saveBackendJourneySteps, saveDistricts };
+  async function saveDistrictsByState(districtsByState: Record<string, string[]>): Promise<void> {
+    try {
+      // Keep the flat districts list in sync — flatten all states' districts
+      // into one array, so every EXISTING consumer of config.districts
+      // (CreateTaskModal, CreateUserModal, EditUserModal, bulk upload, both
+      // page filters) continues working unchanged, with zero risk, until
+      // those are deliberately updated in a later phase.
+      const flatDistricts = Object.values(districtsByState).flat();
+      await updateDoc(doc(db, 'appConfig', 'global'), {
+        districtsByState,
+        districts: flatDistricts,
+        updatedAt: serverTimestamp(),
+      });
+      showToast('States and districts saved', 'success');
+    } catch (err) {
+      console.error('[saveDistrictsByState] failed:', err);
+      showToast('Failed to save states and districts. Try again.', 'error');
+      throw err;
+    }
+  }
+
+  async function saveLeadSources(leadSources: string[]): Promise<void> {
+    try {
+      await updateDoc(doc(db, 'appConfig', 'global'), {
+        leadSources,
+        updatedAt: serverTimestamp(),
+      });
+      showToast('Lead sources saved', 'success');
+    } catch (err) {
+      console.error('[saveLeadSources] failed:', err);
+      showToast('Failed to save lead sources. Try again.', 'error');
+      throw err;
+    }
+  }
+
+  async function saveSaleClosedConfig(
+    saleClosedConfig: import('@/types').SaleClosedConfig,
+  ): Promise<void> {
+    try {
+      await updateDoc(doc(db, 'appConfig', 'global'), {
+        saleClosedConfig,
+        updatedAt: serverTimestamp(),
+      });
+      showToast('Sales Closed field mapping saved', 'success');
+    } catch (err) {
+      console.error('[saveSaleClosedConfig] failed:', err);
+      void import('@/utils/logError').then(({ logError }) =>
+        logError('template.saveSaleClosedConfig', err, {}));
+      showToast('Failed to save mapping. Try again.', 'error');
+      throw err;
+    }
+  }
+
+  return { saveTemplate, saveDocumentTemplate, saveBackendJourneySteps, saveDistricts, saveDistrictsByState, saveLeadSources, saveSaleClosedConfig };
 }

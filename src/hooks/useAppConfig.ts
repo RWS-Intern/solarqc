@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '@/firebase/config';
+import { useToast } from '@/components/ui/toast';
 import type { AppConfig, FieldDefinition, JourneyStepDefinition } from '@/types';
 
 const DEFAULT_CONFIG: AppConfig = {
@@ -13,11 +14,14 @@ const DEFAULT_CONFIG: AppConfig = {
   superAdminUid:      '',
   pipelineCounts:     undefined,
   memberCounts:       undefined,
+  engineerCounts:     {},
+  districtCounts:     {},
 };
 
 export function useAppConfig() {
   const [config, setConfig]   = useState<AppConfig>(DEFAULT_CONFIG);
   const [loading, setLoading] = useState(true);
+  const { showToast } = useToast();
 
   useEffect(() => {
     const unsubscribe = onSnapshot(
@@ -37,13 +41,19 @@ export function useAppConfig() {
             superAdminUid:            (data['superAdminUid']            as string) ?? '',
             pipelineCounts:           data['pipelineCounts'] as AppConfig['pipelineCounts'] ?? undefined,
             memberCounts:             data['memberCounts'] as Record<string, number> | undefined,
-            districts:                (data['districts'] ?? []) as string[],
+            districts:                (data['districts']    ?? []) as string[],
+            leadSources:              (data['leadSources']  ?? []) as string[],
+            districtsByState:         (data['districtsByState'] ?? {}) as Record<string, string[]>,
+            engineerCounts:           (data['engineerCounts'] as AppConfig['engineerCounts']) ?? {},
+            districtCounts:           (data['districtCounts'] as AppConfig['districtCounts']) ?? {},
+            saleClosedConfig:         data['saleClosedConfig'] as import('@/types').SaleClosedConfig | undefined,
           });
         }
         setLoading(false);
       },
       (err) => {
         console.error('[useAppConfig] error:', err);
+        showToast('Failed to load app configuration. Please refresh.', 'error');
         setLoading(false);
       },
     );

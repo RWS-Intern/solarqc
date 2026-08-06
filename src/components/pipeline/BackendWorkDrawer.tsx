@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { ChevronDown, ChevronUp, Camera } from 'lucide-react';
+import { ChevronDown, ChevronUp, Camera, Pencil } from 'lucide-react';
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle,
 } from '@/components/ui/sheet';
@@ -14,6 +14,8 @@ import { doc, getDoc }        from 'firebase/firestore';
 import { db }                 from '@/firebase/config';
 import { getProposalDocuments } from '@/utils/proposalDocuments';
 import { ProposalDocumentList } from '@/components/pipeline/ProposalDocumentList';
+import { getProposalNoteRecipientLabel } from '@/utils/proposalNoteLabel';
+import { logError } from '@/utils/logError';
 import type {
   Task, JourneyStepAnswer, SurveyStageData, DocumentsStageData, ProposalStageData,
 } from '@/types';
@@ -41,7 +43,7 @@ export function BackendWorkDrawer({ task, onClose, isReadOnly = false }: Backend
   const { currentUser }                                  = useAuthStore();
   const { showToast }                                    = useToast();
   const { config }                                       = useAppConfig();
-  const { initializeJourneySteps, completeJourneyStep, markLeadConverted, saveJourneyStepDraft } = usePipelineActions();
+  const { initializeJourneySteps, completeJourneyStep, markLeadConverted, saveJourneyStepDraft, saveJourneyStepRemark, updateBackendRemark } = usePipelineActions();
   const initialisedForTaskId                             = useRef<string | null>(null);
 
   // Survey data
@@ -54,6 +56,7 @@ export function BackendWorkDrawer({ task, onClose, isReadOnly = false }: Backend
   const [stepDoneValue,   setStepDoneValue]   = useState<'yes' | 'no' | null>(null);
   const [stepDate,        setStepDate]        = useState('');
   const [stepPhotos,      setStepPhotos]      = useState<string[]>([]);
+  const stepPhotosRef = useRef<string[]>([]);
   const [photoFiles,      setPhotoFiles]      = useState<File[]>([]);
   const [submittingStep,  setSubmittingStep]  = useState(false);
   const [converting,      setConverting]      = useState(false);
@@ -65,6 +68,15 @@ export function BackendWorkDrawer({ task, onClose, isReadOnly = false }: Backend
   const [initializingPayment, setInitializingPayment] = useState(false);
   const [pendingPaymentType,  setPendingPaymentType]  = useState<'cash' | 'loan' | null>(null);
 
+  // Universal backend remark
+  const [backendRemark,         setBackendRemark]         = useState('');
+  const [backendRemarkSaving,   setBackendRemarkSaving]   = useState(false);
+  const [editingBackendRemark,  setEditingBackendRemark]  = useState(false);
+
+  // Per-step remark
+  const [stepRemark,          setStepRemark]          = useState('');
+  const [stepRemarkSaving,    setStepRemarkSaving]    = useState(false);
+
   useEffect(() => {
     if (!task) {
       initialisedForTaskId.current = null;
@@ -74,12 +86,18 @@ export function BackendWorkDrawer({ task, onClose, isReadOnly = false }: Backend
       setLoadingStageData(false);
       setStepDoneValue(null);
       setStepDate('');
+      stepPhotos.forEach((url) => URL.revokeObjectURL(url));
       setStepPhotos([]);
       setPhotoFiles([]);
       setShowErrors(false);
       setPendingPaymentType(null);
+      setBackendRemark('');
+      setEditingBackendRemark(false);
+      setStepRemark('');
       return;
     }
+    setBackendRemark(task.backendRemark ?? '');
+    setEditingBackendRemark(false);
     if (initialisedForTaskId.current === task.id) return;
     initialisedForTaskId.current = task.id;
 
@@ -99,10 +117,18 @@ export function BackendWorkDrawer({ task, onClose, isReadOnly = false }: Backend
       if (documentsSnap.exists()) {
         setDocumentsData(documentsSnap.data() as DocumentsStageData);
       }
-    }).catch(() => {}).finally(() => {
+    }).catch((err) => void logError('backendWorkDrawer.fetchData', err, { taskId: task?.id })).finally(() => {
       setLoadingStageData(false);
     });
   }, [task?.id]);
+
+  // Keep ref in sync so the unmount cleanup sees the latest URLs
+  useEffect(() => { stepPhotosRef.current = stepPhotos; }, [stepPhotos]);
+
+  // Revoke any remaining blob URLs on unmount to prevent memory leaks
+  useEffect(() => {
+    return () => { stepPhotosRef.current.forEach((url) => URL.revokeObjectURL(url)); };
+  }, []);
 
   // Reset step inputs when currentStepIndex changes
   useEffect(() => {
@@ -112,6 +138,7 @@ export function BackendWorkDrawer({ task, onClose, isReadOnly = false }: Backend
     setStepPhotos([]);
     setPhotoFiles([]);
     setShowErrors(false);
+    setStepRemark('');
   }, [task?.id, task?.currentStepIndex]);
 
   const steps: JourneyStepAnswer[] = task?.applicationJourneySteps ?? [];
@@ -154,6 +181,7 @@ export function BackendWorkDrawer({ task, onClose, isReadOnly = false }: Backend
   }
 
   function handlePhotoRemove(idx: number) {
+    URL.revokeObjectURL(stepPhotos[idx]);
     setStepPhotos((prev) => prev.filter((_, i) => i !== idx));
     setPhotoFiles((prev) => prev.filter((_, i) => i !== idx));
   }
@@ -225,6 +253,7 @@ export function BackendWorkDrawer({ task, onClose, isReadOnly = false }: Backend
 
       const d = new Date();
       const todayLocal = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+      stepPhotos.forEach((url) => URL.revokeObjectURL(url));
       setStepDoneValue(null);
       setStepDate(todayLocal);
       setStepPhotos([]);
@@ -383,6 +412,90 @@ export function BackendWorkDrawer({ task, onClose, isReadOnly = false }: Backend
             )}
           </div>
 
+          {/* ── Backend Remark (universal / lead-level) ── */}
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide">
+                Backend Remark
+              </p>
+              {!isReadOnly && !editingBackendRemark && (
+                <button
+                  type="button"
+                  onClick={() => { setBackendRemark(task?.backendRemark ?? ''); setEditingBackendRemark(true); }}
+                  className="flex items-center gap-1 text-[10px] text-amber-600 hover:text-amber-800 transition-colors"
+                >
+                  <Pencil className="h-3 w-3" /> Edit
+                </button>
+              )}
+            </div>
+            {isReadOnly ? (
+              task?.backendRemark ? (
+                <>
+                  <p className="text-sm text-gray-800 whitespace-pre-wrap">{task.backendRemark}</p>
+                  {task.backendRemarkUpdatedBy && (
+                    <p className="text-[10px] text-amber-600 mt-1">
+                      Last updated by {task.backendRemarkUpdatedBy}
+                      {task.backendRemarkUpdatedAt && ` on ${task.backendRemarkUpdatedAt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}`}
+                    </p>
+                  )}
+                </>
+              ) : (
+                <p className="text-sm text-gray-400 italic">No remark yet.</p>
+              )
+            ) : editingBackendRemark ? (
+              <div className="flex flex-col gap-1.5">
+                <textarea
+                  value={backendRemark}
+                  onChange={(e) => setBackendRemark(e.target.value)}
+                  rows={3}
+                  autoFocus
+                  placeholder="Add a remark about this lead..."
+                  className="w-full rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm text-gray-700 resize-none focus:outline-none focus:ring-2 focus:ring-amber-300 placeholder:text-gray-300"
+                />
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    disabled={backendRemarkSaving}
+                    onClick={async () => {
+                      if (!task) return;
+                      setBackendRemarkSaving(true);
+                      try {
+                        await updateBackendRemark(task.id, backendRemark);
+                        setEditingBackendRemark(false);
+                      } catch {
+                        // error toast in hook
+                      } finally {
+                        setBackendRemarkSaving(false);
+                      }
+                    }}
+                    className="rounded-lg bg-amber-500 hover:bg-amber-600 disabled:opacity-40 text-white text-xs font-semibold px-3 py-1.5 transition-all"
+                  >
+                    {backendRemarkSaving ? 'Saving...' : 'Save Remark'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setEditingBackendRemark(false); setBackendRemark(task?.backendRemark ?? ''); }}
+                    className="rounded-lg border border-gray-200 text-gray-600 text-xs font-medium px-3 py-1.5 hover:bg-gray-50 transition-all"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : task?.backendRemark ? (
+              <>
+                <p className="text-sm text-gray-800 whitespace-pre-wrap">{task.backendRemark}</p>
+                {task.backendRemarkUpdatedBy && (
+                  <p className="text-[10px] text-amber-600 mt-1">
+                    Last updated by {task.backendRemarkUpdatedBy}
+                    {task.backendRemarkUpdatedAt && ` on ${task.backendRemarkUpdatedAt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}`}
+                  </p>
+                )}
+              </>
+            ) : (
+              <p className="text-sm text-gray-400 italic">No remark yet.</p>
+            )}
+          </div>
+
           {/* Description */}
           {task?.description && (
             <div>
@@ -399,6 +512,16 @@ export function BackendWorkDrawer({ task, onClose, isReadOnly = false }: Backend
             </div>
           )}
 
+          {/* State */}
+          {task?.state && (
+            <div className="flex items-center gap-2 text-xs">
+              <span className="text-gray-500">State:</span>
+              <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-600">
+                {task.state}
+              </span>
+            </div>
+          )}
+
           {/* District */}
           {task?.district && (
             <div className="flex items-center gap-2 text-xs">
@@ -406,6 +529,22 @@ export function BackendWorkDrawer({ task, onClose, isReadOnly = false }: Backend
               <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-600">
                 {task.district}
               </span>
+            </div>
+          )}
+
+          {/* Lead Source */}
+          {task?.leadSource && (
+            <div className="flex items-center gap-2 text-xs">
+              <span className="text-gray-500">Lead Source:</span>
+              <span className="inline-flex items-center rounded-full bg-purple-50 px-2 py-0.5 text-xs font-medium text-purple-600">
+                {task.leadSource}
+              </span>
+              {task.leadSource === 'Employee' && task.leadSourceEmployeeName && (
+                <span className="text-gray-400">({task.leadSourceEmployeeName})</span>
+              )}
+              {task.leadSource === 'Field Engineer' && task.leadGeneratedByName && (
+                <span className="text-gray-400">— {task.leadGeneratedByName}</span>
+              )}
             </div>
           )}
 
@@ -417,12 +556,35 @@ export function BackendWorkDrawer({ task, onClose, isReadOnly = false }: Backend
             </div>
           ) : (
             <>
+          {/* Proposal Remark (internal) — read-only for backend team */}
+          {task?.proposalRemark && (
+            <div className="rounded-lg border border-purple-200 bg-purple-50 px-4 py-3">
+              <p className="text-xs font-semibold text-purple-700 uppercase tracking-wide mb-2">
+                Proposal Remark (internal)
+              </p>
+              <p className="text-sm text-gray-800 whitespace-pre-wrap">{task.proposalRemark}</p>
+              {task.proposalRemarkUpdatedBy && (
+                <p className="text-[10px] text-purple-600 mt-1">
+                  Last updated by {task.proposalRemarkUpdatedBy}
+                  {task.proposalRemarkUpdatedAt && ` on ${task.proposalRemarkUpdatedAt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}`}
+                </p>
+              )}
+            </div>
+          )}
+
           {getProposalDocuments(proposalDoc).length > 0 && (
             <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3">
               <p className="text-xs font-semibold text-blue-600 uppercase tracking-wide mb-2">
                 Proposal Document
               </p>
               <ProposalDocumentList documents={getProposalDocuments(proposalDoc)} />
+              {proposalDoc?.proposalNote && (
+                <div className="rounded-lg border border-blue-100 bg-white px-3 py-2 mt-2">
+                  <p className="text-xs text-blue-700">
+                    📝 {getProposalNoteRecipientLabel(proposalDoc?.submittedToStage)}: {proposalDoc.proposalNote}
+                  </p>
+                </div>
+              )}
             </div>
           )}
 
@@ -792,6 +954,22 @@ export function BackendWorkDrawer({ task, onClose, isReadOnly = false }: Backend
                         ))}
                       </div>
                     )}
+                    {(step.remarks ?? []).length > 0 && (
+                      <div className="mt-2 flex flex-col gap-1 border-t border-green-100 pt-2">
+                        {[...(step.remarks ?? [])].reverse().map((r, i) => {
+                          const ts = r.createdAt as unknown as { toDate?: () => Date };
+                          const d = r.createdAt instanceof Date ? r.createdAt : ts?.toDate?.() ?? null;
+                          return (
+                            <p key={i} className="text-[10px] text-gray-500">
+                              💬 {r.text}
+                              <span className="text-gray-400 ml-1">
+                                — {r.authorName}{d ? `, ${d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}` : ''}
+                              </span>
+                            </p>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}
@@ -962,6 +1140,60 @@ export function BackendWorkDrawer({ task, onClose, isReadOnly = false }: Backend
                       </>
                     )}
                   </div>
+
+                  {/* Per-step remark input (write path only) */}
+                  {!isReadOnly && (
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-xs font-medium text-gray-600">
+                        Remark <span className="text-gray-400 font-normal">(optional)</span>
+                      </label>
+                      <textarea
+                        value={stepRemark}
+                        onChange={(e) => setStepRemark(e.target.value)}
+                        rows={2}
+                        placeholder="Add a note about this step..."
+                        className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 resize-none focus:outline-none focus:ring-2 focus:ring-orange-200 placeholder:text-gray-300"
+                      />
+                      <button
+                        type="button"
+                        disabled={stepRemarkSaving || !stepRemark.trim()}
+                        onClick={async () => {
+                          if (!task || !stepRemark.trim()) return;
+                          setStepRemarkSaving(true);
+                          try {
+                            await saveJourneyStepRemark(task.id, currentIdx, stepRemark, steps);
+                            setStepRemark('');
+                          } catch {
+                            // error toast in hook
+                          } finally {
+                            setStepRemarkSaving(false);
+                          }
+                        }}
+                        className="self-end rounded-lg border border-orange-300 bg-white hover:bg-orange-50 text-orange-700 text-xs font-semibold px-3 py-1.5 transition-all disabled:opacity-40"
+                      >
+                        {stepRemarkSaving ? 'Saving...' : 'Save Remark'}
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Existing remarks on current step */}
+                  {(currentStep.remarks ?? []).length > 0 && (
+                    <div className="flex flex-col gap-1 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                      <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-0.5">Remarks</p>
+                      {[...(currentStep.remarks ?? [])].reverse().map((r, i) => {
+                        const ts = r.createdAt as unknown as { toDate?: () => Date };
+                        const d = r.createdAt instanceof Date ? r.createdAt : ts?.toDate?.() ?? null;
+                        return (
+                          <p key={i} className="text-xs text-gray-600">
+                            💬 {r.text}
+                            <span className="text-gray-400 ml-1 text-[10px]">
+                              — {r.authorName}{d ? `, ${d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}` : ''}
+                            </span>
+                          </p>
+                        );
+                      })}
+                    </div>
+                  )}
 
                   {/* Submit button */}
                   {!isReadOnly && <Button

@@ -10,6 +10,8 @@ import { useTaskActions }    from '@/hooks/useTaskActions';
 import { useFieldEngineers } from '@/hooks/useFieldEngineers';
 import { useToast }          from '@/components/ui/toast';
 import { DistrictCombobox }   from '@/components/ui/DistrictCombobox';
+import { StateCombobox }      from '@/components/ui/StateCombobox';
+import { LeadSourceCombobox } from '@/components/ui/LeadSourceCombobox';
 import { EngineerCombobox }   from '@/components/ui/EngineerCombobox';
 import { checkDuplicateConsumerMobile } from '@/utils/checkDuplicateMobile';
 
@@ -28,7 +30,12 @@ export function CreateTaskModal({ open, onClose }: CreateTaskModalProps) {
   const [title,          setTitle]          = useState('');
   const [description,    setDescription]    = useState('');
   const [consumerMobile, setConsumerMobile] = useState('');
-  const [district,       setDistrict]       = useState('');
+  const [state,                   setState]                   = useState('');
+  const [district,                setDistrict]                = useState('');
+  const [leadSource,              setLeadSource]              = useState('');
+  const [leadSourceEmployeeName,  setLeadSourceEmployeeName]  = useState('');
+  const [leadGeneratedByUid,      setLeadGeneratedByUid]      = useState<string | null>(null);
+  const [leadGeneratedByNote,     setLeadGeneratedByNote]     = useState('');
   const [assigneeUid,    setAssigneeUid]    = useState('');
   const [dueDate,        setDueDate]        = useState('');
   const [submitting,     setSubmitting]     = useState(false);
@@ -39,7 +46,12 @@ export function CreateTaskModal({ open, onClose }: CreateTaskModalProps) {
     setTitle('');
     setDescription('');
     setConsumerMobile('');
+    setState('');
     setDistrict('');
+    setLeadSource('');
+    setLeadSourceEmployeeName('');
+    setLeadGeneratedByUid(null);
+    setLeadGeneratedByNote('');
     setAssigneeUid('');
     setDueDate('');
     setSubmitting(false);
@@ -79,10 +91,22 @@ export function CreateTaskModal({ open, onClose }: CreateTaskModalProps) {
           return;
         }
       }
+      const leadGenUid = leadSource === 'Field Engineer'
+        ? (leadGeneratedByUid ?? engineer?.uid ?? null)
+        : null;
+      const leadGenName = leadSource === 'Field Engineer'
+        ? (engineers.find((e) => e.uid === leadGenUid)?.displayName ?? '')
+        : '';
       await createTask({
         title,
-        description:      description || undefined,
-        district:         district    || undefined,
+        description:             description || undefined,
+        state:                   state       || undefined,
+        district:                district    || undefined,
+        leadSource:              leadSource  || undefined,
+        leadSourceEmployeeName:  leadSource === 'Employee' ? leadSourceEmployeeName || undefined : undefined,
+        leadGeneratedByUid:      leadSource === 'Field Engineer' ? leadGenUid : null,
+        leadGeneratedByName:     leadSource === 'Field Engineer' ? leadGenName : undefined,
+        leadGeneratedByNote:     leadSource === 'Field Engineer' ? leadGeneratedByNote || undefined : undefined,
         assignedTo:       engineer?.uid          ?? null,
         assignedToName:   engineer?.displayName  ?? '',
         assignedToCode:   engineer?.engineerCode ?? '',
@@ -162,11 +186,74 @@ export function CreateTaskModal({ open, onClose }: CreateTaskModalProps) {
             )}
           </div>
 
+          {/* State */}
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="ct-state">State</Label>
+            <StateCombobox
+              id="ct-state"
+              value={state}
+              onChange={(val) => { setState(val); setDistrict(''); }}
+            />
+          </div>
+
           {/* District */}
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="ct-district">District</Label>
-            <DistrictCombobox id="ct-district" value={district} onChange={setDistrict} />
+            <DistrictCombobox id="ct-district" value={district} onChange={setDistrict} state={state} />
           </div>
+
+          {/* Lead Source */}
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="ct-lead-source">Lead Source</Label>
+            <LeadSourceCombobox
+              id="ct-lead-source"
+              value={leadSource}
+              onChange={(val) => {
+                setLeadSource(val);
+                setLeadSourceEmployeeName('');
+                setLeadGeneratedByUid(null);
+                setLeadGeneratedByNote('');
+              }}
+            />
+          </div>
+
+          {leadSource === 'Employee' && (
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="ct-ls-employee">Employee Name</Label>
+              <Input
+                id="ct-ls-employee"
+                value={leadSourceEmployeeName}
+                onChange={(e) => setLeadSourceEmployeeName(e.target.value)}
+                placeholder="Name of the employee who generated this lead"
+                className="h-12"
+              />
+            </div>
+          )}
+
+          {leadSource === 'Field Engineer' && (
+            <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="ct-ls-engineer">Lead Generated By (Engineer)</Label>
+                <EngineerCombobox
+                  engineers={engineers}
+                  value={leadGeneratedByUid ?? assigneeUid}
+                  onChange={(uid) => setLeadGeneratedByUid(uid || null)}
+                  disabled={engLoading}
+                  allowUnassigned
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="ct-ls-note">Note (optional)</Label>
+                <Input
+                  id="ct-ls-note"
+                  value={leadGeneratedByNote}
+                  onChange={(e) => setLeadGeneratedByNote(e.target.value)}
+                  placeholder="Additional note about this lead source"
+                  className="h-12"
+                />
+              </div>
+            </div>
+          )}
 
           <div className="border-t border-gray-100" />
 

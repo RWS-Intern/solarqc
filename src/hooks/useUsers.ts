@@ -33,6 +33,7 @@ export function useUsers() {
             engineerCode:     data['engineerCode']       ?? undefined,
             mobileNumber:     (data['mobileNumber'] as string | undefined) ?? undefined,
             district:         (data['district'] as string | undefined) ?? undefined,
+            state:            (data['state']    as string | undefined) ?? undefined,
           };
         });
 

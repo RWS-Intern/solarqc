@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { CheckCircle2, XCircle, RefreshCw } from 'lucide-react';
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle,
@@ -13,6 +13,7 @@ import { doc, getDoc }        from 'firebase/firestore';
 import { db }                 from '@/firebase/config';
 import { getProposalDocuments } from '@/utils/proposalDocuments';
 import { ProposalDocumentList } from '@/components/pipeline/ProposalDocumentList';
+import { logError } from '@/utils/logError';
 import type { Task, ProposalStageData } from '@/types';
 
 interface FieldReviewDrawerProps {
@@ -39,24 +40,27 @@ export function FieldReviewDrawer({ task, onClose, onAcceptedToDocuments }: Fiel
   const [revisionNote,    setRevisionNote]    = useState('');
   const [confirming,      setConfirming]      = useState(false);
   const [submitting,      setSubmitting]      = useState(false);
+  const fetchIdRef = useRef(0);
 
-  // Load proposal stage data when drawer opens
+  // Load proposal stage data when drawer opens; reset decision state on every task change
   useEffect(() => {
+    const fetchId = ++fetchIdRef.current;
+    setDecision(null);
+    setRevisionNote('');
+    setConfirming(false);
     if (!task) {
       setProposalData(null);
-      setDecision(null);
-      setRevisionNote('');
-      setConfirming(false);
       return;
     }
     setLoadingProposal(true);
     getDoc(doc(db, 'tasks', task.id, 'stages', 'proposal'))
       .then((snap) => {
+        if (fetchId !== fetchIdRef.current) return;
         if (snap.exists()) setProposalData(snap.data() as ProposalStageData);
         else setProposalData(null);
       })
-      .catch(() => setProposalData(null))
-      .finally(() => setLoadingProposal(false));
+      .catch((err) => { if (fetchId !== fetchIdRef.current) return; void logError('fieldReviewDrawer.fetchProposalData', err, { taskId: task?.id }); setProposalData(null); })
+      .finally(() => { if (fetchId !== fetchIdRef.current) return; setLoadingProposal(false); });
   }, [task?.id]);
 
   async function handleConfirm() {
@@ -156,6 +160,16 @@ export function FieldReviewDrawer({ task, onClose, onAcceptedToDocuments }: Fiel
             </div>
           )}
 
+          {/* State */}
+          {task?.state && (
+            <div className="flex items-center gap-2 text-xs">
+              <span className="text-gray-500">State:</span>
+              <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-600">
+                {task.state}
+              </span>
+            </div>
+          )}
+
           {/* District */}
           {task?.district && (
             <div className="flex items-center gap-2 text-xs">
@@ -163,6 +177,22 @@ export function FieldReviewDrawer({ task, onClose, onAcceptedToDocuments }: Fiel
               <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-600">
                 {task.district}
               </span>
+            </div>
+          )}
+
+          {/* Lead Source */}
+          {task?.leadSource && (
+            <div className="flex items-center gap-2 text-xs">
+              <span className="text-gray-500">Lead Source:</span>
+              <span className="inline-flex items-center rounded-full bg-purple-50 px-2 py-0.5 text-xs font-medium text-purple-600">
+                {task.leadSource}
+              </span>
+              {task.leadSource === 'Employee' && task.leadSourceEmployeeName && (
+                <span className="text-gray-400">({task.leadSourceEmployeeName})</span>
+              )}
+              {task.leadSource === 'Field Engineer' && task.leadGeneratedByName && (
+                <span className="text-gray-400">— {task.leadGeneratedByName}</span>
+              )}
             </div>
           )}
 
@@ -176,6 +206,13 @@ export function FieldReviewDrawer({ task, onClose, onAcceptedToDocuments }: Fiel
             ) : proposalAvailable ? (
               <div className="flex flex-col gap-2">
                 <ProposalDocumentList documents={getProposalDocuments(proposalData)} />
+                {proposalData?.proposalNote && (
+                  <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2">
+                    <p className="text-xs text-blue-700">
+                      📝 Note from Proposal Team: {proposalData.proposalNote}
+                    </p>
+                  </div>
+                )}
                 {(task?.proposalRevisionCount ?? 0) > 0 && (
                   <p className="text-xs text-orange-600">
                     Revision {task?.proposalRevisionCount} — updated proposal

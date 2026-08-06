@@ -1,15 +1,18 @@
 import { useEffect } from 'react';
 import {
-  collection, query, where, orderBy, onSnapshot,
+  collection, query, where, orderBy,
   getDocs, startAfter, limit,
   type DocumentSnapshot,
 } from 'firebase/firestore';
 import { db }           from '@/firebase/config';
 import { useAuthStore } from '@/store/authStore';
 import { useTaskStore } from '@/store/taskStore';
+import { useStageTaskList } from '@/hooks/useStageTaskList';
+import { logError } from '@/utils/logError';
 import type { Task, PipelineStage, StageHistoryEntry, JourneyStepAnswer } from '@/types';
 
-function docToBackendTask(d: { id: string; data: () => Record<string, unknown> }): Task {
+// Exported so BackendManagerPage can pass it as the mapper to useStageTaskList
+export function docToBackendTask(d: { id: string; data: () => Record<string, unknown> }): Task {
   const data = d.data();
   return {
     id:               d.id,
@@ -18,7 +21,13 @@ function docToBackendTask(d: { id: string; data: () => Record<string, unknown> }
     priorityScore:    (data['priorityScore']   as number | undefined) ?? 6,
     titleWords:       (data['titleWords']      as string[] | undefined) ?? [],
     description:      (data['description']     as string)  ?? undefined,
-    district:         (data['district']        as string)  ?? undefined,
+    district:                (data['district']                as string | undefined) ?? undefined,
+    state:                   (data['state']                   as string | undefined) ?? undefined,
+    leadSource:              (data['leadSource']              as string | undefined) ?? undefined,
+    leadSourceEmployeeName:  (data['leadSourceEmployeeName']  as string | undefined) ?? undefined,
+    leadGeneratedByUid:      (data['leadGeneratedByUid']      as string | null)      ?? null,
+    leadGeneratedByName:     (data['leadGeneratedByName']     as string | undefined) ?? undefined,
+    leadGeneratedByNote:     (data['leadGeneratedByNote']     as string | undefined) ?? undefined,
     assignedTo:       (data['assignedTo']      as string | null) ?? null,
     assignedToName:   (data['assignedToName']  as string)  ?? '',
     assignedToCode:   (data['assignedToCode']  as string)  ?? '',
@@ -55,6 +64,22 @@ function docToBackendTask(d: { id: string; data: () => Record<string, unknown> }
     installationAssignedToName:  (data['installationAssignedToName']  as string) ?? '',
     proposalRevisionCount:   (data['proposalRevisionCount']   as number) ?? 0,
     droppedReason:           (data['droppedReason']           as string | null) ?? null,
+    correctionReturnTo:             (data['correctionReturnTo']             as PipelineStage | null | undefined) ?? null,
+    saleClosed:                     (data['saleClosed']       as boolean | undefined) ?? false,
+    saleClosedSource:               (data['saleClosedSource'] as 'auto' | 'manual' | null | undefined) ?? null,
+    correctionReturnAssignedTo:     (data['correctionReturnAssignedTo']     as string | null | undefined)        ?? null,
+    correctionReturnAssignedToName: (data['correctionReturnAssignedToName'] as string | undefined)               ?? '',
+    correctionNote:                 (data['correctionNote']                 as string | undefined)               ?? undefined,
+    correctionSetAt:                (data['correctionSetAt'] as { toDate?: () => Date } | null)?.toDate?.()      ?? null,
+    backendRemark:           (data['backendRemark']           as string | undefined) ?? undefined,
+    backendRemarkUpdatedBy:  (data['backendRemarkUpdatedBy']  as string | undefined) ?? undefined,
+    backendRemarkUpdatedAt:  (data['backendRemarkUpdatedAt'] as { toDate?: () => Date } | null)?.toDate?.() ?? null,
+    proposalRemark:          (data['proposalRemark']          as string | undefined) ?? undefined,
+    proposalRemarkUpdatedBy: (data['proposalRemarkUpdatedBy'] as string | undefined) ?? undefined,
+    proposalRemarkUpdatedAt: (data['proposalRemarkUpdatedAt'] as { toDate?: () => Date } | null)?.toDate?.() ?? null,
+    documentAnswers:         (data['documentAnswers']         as Task['documentAnswers']) ?? {},
+    documentPhotos:          (data['documentPhotos']          as Task['documentPhotos'])  ?? {},
+    documentsCompleted:      (data['documentsCompleted']      as boolean) ?? false,
     paymentType:             ((data['paymentType'] as string) ?? null) as 'cash' | 'loan' | null,
     applicationJourneySteps: ((data['applicationJourneySteps'] as JourneyStepAnswer[]) ?? []).map((s) => ({
                                ...s,
@@ -70,38 +95,50 @@ const HISTORY_PAGE = 50;
 
 export function useBackendTasks() {
   const { currentUser } = useAuthStore();
-  const { setBackendTasks, setBackendTasksLoading } = useTaskStore();
+  const {
+    setBackendTasks,
+    setBackendTasksLoading,
+    setBackendActiveCount,
+  } = useTaskStore();
 
+  // Determine scope: admin sees all, non-admin scoped to own uid
+  const assigneeField = currentUser?.role === 'admin' ? null : 'backendAssignedTo';
+  const assigneeUid   = currentUser?.role === 'admin' ? undefined : currentUser?.uid;
+  const enabled       = !!currentUser && (
+    currentUser.role === 'backend' || currentUser.role === 'admin'
+  );
+
+  // ── Paginated active-task list (replaces unbounded onSnapshot) ──────────────
+  const activeList = useStageTaskList(
+    'backend',
+    assigneeField,
+    assigneeUid,
+    docToBackendTask,
+    enabled,
+  );
+
+  // Sync active tasks + loading state into taskStore so nav badges,
+  // DashboardPage, and BackendPage (reading from store) stay consistent
+  useEffect(() => {
+    setBackendTasks(activeList.tasks);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeList.tasks]);
+
+  useEffect(() => {
+    setBackendTasksLoading(activeList.isLoading);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeList.isLoading]);
+
+  useEffect(() => {
+    setBackendActiveCount(activeList.activeCount);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeList.activeCount]);
+
+  // ── History: initial page load (unchanged logic) ────────────────────────────
   useEffect(() => {
     if (!currentUser) return;
     if (currentUser.role !== 'backend' && currentUser.role !== 'admin') return;
 
-    setBackendTasksLoading(true);
-
-    const q = currentUser.role === 'admin'
-      ? query(
-          collection(db, 'tasks'),
-          where('pipelineStage', '==', 'backend'),
-          where('archived', '==', false),
-          orderBy('createdAt', 'desc'),
-        )
-      : query(
-          collection(db, 'tasks'),
-          where('pipelineStage', '==', 'backend'),
-          where('backendAssignedTo', '==', currentUser.uid),
-          where('archived', '==', false),
-          orderBy('createdAt', 'desc'),
-        );
-
-    const unsub = onSnapshot(q, (snap) => {
-      setBackendTasks(snap.docs.map(docToBackendTask));
-      setBackendTasksLoading(false);
-    }, (err) => {
-      console.error('[useBackendTasks] error:', err);
-      setBackendTasksLoading(false);
-    });
-
-    // Load initial history page
     const {
       setBackendHistoryTasks,
       setBackendHistoryLoading,
@@ -134,12 +171,22 @@ export function useBackendTasks() {
       setBackendHistoryLastDoc(snap.docs[snap.docs.length - 1] ?? null);
     }).catch((err) => {
       console.error('[useBackendTasks] history error:', err);
+      void logError('useBackendTasks.listener', err, {});
       setBackendHistoryLoading(false);
     });
-
-    return unsub;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser?.uid]);
+
+  // Return active-list pagination + search so BackendPage can wire them up
+  return {
+    loadMore:      activeList.loadMore,
+    hasMore:       activeList.hasMore,
+    loadingMore:   activeList.loadingMore,
+    search:        activeList.search,
+    searchResults: activeList.searchResults,
+    isSearching:   activeList.isSearching,
+    clearSearch:   activeList.clearSearch,
+  };
 }
 
 export function useLoadMoreBackendHistory() {

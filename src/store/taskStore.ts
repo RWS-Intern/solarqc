@@ -48,6 +48,11 @@ interface TaskState {
   backendHistoryLastDoc:    unknown;
   setBackendHistoryHasMore: (v: boolean) => void;
   setBackendHistoryLastDoc: (d: unknown) => void;
+  // Accurate active counts from getCountFromServer (independent of pagination)
+  proposalActiveCount:    number;
+  setProposalActiveCount: (v: number) => void;
+  backendActiveCount:     number;
+  setBackendActiveCount:  (v: number) => void;
 }
 
 export const useTaskStore = create<TaskState>((set) => ({
@@ -89,4 +94,8 @@ export const useTaskStore = create<TaskState>((set) => ({
   backendHistoryLastDoc:    null,
   setBackendHistoryHasMore: (v) => set({ backendHistoryHasMore: v }),
   setBackendHistoryLastDoc: (d) => set({ backendHistoryLastDoc: d }),
+  proposalActiveCount:    0,
+  setProposalActiveCount: (v) => set({ proposalActiveCount: v }),
+  backendActiveCount:     0,
+  setBackendActiveCount:  (v) => set({ backendActiveCount: v }),
 }));

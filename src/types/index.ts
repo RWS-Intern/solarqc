@@ -15,6 +15,7 @@ export interface User {
   deletedAt?:        Date | null;
   photoURL?:         string;
   district?:         string;
+  state?:            string;
   fcmToken?:         string;
   fcmTokenUpdatedAt?: Date;
 }
@@ -31,6 +32,7 @@ export interface AppUser {
   deletedAt?:        Date | null;
   photoURL?:         string;
   district?:         string;
+  state?:            string;
 }
 
 // ─── Task Form Template ────────────────────────────────────────────────────────
@@ -50,6 +52,14 @@ export interface JourneyStepDefinition {
   sortOrder: number;
 }
 
+export interface RemarkEntry {
+  text:       string;
+  authorUid:  string;
+  authorName: string;
+  authorRole: string;
+  createdAt:  Date;
+}
+
 export interface JourneyStepAnswer {
   stepId:     string;
   label:      string;
@@ -60,6 +70,7 @@ export interface JourneyStepAnswer {
   inputValue?: string;
   recordedAt: Date | null;
   recordedBy: string;
+  remarks?:   RemarkEntry[];
 }
 
 export interface FieldDefinition {
@@ -70,6 +81,17 @@ export interface FieldDefinition {
   options:    string[];
   sortOrder:  number;
   unit?:      string;
+}
+
+export interface SaleClosedFieldMap {
+  typeFieldId:   string | null;
+  amountFieldId: string | null;
+  imageFieldId:  string | null;
+}
+
+export interface SaleClosedConfig {
+  survey:    SaleClosedFieldMap;
+  documents: SaleClosedFieldMap;
 }
 
 // ─── AppConfig ─────────────────────────────────────────────────────────────────
@@ -99,7 +121,12 @@ export interface AppConfig {
     total_active:        number;
   };
   memberCounts?: Record<string, number>;
-  districts?:    string[];
+  engineerCounts?:  Record<string, { assigned: number; completed: number; name: string }>;
+  districtCounts?:  Record<string, { total: number; completed: number }>;
+  districts?:         string[];
+  leadSources?:       string[];
+  districtsByState?:  Record<string, string[]>;
+  saleClosedConfig?:  SaleClosedConfig;
 }
 
 // ─── Pipeline ─────────────────────────────────────────────────────────────────
@@ -138,23 +165,26 @@ export interface ProposalDocument {
 }
 
 export interface ProposalRevision {
-  documentUrl:    string;
-  documentName:   string;
-  uploadedAt:     Date;
-  uploadedBy:     string;
-  uploadedByName: string;
-  revisionNote:   string;
-  documents?:     ProposalDocument[];
+  documentUrl:     string;
+  documentName:    string;
+  uploadedAt:      Date;
+  uploadedBy:      string;
+  uploadedByName:  string;
+  revisionNote:    string;
+  documents?:      ProposalDocument[];
+  submittedToStage?: PipelineStage;
 }
 
 export interface ProposalStageData {
-  documentUrl?:    string;
-  documentName?:   string;
-  uploadedAt?:     Date;
-  uploadedBy?:     string;
-  uploadedByName?: string;
-  revisions:       ProposalRevision[];
-  documents?:      ProposalDocument[];
+  documentUrl?:      string;
+  documentName?:     string;
+  uploadedAt?:       Date;
+  uploadedBy?:       string;
+  uploadedByName?:   string;
+  revisions:         ProposalRevision[];
+  documents?:        ProposalDocument[];
+  proposalNote?:     string;
+  submittedToStage?: PipelineStage;
 }
 
 export interface FieldReviewStageData {
@@ -208,7 +238,13 @@ export interface Task {
   priorityScore?:   number;
   titleWords?:      string[];
   description?:     string;
-  district?:        string;
+  district?:               string;
+  state?:                  string;
+  leadSource?:             string;
+  leadSourceEmployeeName?: string;
+  leadGeneratedByUid?:     string | null;
+  leadGeneratedByName?:    string;
+  leadGeneratedByNote?:    string;
   assignedTo:       string | null;
   assignedToName:   string;
   assignedToCode:   string;
@@ -249,9 +285,22 @@ export interface Task {
   installationAssignedToName?: string;
   proposalRevisionCount?:      number;
   droppedReason?:              string | null;
+  correctionReturnTo?:             PipelineStage | null;
+  correctionReturnAssignedTo?:     string | null;
+  correctionReturnAssignedToName?: string;
+  correctionNote?:                 string;
+  correctionSetAt?:                Date | null;
+  backendRemark?:              string;
+  backendRemarkUpdatedBy?:     string;
+  backendRemarkUpdatedAt?:     Date | null;
+  proposalRemark?:             string;
+  proposalRemarkUpdatedBy?:    string;
+  proposalRemarkUpdatedAt?:    Date | null;
   documentAnswers?:            Record<string, string>;
   documentPhotos?:             Record<string, string[]>;
   documentsCompleted?:         boolean;
+  saleClosed?:                 boolean;
+  saleClosedSource?:           'auto' | 'manual' | null;
   paymentType:                 'cash' | 'loan' | null;
   applicationJourneySteps:     JourneyStepAnswer[];
   currentStepIndex:            number;

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Download, Share2, Loader2 } from 'lucide-react';
+import { useToast } from '@/components/ui/toast';
 
 interface ProposalDocumentListProps {
   documents: { url: string; name: string }[];
@@ -15,6 +16,7 @@ function toDownloadUrl(url: string): string {
 
 export function ProposalDocumentList({ documents }: ProposalDocumentListProps) {
   const [sharingIndex, setSharingIndex] = useState<number | null>(null);
+  const { showToast } = useToast();
 
   if (documents.length === 0) return null;
 
@@ -26,6 +28,7 @@ export function ProposalDocumentList({ documents }: ProposalDocumentListProps) {
       // Try to share as actual file first (WhatsApp, etc. receive real PDF)
       if (navigator.canShare && navigator.share) {
         const response = await fetch(url);
+        if (!response.ok) throw new Error('Failed to load document');
         const blob = await response.blob();
         const file = new File([blob], name, { type: 'application/pdf' });
         if (navigator.canShare({ files: [file] })) {
@@ -37,8 +40,11 @@ export function ProposalDocumentList({ documents }: ProposalDocumentListProps) {
       if (navigator.share) {
         await navigator.share({ title: name, url });
       }
-    } catch {
-      // Silently ignore — user cancelled or share failed
+    } catch (err) {
+      // AbortError means the user dismissed the share sheet — no toast needed
+      if (!(err instanceof Error && err.name === 'AbortError')) {
+        showToast('Could not share document. Try again.', 'error');
+      }
     } finally {
       setSharingIndex(null);
     }

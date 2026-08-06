@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/button';
 import { Input }  from '@/components/ui/input';
 import { Label }  from '@/components/ui/label';
 import { Card, CardContent } from '@/components/ui/card';
+import { logError } from '@/utils/logError';
 
 type PageState  = 'loading' | 'invalid' | 'expired' | 'already_used' | 'ready' | 'success';
 type ErrorType  = 'generic' | 'existing_account' | 'partial_account' | null;
@@ -143,6 +144,7 @@ export function SignupPage() {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (err: any) {
       console.error('[Signup] Full error:', err);
+      void logError('auth.signup', err, { inviteId });
       setError('Signup failed. Please try again.');
       setSubmitting(false);
     }

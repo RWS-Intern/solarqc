@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ref, onValue, off } from 'firebase/database';
+import { ref, onValue } from 'firebase/database';
 import { rtdb } from '@/firebase/config';
 import { useAuthStore } from '@/store/authStore';
 
@@ -20,7 +20,7 @@ export function useOnlineUsers() {
 
     const presenceRef = ref(rtdb, 'presence');
 
-    onValue(presenceRef, (snapshot) => {
+    const unsubscribe = onValue(presenceRef, (snapshot) => {
       const data = snapshot.val() ?? {};
       const entries: Record<string, PresenceEntry> = {};
       Object.entries(data).forEach(([uid, val]: [string, unknown]) => {
@@ -36,7 +36,7 @@ export function useOnlineUsers() {
       setPresenceMap(entries);
     });
 
-    return () => { off(presenceRef); };
+    return () => { unsubscribe(); };
   }, [currentUser?.role]);
 
   const onlineUsers = Object.values(presenceMap).filter(u => u.online);

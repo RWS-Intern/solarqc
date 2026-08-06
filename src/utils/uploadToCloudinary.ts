@@ -1,3 +1,5 @@
+import { logError } from '@/utils/logError';
+
 export interface UploadResult {
   url:      string;
   publicId: string;
@@ -96,6 +98,7 @@ async function uploadWithRetry(
       await new Promise<void>((r) => setTimeout(r, 2000));
       return uploadWithRetry(formData, cloudName, isPdf, onProgress, attempt + 1);
     }
+    void logError('upload.cloudinary', err, { attempt, isPdf });
     throw err;
   });
 }

@@ -1,12 +1,14 @@
 import { useEffect } from 'react';
 import {
-  collection, query, where, orderBy, onSnapshot,
+  collection, query, where, orderBy,
   getDocs, startAfter, limit,
   type DocumentSnapshot,
 } from 'firebase/firestore';
 import { db }           from '@/firebase/config';
 import { useAuthStore } from '@/store/authStore';
 import { useTaskStore } from '@/store/taskStore';
+import { useStageTaskList } from '@/hooks/useStageTaskList';
+import { logError } from '@/utils/logError';
 import type { Task, PipelineStage, StageHistoryEntry, JourneyStepAnswer } from '@/types';
 
 function docToProposalTask(d: { id: string; data: () => Record<string, unknown> }): Task {
@@ -18,7 +20,13 @@ function docToProposalTask(d: { id: string; data: () => Record<string, unknown> 
     priorityScore:    (data['priorityScore']   as number | undefined) ?? 6,
     titleWords:       (data['titleWords']      as string[] | undefined) ?? [],
     description:      (data['description']     as string)  ?? undefined,
-    district:         (data['district']        as string)  ?? undefined,
+    district:                (data['district']                as string | undefined) ?? undefined,
+    state:                   (data['state']                   as string | undefined) ?? undefined,
+    leadSource:              (data['leadSource']              as string | undefined) ?? undefined,
+    leadSourceEmployeeName:  (data['leadSourceEmployeeName']  as string | undefined) ?? undefined,
+    leadGeneratedByUid:      (data['leadGeneratedByUid']      as string | null)      ?? null,
+    leadGeneratedByName:     (data['leadGeneratedByName']     as string | undefined) ?? undefined,
+    leadGeneratedByNote:     (data['leadGeneratedByNote']     as string | undefined) ?? undefined,
     assignedTo:       (data['assignedTo']      as string | null) ?? null,
     assignedToName:   (data['assignedToName']  as string)  ?? '',
     assignedToCode:   (data['assignedToCode']  as string)  ?? '',
@@ -55,6 +63,19 @@ function docToProposalTask(d: { id: string; data: () => Record<string, unknown> 
     installationAssignedToName:  (data['installationAssignedToName']  as string) ?? '',
     proposalRevisionCount:   (data['proposalRevisionCount']   as number) ?? 0,
     droppedReason:           (data['droppedReason']           as string | null) ?? null,
+    correctionReturnTo:             (data['correctionReturnTo']             as PipelineStage | null | undefined) ?? null,
+    saleClosed:                     (data['saleClosed']       as boolean | undefined) ?? false,
+    saleClosedSource:               (data['saleClosedSource'] as 'auto' | 'manual' | null | undefined) ?? null,
+    correctionReturnAssignedTo:     (data['correctionReturnAssignedTo']     as string | null | undefined)        ?? null,
+    correctionReturnAssignedToName: (data['correctionReturnAssignedToName'] as string | undefined)               ?? '',
+    correctionNote:                 (data['correctionNote']                 as string | undefined)               ?? undefined,
+    correctionSetAt:                (data['correctionSetAt'] as { toDate?: () => Date } | null)?.toDate?.()      ?? null,
+    backendRemark:           (data['backendRemark']           as string | undefined) ?? undefined,
+    backendRemarkUpdatedBy:  (data['backendRemarkUpdatedBy']  as string | undefined) ?? undefined,
+    backendRemarkUpdatedAt:  (data['backendRemarkUpdatedAt'] as { toDate?: () => Date } | null)?.toDate?.() ?? null,
+    proposalRemark:          (data['proposalRemark']          as string | undefined) ?? undefined,
+    proposalRemarkUpdatedBy: (data['proposalRemarkUpdatedBy'] as string | undefined) ?? undefined,
+    proposalRemarkUpdatedAt: (data['proposalRemarkUpdatedAt'] as { toDate?: () => Date } | null)?.toDate?.() ?? null,
     documentAnswers:         (data['documentAnswers']         as Task['documentAnswers']) ?? {},
     documentPhotos:          (data['documentPhotos']          as Task['documentPhotos'])  ?? {},
     documentsCompleted:      (data['documentsCompleted']      as boolean) ?? false,
@@ -100,38 +121,50 @@ function buildHistoryQuery(
 
 export function useProposalTasks() {
   const { currentUser } = useAuthStore();
-  const { setProposalTasks, setProposalTasksLoading } = useTaskStore();
+  const {
+    setProposalTasks,
+    setProposalTasksLoading,
+    setProposalActiveCount,
+  } = useTaskStore();
 
+  // Determine scope: admin sees all, non-admin scoped to own uid
+  const assigneeField = currentUser?.role === 'admin' ? null : 'proposalAssignedTo';
+  const assigneeUid   = currentUser?.role === 'admin' ? undefined : currentUser?.uid;
+  const enabled       = !!currentUser && (
+    currentUser.role === 'proposal' || currentUser.role === 'admin'
+  );
+
+  // ── Paginated active-task list (replaces unbounded onSnapshot) ──────────────
+  const activeList = useStageTaskList(
+    'proposal',
+    assigneeField,
+    assigneeUid,
+    docToProposalTask,
+    enabled,
+  );
+
+  // Sync active tasks + loading state into taskStore so nav badges,
+  // DashboardPage, and ProposalPage (reading from store) stay consistent
+  useEffect(() => {
+    setProposalTasks(activeList.tasks);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeList.tasks]);
+
+  useEffect(() => {
+    setProposalTasksLoading(activeList.isLoading);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeList.isLoading]);
+
+  useEffect(() => {
+    setProposalActiveCount(activeList.activeCount);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeList.activeCount]);
+
+  // ── History: initial page load (unchanged logic) ────────────────────────────
   useEffect(() => {
     if (!currentUser) return;
     if (currentUser.role !== 'proposal' && currentUser.role !== 'admin') return;
 
-    setProposalTasksLoading(true);
-
-    const q = currentUser.role === 'admin'
-      ? query(
-          collection(db, 'tasks'),
-          where('pipelineStage', '==', 'proposal'),
-          where('archived', '==', false),
-          orderBy('createdAt', 'desc'),
-        )
-      : query(
-          collection(db, 'tasks'),
-          where('pipelineStage', '==', 'proposal'),
-          where('proposalAssignedTo', '==', currentUser.uid),
-          where('archived', '==', false),
-          orderBy('createdAt', 'desc'),
-        );
-
-    const unsub = onSnapshot(q, (snap) => {
-      setProposalTasks(snap.docs.map(docToProposalTask));
-      setProposalTasksLoading(false);
-    }, (err) => {
-      console.error('[useProposalTasks] error:', err);
-      setProposalTasksLoading(false);
-    });
-
-    // Load initial history page
     const {
       setProposalHistoryTasks,
       setProposalHistoryLoading,
@@ -147,12 +180,22 @@ export function useProposalTasks() {
       setProposalHistoryLastDoc(snap.docs[snap.docs.length - 1] ?? null);
     }).catch((err) => {
       console.error('[useProposalTasks] history error:', err);
+      void logError('useProposalTasks.listener', err, {});
       setProposalHistoryLoading(false);
     });
-
-    return unsub;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser?.uid]);
+
+  // Return active-list pagination + search so ProposalPage can wire them up
+  return {
+    loadMore:      activeList.loadMore,
+    hasMore:       activeList.hasMore,
+    loadingMore:   activeList.loadingMore,
+    search:        activeList.search,
+    searchResults: activeList.searchResults,
+    isSearching:   activeList.isSearching,
+    clearSearch:   activeList.clearSearch,
+  };
 }
 
 export function useLoadMoreProposalHistory() {
