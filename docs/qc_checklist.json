@@ -1,0 +1,628 @@
+{
+ "sections": [
+  {
+   "no": 1,
+   "title": "Structural & Mounting Integrity"
+  },
+  {
+   "no": 2,
+   "title": "Electrical & Cable Management"
+  },
+  {
+   "no": 3,
+   "title": "Earthing (Grounding) & Safety Devices"
+  },
+  {
+   "no": 4,
+   "title": "Inverter & Commissioning Checks"
+  },
+  {
+   "no": 5,
+   "title": "Testing & Measurements- (when Fault Occure)"
+  },
+  {
+   "no": 6,
+   "title": "Documentation & Handover (at the time of handover)"
+  },
+  {
+   "no": 7,
+   "title": "Site Cleanliness & Final (instructions in scope of installer)"
+  }
+ ],
+ "items": [
+  {
+   "code": "1.1",
+   "section": 1,
+   "sectionTitle": "Structural & Mounting Integrity",
+   "label": "Structural material",
+   "verify": "Mounting structure is Hot-Dip Galvanized Iron (HDGI) or aluminium \u2014 not painted mild steel",
+   "target": "HDGI / Aluminium",
+   "method": "Visual + material cert",
+   "severity": "Critical",
+   "photoReq": true
+  },
+  {
+   "code": "1.2",
+   "section": 1,
+   "sectionTitle": "Structural & Mounting Integrity",
+   "label": "Tilt & orientation",
+   "verify": "Panels face true south (N. Hemisphere) at design tilt for max annual generation",
+   "target": "True south; design tilt \u00b15\u00b0",
+   "method": "Compass / app",
+   "severity": "Major",
+   "photoReq": true
+  },
+  {
+   "code": "1.3",
+   "section": 1,
+   "sectionTitle": "Structural & Mounting Integrity",
+   "label": "Roof penetrations sealed",
+   "verify": "All anchor points sealed with polyurethane (or equivalent) waterproof sealant",
+   "target": "No unsealed penetrations",
+   "method": "Visual",
+   "severity": "Critical",
+   "photoReq": true
+  },
+  {
+   "code": "1.4",
+   "section": 1,
+   "sectionTitle": "Structural & Mounting Integrity",
+   "label": "Panel spacing / self-shading",
+   "verify": "Sufficient inter-row spacing; no self-shading during low-sun hours",
+   "target": "Per shadow analysis",
+   "method": "Visual / measure",
+   "severity": "Major",
+   "photoReq": false
+  },
+  {
+   "code": "1.5",
+   "section": 1,
+   "sectionTitle": "Structural & Mounting Integrity",
+   "label": "No walking / micro-crack damage",
+   "verify": "Panel glass free of scratches, cracks, snail trails; crews never stepped on modules",
+   "target": "No visible damage",
+   "method": "Visual under reflection",
+   "severity": "Critical",
+   "photoReq": true
+  },
+  {
+   "code": "1.6",
+   "section": 1,
+   "sectionTitle": "Structural & Mounting Integrity",
+   "label": "Structure fastened",
+   "verify": "Mounting structure securely fastened to roof/base",
+   "target": "Firm, no movement",
+   "method": "Manual push test",
+   "severity": "Critical",
+   "photoReq": false
+  },
+  {
+   "code": "1.7",
+   "section": 1,
+   "sectionTitle": "Structural & Mounting Integrity",
+   "label": "Torque",
+   "verify": "All nuts and bolts tightened to specified torque",
+   "target": "Per torque spec",
+   "method": "Torque wrench",
+   "severity": "Major",
+   "photoReq": false
+  },
+  {
+   "code": "1.8",
+   "section": 1,
+   "sectionTitle": "Structural & Mounting Integrity",
+   "label": "Corrosion protection",
+   "verify": "Corrosion protection / anti-rust applied at cut edges & welds",
+   "target": "Applied everywhere",
+   "method": "Visual",
+   "severity": "Major",
+   "photoReq": false
+  },
+  {
+   "code": "1.9",
+   "section": 1,
+   "sectionTitle": "Structural & Mounting Integrity",
+   "label": "Module clamps",
+   "verify": "Correct mid/end clamps used; clamped within manufacturer's clamping zone",
+   "target": "Within clamp zone",
+   "method": "Visual / measure",
+   "severity": "Major",
+   "photoReq": false
+  },
+  {
+   "code": "1.10",
+   "section": 1,
+   "sectionTitle": "Structural & Mounting Integrity",
+   "label": "Wind/ballast design",
+   "verify": "Structure design (wind speed, ballast/anchoring) matches local wind zone",
+   "target": "Per site wind zone",
+   "method": "Design doc check",
+   "severity": "Major",
+   "photoReq": false
+  },
+  {
+   "code": "1.11",
+   "section": 1,
+   "sectionTitle": "Structural & Mounting Integrity",
+   "label": "Foundation concreting",
+   "verify": "Concrete (PCC) cast for all foundation legs / base plates; fully set and level",
+   "target": "All legs concreted",
+   "method": "Visual",
+   "severity": "Critical",
+   "photoReq": true
+  },
+  {
+   "code": "2.1",
+   "section": 2,
+   "sectionTitle": "Electrical & Cable Management",
+   "label": "Conduit protection",
+   "verify": "All DC & AC cables run through rigid UV-resistant PVC (RPVC) or metal conduit",
+   "target": "No loose/exposed wiring",
+   "method": "Visual",
+   "severity": "Critical",
+   "photoReq": true
+  },
+  {
+   "code": "2.2",
+   "section": 2,
+   "sectionTitle": "Electrical & Cable Management",
+   "label": "MC4 connectors",
+   "verify": "Panel-to-panel joins use proper crimped & locked MC4 connectors \u2014 no taped joints",
+   "target": "Genuine MC4, locked",
+   "method": "Visual / pull test",
+   "severity": "Critical",
+   "photoReq": true
+  },
+  {
+   "code": "2.3",
+   "section": 2,
+   "sectionTitle": "Electrical & Cable Management",
+   "label": "Cable sag / dressing",
+   "verify": "Wiring neatly tied to racking rails with UV-resistant cable ties; no roof contact",
+   "target": "No sag / roof contact",
+   "method": "Visual",
+   "severity": "Minor",
+   "photoReq": false
+  },
+  {
+   "code": "2.4",
+   "section": 2,
+   "sectionTitle": "Electrical & Cable Management",
+   "label": "Cable size",
+   "verify": "DC & AC cable sizing correct for current & voltage-drop limits",
+   "target": "Voltage drop < 3%",
+   "method": "Design doc / measure",
+   "severity": "Major",
+   "photoReq": false
+  },
+  {
+   "code": "2.5",
+   "section": 2,
+   "sectionTitle": "Electrical & Cable Management",
+   "label": "DC string polarity",
+   "verify": "String polarity verified correct (no reverse connections)",
+   "target": "Correct polarity",
+   "method": "Multimeter",
+   "severity": "Critical",
+   "photoReq": false
+  },
+  {
+   "code": "2.6",
+   "section": 2,
+   "sectionTitle": "Electrical & Cable Management",
+   "label": "Cable labelling",
+   "verify": "Strings, DC+/-, AC phases and earth conductors clearly labelled",
+   "target": "All labelled",
+   "method": "Visual",
+   "severity": "Minor",
+   "photoReq": false
+  },
+  {
+   "code": "2.7",
+   "section": 2,
+   "sectionTitle": "Electrical & Cable Management",
+   "label": "Colour coding",
+   "verify": "Conductor colour coding follows standard (earth green/green-yellow, etc.)",
+   "target": "Per code",
+   "method": "Visual",
+   "severity": "Minor",
+   "photoReq": false
+  },
+  {
+   "code": "3.1",
+   "section": 3,
+   "sectionTitle": "Earthing (Grounding) & Safety Devices",
+   "label": "DC-side earthing",
+   "verify": "Panel frames & mounting structure earthed (separate earth line)",
+   "target": "Continuous bond",
+   "method": "Visual + continuity",
+   "severity": "Critical",
+   "photoReq": true
+  },
+  {
+   "code": "3.2",
+   "section": 3,
+   "sectionTitle": "Earthing (Grounding) & Safety Devices",
+   "label": "AC-side earthing",
+   "verify": "Inverter casing & distribution boxes earthed (separate earth line)",
+   "target": "Continuous bond",
+   "method": "Visual + continuity",
+   "severity": "Critical",
+   "photoReq": false
+  },
+  {
+   "code": "3.3",
+   "section": 3,
+   "sectionTitle": "Earthing (Grounding) & Safety Devices",
+   "label": "Earth resistance",
+   "verify": "Earth resistivity measured with tester",
+   "target": "\u2264 5 \u03a9 (ideally)",
+   "method": "Earth tester",
+   "severity": "Critical",
+   "photoReq": true
+  },
+  {
+   "code": "3.4",
+   "section": 3,
+   "sectionTitle": "Earthing (Grounding) & Safety Devices",
+   "label": "SPDs fitted",
+   "verify": "Surge Protection Devices present in DCDB & ACDB to protect inverter",
+   "target": "DC + AC SPD present",
+   "method": "Visual",
+   "severity": "Critical",
+   "photoReq": true
+  },
+  {
+   "code": "3.5",
+   "section": 3,
+   "sectionTitle": "Earthing (Grounding) & Safety Devices",
+   "label": "MCBs / MCCBs",
+   "verify": "Correctly rated breakers to isolate power under fault",
+   "target": "Correctly rated",
+   "method": "Visual / rating check",
+   "severity": "Critical",
+   "photoReq": false
+  },
+  {
+   "code": "3.6",
+   "section": 3,
+   "sectionTitle": "Earthing (Grounding) & Safety Devices",
+   "label": "DCDB present",
+   "verify": "Dedicated DC Distribution Box installed, IP-rated, UV-protected",
+   "target": "Installed & rated",
+   "method": "Visual",
+   "severity": "Major",
+   "photoReq": true
+  },
+  {
+   "code": "3.7",
+   "section": 3,
+   "sectionTitle": "Earthing (Grounding) & Safety Devices",
+   "label": "ACDB present",
+   "verify": "Dedicated AC Distribution Box installed, IP-rated",
+   "target": "Installed & rated",
+   "method": "Visual",
+   "severity": "Major",
+   "photoReq": true
+  },
+  {
+   "code": "3.8",
+   "section": 3,
+   "sectionTitle": "Earthing (Grounding) & Safety Devices",
+   "label": "Lightning arrestor",
+   "verify": "Lightning arrestor installed & earthed (if in design scope)",
+   "target": "Installed if in scope",
+   "method": "Visual",
+   "severity": "Major",
+   "photoReq": false
+  },
+  {
+   "code": "3.9",
+   "section": 3,
+   "sectionTitle": "Earthing (Grounding) & Safety Devices",
+   "label": "MC4 crimping",
+   "verify": "MC4 connectors properly crimped, locked and UV-protected",
+   "target": "Crimped & locked",
+   "method": "Visual / pull",
+   "severity": "Major",
+   "photoReq": false
+  },
+  {
+   "code": "3.10",
+   "section": 3,
+   "sectionTitle": "Earthing (Grounding) & Safety Devices",
+   "label": "DC isolator",
+   "verify": "DC isolator installed and functional (isolates array on demand)",
+   "target": "Functional",
+   "method": "Switch test",
+   "severity": "Critical",
+   "photoReq": false
+  },
+  {
+   "code": "3.11",
+   "section": 3,
+   "sectionTitle": "Earthing (Grounding) & Safety Devices",
+   "label": "AC isolator",
+   "verify": "Proper AC isolator installed between inverter and grid/load",
+   "target": "Installed & rated",
+   "method": "Visual / test",
+   "severity": "Critical",
+   "photoReq": false
+  },
+  {
+   "code": "4.1",
+   "section": 4,
+   "sectionTitle": "Inverter & Commissioning Checks",
+   "label": "Location & ventilation",
+   "verify": "Inverter in shaded, well-ventilated area; not in direct sun / enclosed heat",
+   "target": "Shaded, ventilated",
+   "method": "Visual",
+   "severity": "Major",
+   "photoReq": true
+  },
+  {
+   "code": "4.2",
+   "section": 4,
+   "sectionTitle": "Inverter & Commissioning Checks",
+   "label": "Mounting",
+   "verify": "Inverter firmly wall-mounted at correct height with clearance around it",
+   "target": "Firm; clearance OK",
+   "method": "Visual",
+   "severity": "Minor",
+   "photoReq": false
+  },
+  {
+   "code": "4.3",
+   "section": 4,
+   "sectionTitle": "Inverter & Commissioning Checks",
+   "label": "Production check",
+   "verify": "At clear-sky noon, output is 70\u201380% of rated capacity (after losses)",
+   "target": "70\u201380% of rated kW",
+   "method": "Inverter display / app",
+   "severity": "Critical",
+   "photoReq": true
+  },
+  {
+   "code": "4.4",
+   "section": 4,
+   "sectionTitle": "Inverter & Commissioning Checks",
+   "label": "Anti-islanding test",
+   "verify": "Switch off grid breaker \u2014 inverter shuts down within seconds",
+   "target": "Trips within seconds",
+   "method": "Live test",
+   "severity": "Critical",
+   "photoReq": false
+  },
+  {
+   "code": "4.5",
+   "section": 4,
+   "sectionTitle": "Inverter & Commissioning Checks",
+   "label": "Utility settings configured",
+   "verify": "Inverter grid/protection settings configured as per utility (DISCOM) requirements",
+   "target": "Per utility spec",
+   "method": "Inverter menu",
+   "severity": "Major",
+   "photoReq": false
+  },
+  {
+   "code": "4.6",
+   "section": 4,
+   "sectionTitle": "Inverter & Commissioning Checks",
+   "label": "Starts without alarms",
+   "verify": "Inverter powers up and starts without alarms; generation verified",
+   "target": "No alarms; generating",
+   "method": "Inverter display / app",
+   "severity": "Critical",
+   "photoReq": true
+  },
+  {
+   "code": "4.7",
+   "section": 4,
+   "sectionTitle": "Inverter & Commissioning Checks",
+   "label": "No fault / error codes",
+   "verify": "Inverter display shows no active fault, fault or warning codes",
+   "target": "No active faults",
+   "method": "Inverter display",
+   "severity": "Critical",
+   "photoReq": false
+  },
+  {
+   "code": "4.8",
+   "section": 4,
+   "sectionTitle": "Inverter & Commissioning Checks",
+   "label": "Grid parameters",
+   "verify": "Grid voltage & frequency within window; inverter syncing normally",
+   "target": "Within limits",
+   "method": "Inverter display",
+   "severity": "Major",
+   "photoReq": false
+  },
+  {
+   "code": "4.9",
+   "section": 4,
+   "sectionTitle": "Inverter & Commissioning Checks",
+   "label": "Monitoring / RMS live",
+   "verify": "Remote monitoring (RMS/app/Wi-Fi/GSM) commissioned and reporting data",
+   "target": "Live on portal/app",
+   "method": "App / portal",
+   "severity": "Major",
+   "photoReq": true
+  },
+  {
+   "code": "4.10",
+   "section": 4,
+   "sectionTitle": "Inverter & Commissioning Checks",
+   "label": "Net-meter / bidirectional",
+   "verify": "Net / bidirectional meter installed and recording import & export",
+   "target": "Import & export logged",
+   "method": "Meter reading",
+   "severity": "Major",
+   "photoReq": true
+  },
+  {
+   "code": "5.1",
+   "section": 5,
+   "sectionTitle": "Testing & Measurements- (when Fault Occure)",
+   "label": "Open Circuit Voltage (Voc)",
+   "verify": "String Voc measured and recorded; matches expected design value",
+   "target": "Within expected range",
+   "method": "Multimeter",
+   "severity": "Major",
+   "photoReq": true
+  },
+  {
+   "code": "5.2",
+   "section": 5,
+   "sectionTitle": "Testing & Measurements- (when Fault Occure)",
+   "label": "Short Circuit Current (Isc)",
+   "verify": "String Isc measured and recorded; matches expected design value",
+   "target": "Within expected range",
+   "method": "Clamp meter",
+   "severity": "Major",
+   "photoReq": true
+  },
+  {
+   "code": "5.3",
+   "section": 5,
+   "sectionTitle": "Testing & Measurements- (when Fault Occure)",
+   "label": "Insulation Resistance (IR)",
+   "verify": "IR (megger) test on DC & AC circuits passed",
+   "target": "Passes IR test",
+   "method": "Megger",
+   "severity": "Critical",
+   "photoReq": true
+  },
+  {
+   "code": "5.4",
+   "section": 5,
+   "sectionTitle": "Testing & Measurements- (when Fault Occure)",
+   "label": "Earth continuity",
+   "verify": "Earth continuity test passed across all bonded parts",
+   "target": "Continuous / passes",
+   "method": "Continuity tester",
+   "severity": "Critical",
+   "photoReq": false
+  },
+  {
+   "code": "6.1",
+   "section": 6,
+   "sectionTitle": "Documentation & Handover (at the time of handover)",
+   "label": "Single-line diagram",
+   "verify": "As-built single-line diagram (SLD) available",
+   "target": "Provided",
+   "method": "Doc check",
+   "severity": "Major",
+   "photoReq": false
+  },
+  {
+   "code": "6.2",
+   "section": 6,
+   "sectionTitle": "Documentation & Handover (at the time of handover)",
+   "label": "Warranty documents",
+   "verify": "Panel, inverter & workmanship warranty documents handed over",
+   "target": "Handed over",
+   "method": "Doc check",
+   "severity": "Major",
+   "photoReq": false
+  },
+  {
+   "code": "6.3",
+   "section": 6,
+   "sectionTitle": "Documentation & Handover (at the time of handover)",
+   "label": "O&M manual",
+   "verify": "Operation & maintenance manual provided to customer",
+   "target": "Provided",
+   "method": "Doc check",
+   "severity": "Major",
+   "photoReq": false
+  },
+  {
+   "code": "6.4",
+   "section": 6,
+   "sectionTitle": "Documentation & Handover (at the time of handover)",
+   "label": "Datasheets / serials",
+   "verify": "Module & inverter serial numbers recorded; datasheets included",
+   "target": "Recorded",
+   "method": "Doc check",
+   "severity": "Minor",
+   "photoReq": true
+  },
+  {
+   "code": "6.5",
+   "section": 6,
+   "sectionTitle": "Documentation & Handover (at the time of handover)",
+   "label": "Subsidy / DISCOM docs",
+   "verify": "PM Surya Ghar / DISCOM net-metering & subsidy paperwork status confirmed",
+   "target": "Status confirmed",
+   "method": "Doc check",
+   "severity": "Major",
+   "photoReq": false
+  },
+  {
+   "code": "6.6",
+   "section": 6,
+   "sectionTitle": "Documentation & Handover (at the time of handover)",
+   "label": "Customer walkthrough",
+   "verify": "Customer shown app, shutdown procedure, cleaning & safety do's/don'ts",
+   "target": "Walkthrough done",
+   "method": "On-site briefing",
+   "severity": "Minor",
+   "photoReq": false
+  },
+  {
+   "code": "6.7",
+   "section": 6,
+   "sectionTitle": "Documentation & Handover (at the time of handover)",
+   "label": "Site photos",
+   "verify": "Before/after & component photos captured for records",
+   "target": "Photos on file",
+   "method": "Camera",
+   "severity": "Minor",
+   "photoReq": true
+  },
+  {
+   "code": "7.1",
+   "section": 7,
+   "sectionTitle": "Site Cleanliness & Final (instructions in scope of installer)",
+   "label": "Site cleared",
+   "verify": "All installation debris, packaging & offcuts removed from site",
+   "target": "Site clean",
+   "method": "Visual",
+   "severity": "Minor",
+   "photoReq": false
+  },
+  {
+   "code": "7.2",
+   "section": 7,
+   "sectionTitle": "Site Cleanliness & Final (instructions in scope of installer)",
+   "label": "Panels clean",
+   "verify": "Modules wiped clean; no dust, cement, footmarks or adhesive residue",
+   "target": "Clean surface",
+   "method": "Visual",
+   "severity": "Minor",
+   "photoReq": true
+  },
+  {
+   "code": "7.3",
+   "section": 7,
+   "sectionTitle": "Site Cleanliness & Final (instructions in scope of installer)",
+   "label": "Safety signage",
+   "verify": "Warning labels / caution signage on DCDB, ACDB, inverter as required",
+   "target": "Signage present",
+   "method": "Visual",
+   "severity": "Minor",
+   "photoReq": false
+  },
+  {
+   "code": "7.4",
+   "section": 7,
+   "sectionTitle": "Site Cleanliness & Final (instructions in scope of installer)",
+   "label": "Customer sign-off",
+   "verify": "Customer inspection sign-off obtained",
+   "target": "Signed",
+   "method": "Sign-off form",
+   "severity": "Major",
+   "photoReq": true
+  }
+ ]
+}
