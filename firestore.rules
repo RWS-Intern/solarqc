@@ -105,10 +105,15 @@ service cloud.firestore {
     match /users/{uid} {
       allow read:   if signedIn() && (request.auth.uid == uid
                        || role() in ['admin', 'qc_manager']);
-      // Fixes the signup deadlock in plan §11.6 — a brand-new user has no
-      // doc yet, so role()/active() would throw; this only ever lets
-      // someone create their OWN doc, nobody else's.
-      allow create: if signedIn() && request.auth.uid == uid;
+      // Self-create fixes the signup deadlock in plan §11.6 — a brand-new
+      // user has no doc yet, so role()/active() would throw. Admin-create
+      // restores the old app's admin-can-create-any-user's-doc behavior,
+      // needed by /team's "Add User" flow (useUserActions.createUser()),
+      // which writes the new user's doc from the admin's own session.
+      allow create: if signedIn() && (
+           request.auth.uid == uid
+        || (active() && role() == 'admin')
+      );
       allow update: if signedIn() && (
            (active() && role() == 'admin')
         || (request.auth.uid == uid

@@ -431,6 +431,22 @@ describe('users/{uid} — the §11.6 signup fix', () => {
       name: 'X', role: 'admin', active: true,
     }));
   });
+  it('lets admin create a brand-new user\'s doc — the /team "Add User" flow', async () => {
+    const db = testEnv.authenticatedContext(ADMIN_UID).firestore();
+    await assertSucceeds(setDoc(doc(db, 'users', 'new-teammate-uid'), {
+      name: 'New Teammate', email: 'new@test.com', role: 'qc_inspector', active: true,
+    }));
+  });
+  it.each([
+    ['qc_manager', QC_MANAGER_UID],
+    ['approver', APPROVER_UID],
+    ['viewer', VIEWER_UID],
+  ])('rejects a %s creating a doc for someone else — admin-only, not anyone-but-self', async (_role, uid) => {
+    const db = testEnv.authenticatedContext(uid).firestore();
+    await assertFails(setDoc(doc(db, 'users', 'someone-else'), {
+      name: 'X', role: 'qc_inspector', active: true,
+    }));
+  });
   it('rejects a non-admin trying to change their own role', async () => {
     const db = testEnv.authenticatedContext(INSPECTOR_UID).firestore();
     await assertFails(updateDoc(doc(db, 'users', INSPECTOR_UID), { role: 'admin' }));
