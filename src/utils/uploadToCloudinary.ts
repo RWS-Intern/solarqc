@@ -8,16 +8,13 @@ export interface UploadResult {
 export async function uploadToCloudinary(
   file:     File,
   options?: {
-    onProgress?:   (percent: number) => void;
-    taskId?:       string;
-    taskNum?:      string;
-    fieldId?:      string;
-    photoType?:    'field' | 'completion';
-    index?:        number;
-    engineerCode?: string;
-    engineerName?: string;
-    fieldLabel?:   string;
-    uploadType?:   'proposal' | 'documents';
+    onProgress?:      (percent: number) => void;
+    qcNum?:           string;
+    fieldId?:         string;
+    index?:           number;
+    uploadType?:      'checklist';   // Phase 5 adds 'signature' when it needs one
+    skipCompression?: boolean;       // unused this phase — Phase 5 wires it for
+                                      // signature PNGs
   },
 ): Promise<UploadResult> {
   const cloudName    = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME    as string;
@@ -25,19 +22,11 @@ export async function uploadToCloudinary(
 
   if (!cloudName || !uploadPreset) throw new Error('Cloudinary env vars not set');
 
-  const { onProgress, taskNum } = options ?? {};
+  const { onProgress, qcNum, fieldId } = options ?? {};
 
-  const engineerSegment = (options?.engineerCode && options?.engineerName)
-    ? `${options.engineerCode}_${options.engineerName.replace(/\s+/g, '_')}`
-    : 'unassigned';
-
-  const folder = options?.uploadType === 'proposal' && taskNum
-    ? `solarops/${taskNum}/proposal`
-    : options?.uploadType === 'documents' && taskNum
-    ? `solarops/${taskNum}/documents`
-    : taskNum
-    ? `solarops/${taskNum}/${engineerSegment}`
-    : 'solarops';
+  const folder = qcNum && fieldId
+    ? `ritesolar-qc/${qcNum}/${fieldId}`
+    : 'ritesolar-qc/unfiled';
 
   const isPdf = file.type === 'application/pdf' ||
                 file.name.toLowerCase().endsWith('.pdf');

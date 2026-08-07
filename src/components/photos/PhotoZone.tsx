@@ -9,17 +9,12 @@ interface PhotoZoneProps {
   photos:               string[];
   onPhotosChange:       (urls: string[]) => void;
   onUploadingChange?:   (uploading: boolean) => void;
-  required?:            boolean;
+  minPhotos?:           number;
   maxPhotos?:           number;
   disabled?:            boolean;
-  taskNum?:             string;
-  taskId?:              string;
+  qcNum?:               string;
   fieldId?:             string;
-  photoType?:           'field' | 'completion';
-  engineerCode?:        string;
-  engineerName?:        string;
-  fieldLabel?:          string;
-  uploadType?:          'documents';
+  capture?:             'environment' | 'user';
 }
 
 function isPdfUrl(url: string): boolean {
@@ -52,17 +47,12 @@ export function PhotoZone({
   photos,
   onPhotosChange,
   onUploadingChange,
-  required   = false,
+  minPhotos  = 0,
   maxPhotos  = 5,
   disabled   = false,
-  taskNum,
-  taskId,
+  qcNum,
   fieldId,
-  photoType,
-  engineerCode,
-  engineerName,
-  fieldLabel,
-  uploadType,
+  capture,
 }: PhotoZoneProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [pendingUploads, setPendingUploads] = useState<PendingUpload[]>([]);
@@ -97,7 +87,7 @@ export function PhotoZone({
   const totalShown = photos.length + pendingUploads.length;
   const canAdd     = !disabled && totalShown < maxPhotos;
   const isEmpty    = totalShown === 0;
-  const showError  = required && isEmpty;
+  const showError  = totalShown < minPhotos;
 
   function removePhoto(url: string) {
     if (disabled) return;
@@ -123,15 +113,10 @@ export function PhotoZone({
           prev.map((p) => (p.tempId === tempId ? { ...p, progress: pct } : p)),
         );
       },
-      taskNum,
-      taskId,
+      qcNum,
       fieldId,
-      photoType,
       index,
-      engineerCode,
-      engineerName,
-      fieldLabel,
-      uploadType,
+      uploadType: 'checklist',
     })
       .then(({ url }) => {
         setPendingUploads((prev) => prev.filter((p) => p.tempId !== tempId));
@@ -143,27 +128,16 @@ export function PhotoZone({
       .catch(() => {
         setPendingUploads((prev) => prev.filter((p) => p.tempId !== tempId));
         URL.revokeObjectURL(previewUrl);
-        if (!navigator.onLine) {
-          // Offline: convert to base64 so the offline queue can
-          // upload it after reconnect — base64 survives tab close,
-          // unlike a blob URL which becomes invalid immediately.
-          const reader = new FileReader();
-          reader.onload = () => {
-            const base64 = reader.result as string;
-            const updated = [...latestPhotosRef.current, base64];
-            latestPhotosRef.current = updated;
-            onChangeRef.current(updated);
-          };
-          reader.onerror = () => {
-            // FileReader failed — nothing we can do, just warn
-            _emitToast('Could not save photo offline. Please retake when reconnected.', 'error');
-          };
-          reader.readAsDataURL(file);
-          _emitToast('Saved locally — will upload when reconnected', 'success');
-        } else {
-          // Online but upload failed: show clear error so engineer retries
-          _emitToast('Upload failed. Please try uploading the photo again.', 'error');
-        }
+        // Never write a data: URL into photoUrls (plan §11.1) — a failed
+        // upload is a clean error, online or offline. Phase 7 builds the
+        // real offline queue (IndexedDB, never touching Firestore with
+        // raw image data); this is a stopgap-free honest failure until then.
+        _emitToast(
+          navigator.onLine
+            ? 'Upload failed. Please try uploading the photo again.'
+            : "You're offline — photo upload failed. Offline support is coming in a later update; please retry once you're connected.",
+          'error',
+        );
       });
   }
 
@@ -317,6 +291,7 @@ export function PhotoZone({
         ref={fileInputRef}
         type="file"
         accept="image/*,application/pdf"
+        capture={capture}
         multiple
         className="hidden"
         onChange={handleFileChange}

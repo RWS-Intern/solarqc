@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQcJobs } from '@/hooks/useQcJobs';
 import { QC_STATUS_LABELS, QC_STATUS_COLOR } from '@/config/qcStatus';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -15,9 +16,17 @@ const GROUP_ORDER: QcStatus[] = [
 ];
 
 function JobCard({ job }: { job: QcJob }) {
+  const navigate = useNavigate();
   const color = QC_STATUS_COLOR[job.status];
   return (
-    <div className="rounded-xl border border-gray-200 bg-white px-4 py-3">
+    <div
+      className="rounded-xl border border-gray-200 bg-white px-4 py-3 cursor-pointer hover:border-brand-blue/40 hover:bg-blue-50/30 transition-colors"
+      onClick={() => navigate(`/jobs/${job.id}/fill`)}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate(`/jobs/${job.id}/fill`); }}
+      aria-label={`Open ${job.qcNum} — ${job.customer.name}`}
+    >
       <div className="flex items-center gap-2 flex-wrap">
         <span className="font-mono text-xs text-gray-400">{job.qcNum}</span>
         <span className={cn('rounded-full px-2 py-0.5 text-[10px] font-semibold', color.bg, color.text)}>

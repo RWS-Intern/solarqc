@@ -14,6 +14,7 @@ import { ReportsPage }  from '@/pages/ReportsPage';
 import { ErrorLogsPage }       from '@/pages/ErrorLogsPage';
 import { JobsPage }     from '@/pages/JobsPage';
 import { MyJobsPage }   from '@/pages/MyJobsPage';
+import { QcFillPage }   from '@/pages/QcFillPage';
 import { CustomersPage } from '@/pages/CustomersPage';
 import { defaultRouteFor, type UserRole } from '@/config/roles';
 
@@ -86,6 +87,9 @@ export default function App() {
             } />
             <Route path="/my-jobs" element={
               <ProtectedRoute allow={['qc_inspector']}><MyJobsPage /></ProtectedRoute>
+            } />
+            <Route path="/jobs/:id/fill" element={
+              <ProtectedRoute allow={['qc_inspector']}><QcFillPage /></ProtectedRoute>
             } />
             <Route path="/approvals" element={
               <ProtectedRoute allow={['approver', 'admin']}><PlaceholderPage /></ProtectedRoute>

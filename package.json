@@ -9,7 +9,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "generate-icons": "node scripts/generate-icons.mjs",
-    "test:rules": "firebase emulators:exec --only firestore \"vitest run tests/firestore-rules.test.ts\""
+    "test:rules": "firebase emulators:exec --only firestore \"vitest run tests/firestore-rules.test.ts\"",
+    "test:unit": "vitest run tests/qcTally.test.ts tests/qcValidation.test.ts"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.4",
