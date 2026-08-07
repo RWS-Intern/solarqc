@@ -446,7 +446,46 @@
         { "fieldPath": "status",         "order": "ASCENDING" },
         { "fieldPath": "pipelineStage",  "order": "ASCENDING" }
       ]
-    }
+    },
+    { "collectionGroup": "qcJobs", "queryScope": "COLLECTION", "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "updatedAt", "order": "DESCENDING" } ] },
+    { "collectionGroup": "qcJobs", "queryScope": "COLLECTION", "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "dueDate", "order": "ASCENDING" } ] },
+    { "collectionGroup": "qcJobs", "queryScope": "COLLECTION", "fields": [
+        { "fieldPath": "inspectorUid", "order": "ASCENDING" },
+        { "fieldPath": "archived", "order": "ASCENDING" },
+        { "fieldPath": "updatedAt", "order": "DESCENDING" } ] },
+    { "collectionGroup": "qcJobs", "queryScope": "COLLECTION", "fields": [
+        { "fieldPath": "inspectorUid", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "updatedAt", "order": "DESCENDING" } ] },
+    { "collectionGroup": "qcJobs", "queryScope": "COLLECTION", "fields": [
+        { "fieldPath": "approverUid", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "updatedAt", "order": "DESCENDING" } ] },
+    { "collectionGroup": "qcJobs", "queryScope": "COLLECTION", "fields": [
+        { "fieldPath": "archived", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" } ] },
+    { "collectionGroup": "qcJobs", "queryScope": "COLLECTION", "fields": [
+        { "fieldPath": "archived", "order": "ASCENDING" },
+        { "fieldPath": "customer.nameWords", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" } ] },
+    { "collectionGroup": "qcJobs", "queryScope": "COLLECTION", "fields": [
+        { "fieldPath": "archived", "order": "ASCENDING" },
+        { "fieldPath": "customer.mobile", "order": "ASCENDING" } ] },
+    { "collectionGroup": "qcJobs", "queryScope": "COLLECTION", "fields": [
+        { "fieldPath": "archived", "order": "ASCENDING" },
+        { "fieldPath": "qcNum", "order": "ASCENDING" } ] },
+    { "collectionGroup": "qcJobs", "queryScope": "COLLECTION", "fields": [
+        { "fieldPath": "customer.district", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "updatedAt", "order": "DESCENDING" } ] },
+    { "collectionGroup": "qcJobs", "queryScope": "COLLECTION", "fields": [
+        { "fieldPath": "tally.criticalFail", "order": "DESCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "updatedAt", "order": "DESCENDING" } ] }
   ],
   "fieldOverrides": []
 }

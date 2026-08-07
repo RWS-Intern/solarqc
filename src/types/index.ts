@@ -1,6 +1,7 @@
 // ─── Auth / Users ──────────────────────────────────────────────────────────────
 
 import type { UserRole } from '@/config/roles';
+import type { QcFieldDefinition, Severity } from '@/types/qc';
 export type { UserRole };
 
 export interface User {
@@ -128,6 +129,22 @@ export interface AppConfig {
   leadSources?:       string[];
   districtsByState?:  Record<string, string[]>;
   saleClosedConfig?:  SaleClosedConfig;
+
+  // ── QC (Phase 1+) ──────────────────────────────────────────────────────
+  qcTemplate?:        QcFieldDefinition[];
+  qcTemplateVersion?: number;
+  qcNumCounter?:      number;   // sequential QC-000123 numbering
+  severityDefaults?:  Record<Severity, { photoRequired: boolean; remarkRequiredOnFail: boolean }>;
+  declarationTexts?: {
+    inspector: string;
+    customer:  string;
+    approver:  string;
+  };
+  inspectorNumCounter?: number;   // rename target for engineerNumCounter — do NOT
+                                   // rename the field itself yet; that's a live-data
+                                   // migration question for whoever builds the
+                                   // inspector-code assignment flow (Phase 2/3),
+                                   // not a Phase 1 type change
 }
 
 // ─── Pipeline ─────────────────────────────────────────────────────────────────

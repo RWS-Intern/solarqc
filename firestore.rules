@@ -2,108 +2,110 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    function isAuth()  { return request.auth != null; }
-    function userRole() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
-    function isAdmin()        { return isAuth() && userRole() == 'admin'; }
-    function isField()        { return isAuth() && userRole() == 'field'; }
-    function isProposal()     { return isAuth() && userRole() == 'proposal'; }
-    function isBackend()      { return isAuth() && userRole() == 'backend'; }
-    function isLogistics()      { return isAuth() && userRole() == 'logistics'; }
-    function isInstallation()   { return isAuth() && userRole() == 'installation'; }
-    function isViewOnly()       { return isAuth() && userRole() == 'view_only'; }
-    function isBackendManager() { return isAuth() && userRole() == 'backend_manager'; }
+    function role()   { return userDoc().role; }
+    function active() { return userDoc().active == true; }
+    function signedIn() { return request.auth != null; }
+    function touched()  { return request.resource.data.diff(resource.data).affectedKeys(); }
+
+    // Fields ONLY an approver may ever write
+    function approverFields() {
+      return ['verdict', 'verdictNote', 'conditions', 'rejectionReason',
+              'reworkPointIds', 'approverComments', 'approverSignOff',
+              'reviewedAt', 'completedAt', 'status', 'updatedAt'];
+    }
+    // Fields ONLY an inspector may write
+    function inspectorFields() {
+      return ['answers', 'tally', 'location', 'locationAt',
+              'inspectorSignOff', 'customerSignOff', 'submittedAt',
+              'status', 'updatedAt'];
+    }
+    // Fields admin/qc_manager may write — assignment and lifecycle only,
+    // never the checklist content or the verdict
+    function managerFields() {
+      return ['inspectorUid', 'inspectorName', 'inspectorCode',
+               'inspectorMobile', 'approverUid', 'approverName', 'status',
+               'scheduledDate', 'dueDate', 'archived', 'archivedAt',
+               'cancelReason', 'reportUrl', 'reportedAt', 'updatedAt'];
+    }
+
+    match /qcJobs/{jobId} {
+      allow read: if signedIn() && active() && (
+           role() in ['admin', 'qc_manager', 'approver', 'viewer']
+        || (role() == 'qc_inspector' && resource.data.inspectorUid == request.auth.uid)
+      );
+
+      allow create, delete: if signedIn() && active() && role() == 'admin';
+
+      // Inspector: own job, only in a fillable state, only inspector
+      // fields, and status may only move in_progress -> pending_approval
+      // (or stay put on a draft save).
+      allow update: if signedIn() && active()
+        && role() == 'qc_inspector'
+        && resource.data.inspectorUid == request.auth.uid
+        && resource.data.status in ['assigned', 'in_progress', 'rework']
+        && touched().hasOnly(inspectorFields())
+        && (!touched().hasAny(['status'])
+            || request.resource.data.status in ['in_progress', 'pending_approval']);
+
+      // Approver: only jobs awaiting review, only approver fields, and a
+      // verdict must be typed — no silent approvals, no reason-less rejects.
+      allow update: if signedIn() && active()
+        && role() == 'approver'
+        && resource.data.status == 'pending_approval'
+        && touched().hasOnly(approverFields())
+        && request.resource.data.status in ['approved', 'rework']
+        && request.resource.data.verdictNote is string
+        && request.resource.data.verdictNote.size() > 0
+        && (request.resource.data.status != 'rework'
+            || (request.resource.data.rejectionReason is string
+                && request.resource.data.rejectionReason.size() > 0));
+
+      // Admin / qc_manager: assignment and lifecycle fields only —
+      // never the checklist, never the verdict.
+      allow update: if signedIn() && active()
+        && role() in ['admin', 'qc_manager']
+        && touched().hasOnly(managerFields());
+
+      // Audit trail: append-only, forever — including for admin.
+      match /events/{eventId} {
+        allow read:   if signedIn() && active();
+        allow create: if signedIn() && active()
+                      && request.resource.data.actorUid == request.auth.uid;
+        allow update, delete: if false;
+      }
+
+      // Round freeze — written once, by the approver, on rejection.
+      match /rounds/{roundId} {
+        allow read:   if signedIn() && active();
+        allow create: if signedIn() && active() && role() in ['approver', 'admin'];
+        allow update, delete: if false;
+      }
+    }
+
+    // Template + config: admin only. No client counter writes anywhere —
+    // this is what closes the hole in plan §4.3 where any field engineer
+    // could rewrite the survey template or overwrite superAdminUid.
+    match /appConfig/{docId} {
+      allow read:  if signedIn();
+      allow write: if signedIn() && active() && role() == 'admin';
+    }
 
     match /users/{uid} {
-      allow read:  if isAuth();
-      allow write: if isAdmin();
-    }
-
-    match /appConfig/{docId} {
-      allow read:  if isAuth();
-      allow write: if isAdmin()
-                   || isField()
-                   || isProposal()
-                   || isBackend();
-    }
-
-    match /invites/{inviteId} {
-      // Read allowed unauthenticated (signup flow)
-      // OR authenticated (admin management)
-      // but only pending invites for unauthenticated
-      allow read:  if isAuth()
-                   || resource.data.status == 'pending';
-      allow write: if isAdmin();
-    }
-
-    match /tasks/{taskId} {
-      allow read:   if isAdmin()
-                    || isViewOnly()
-                    || isBackendManager()
-                    || (isField()        && resource.data.assignedTo         == request.auth.uid)
-                    || (isProposal()     && (resource.data.pipelineStage     == 'proposal'
-                                         || resource.data.proposalAssignedTo == request.auth.uid))
-                    || (isBackend()      && resource.data.backendAssignedTo  == request.auth.uid)
-                    || (isLogistics()    && resource.data.pipelineStage      == 'logistics')
-                    || (isInstallation() && resource.data.pipelineStage      == 'installation');
-
-      allow create: if isAdmin();
-
-      allow update: if isAdmin()
-                    || (isField()        && resource.data.assignedTo             == request.auth.uid)
-                    || (isProposal()     && resource.data.proposalAssignedTo     == request.auth.uid)
-                    || (isBackend()      && resource.data.backendAssignedTo      == request.auth.uid)
-                    || (isLogistics()    && resource.data.pipelineStage          == 'logistics')
-                    || (isInstallation() && resource.data.pipelineStage          == 'installation');
-
-      allow delete: if isAdmin();
-
-      match /updates/{updateId} {
-        allow read:   if isAdmin()
-                      || isViewOnly()
-                      || isBackendManager()
-                      || (isField() && get(/databases/$(database)/documents/tasks/$(taskId)).data.assignedTo == request.auth.uid);
-        allow create: if isAdmin()
-                      || (isField() && get(/databases/$(database)/documents/tasks/$(taskId)).data.assignedTo == request.auth.uid);
-        allow update: if false;
-        allow delete: if false;
-      }
-
-      match /stages/{stageId} {
-        allow read:   if isAdmin()
-                      || isViewOnly()
-                      || isBackendManager()
-                      || (isField()        && get(/databases/$(database)/documents/tasks/$(taskId)).data.assignedTo         == request.auth.uid)
-                      || (isProposal()     && (get(/databases/$(database)/documents/tasks/$(taskId)).data.pipelineStage     == 'proposal'
-                                           || get(/databases/$(database)/documents/tasks/$(taskId)).data.proposalAssignedTo == request.auth.uid))
-                      || (isBackend()      && get(/databases/$(database)/documents/tasks/$(taskId)).data.backendAssignedTo  == request.auth.uid)
-                      || (isLogistics()    && get(/databases/$(database)/documents/tasks/$(taskId)).data.pipelineStage      == 'logistics')
-                      || (isInstallation() && get(/databases/$(database)/documents/tasks/$(taskId)).data.pipelineStage      == 'installation');
-
-        allow create: if isAdmin()
-                      || (isField()        && get(/databases/$(database)/documents/tasks/$(taskId)).data.assignedTo             == request.auth.uid)
-                      || (isProposal()     && get(/databases/$(database)/documents/tasks/$(taskId)).data.proposalAssignedTo     == request.auth.uid)
-                      || (isBackend()      && get(/databases/$(database)/documents/tasks/$(taskId)).data.backendAssignedTo      == request.auth.uid)
-                      || (isLogistics()    && get(/databases/$(database)/documents/tasks/$(taskId)).data.pipelineStage          == 'logistics')
-                      || (isInstallation() && get(/databases/$(database)/documents/tasks/$(taskId)).data.pipelineStage          == 'installation');
-
-        allow update: if isAdmin()
-                      || (isField()        && get(/databases/$(database)/documents/tasks/$(taskId)).data.assignedTo             == request.auth.uid)
-                      || (isProposal()     && get(/databases/$(database)/documents/tasks/$(taskId)).data.proposalAssignedTo     == request.auth.uid)
-                      || (isBackend()      && get(/databases/$(database)/documents/tasks/$(taskId)).data.backendAssignedTo      == request.auth.uid)
-                      || (isLogistics()    && get(/databases/$(database)/documents/tasks/$(taskId)).data.pipelineStage          == 'logistics')
-                      || (isInstallation() && get(/databases/$(database)/documents/tasks/$(taskId)).data.pipelineStage          == 'installation');
-
-        allow delete: if isAdmin();
-      }
-    }
-
-    match /errorLogs/{logId} {
-      allow read:   if isAdmin();
-      allow create: if isAuth();
-      allow update: if false;
-      allow delete: if isAdmin();
+      allow read:   if signedIn() && (request.auth.uid == uid
+                       || role() in ['admin', 'qc_manager']);
+      // Fixes the signup deadlock in plan §11.6 — a brand-new user has no
+      // doc yet, so role()/active() would throw; this only ever lets
+      // someone create their OWN doc, nobody else's.
+      allow create: if signedIn() && request.auth.uid == uid;
+      allow update: if signedIn() && (
+           (active() && role() == 'admin')
+        || (request.auth.uid == uid
+            && touched().hasOnly(['photoURL', 'fcmToken', 'fcmTokenUpdatedAt']))
+      );
+      allow delete: if false;
     }
   }
 }
