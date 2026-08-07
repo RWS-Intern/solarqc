@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { useAuthStore } from '@/store/authStore';
 import { useOnlineUsers } from '@/hooks/useOnlineUsers';
 import { ensureSuperAdmin } from '@/firebase/initAppConfig';
+import { initQcConfig } from '@/firebase/initQcConfig';
 import { can, roleLabel } from '@/config/roles';
 
 function formatFullDate(d: Date): string {
@@ -30,6 +31,7 @@ export function DashboardPage() {
   useEffect(() => {
     if (currentUser?.role === 'admin') {
       ensureSuperAdmin(currentUser.uid);
+      initQcConfig();
     }
   }, [currentUser?.role, currentUser?.uid]);
 

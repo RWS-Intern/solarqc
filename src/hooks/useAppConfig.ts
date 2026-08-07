@@ -16,6 +16,8 @@ const DEFAULT_CONFIG: AppConfig = {
   memberCounts:       undefined,
   engineerCounts:     {},
   districtCounts:     {},
+  qcTemplate:         [],
+  qcTemplateVersion:  1,
 };
 
 export function useAppConfig() {
@@ -47,6 +49,12 @@ export function useAppConfig() {
             engineerCounts:           (data['engineerCounts'] as AppConfig['engineerCounts']) ?? {},
             districtCounts:           (data['districtCounts'] as AppConfig['districtCounts']) ?? {},
             saleClosedConfig:         data['saleClosedConfig'] as import('@/types').SaleClosedConfig | undefined,
+            qcTemplate:               (data['qcTemplate']        ?? []) as AppConfig['qcTemplate'],
+            qcTemplateVersion:        (data['qcTemplateVersion'] ?? 1)  as number,
+            qcNumCounter:             data['qcNumCounter'] as number | undefined,
+            severityDefaults:         data['severityDefaults'] as AppConfig['severityDefaults'],
+            declarationTexts:         data['declarationTexts'] as AppConfig['declarationTexts'],
+            inspectorNumCounter:      data['inspectorNumCounter'] as number | undefined,
           });
         }
         setLoading(false);
