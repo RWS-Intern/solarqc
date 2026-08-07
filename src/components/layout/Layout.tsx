@@ -1,28 +1,15 @@
 import { Navigate, Outlet } from 'react-router-dom';
 import { useAuthStore }      from '@/store/authStore';
-import { useTasks }          from '@/hooks/useTasks';
 import { useUsers }          from '@/hooks/useUsers';
+import { can }               from '@/config/roles';
 import { Header }            from './Header';
 import { BottomNav }         from './BottomNav';
 import { SideNav }           from './SideNav';
 import { OfflineBanner }     from '@/components/offline/OfflineBanner';
-import { TaskQueueProcessor } from '@/components/offline/TaskQueueProcessor';
 
-function TasksListener() {
-  const { currentUser } = useAuthStore();
-  // Admins use subscribeToFilter from TasksPage
-  // Pipeline roles have their own hooks
-  // Only field engineers need this listener
-  if (!currentUser || currentUser.role !== 'field') {
-    return null;
-  }
-  return <FieldTasksListener />;
-}
-
-function FieldTasksListener() {
-  useTasks();
-  return null;
-}
+// TODO(Phase 4/7): reconnect a QcJobsListener / useQcOfflineQueue processor
+// here once qcJobs exist. The old TasksListener/FieldTasksListener pair and
+// <TaskQueueProcessor /> read the sales `tasks` collection and are gone.
 
 function UsersListener()  { useUsers();  return null; }
 
@@ -41,9 +28,7 @@ export function Layout() {
 
   return (
     <div className="min-h-screen bg-brand-background">
-      <TasksListener />
-      {(currentUser.role === 'admin' || currentUser.role === 'view_only') && <UsersListener />}
-      <TaskQueueProcessor />
+      {can(currentUser.role, 'viewPresence') && <UsersListener />}
 
       {/* Header — fixed at top, always visible */}
       <header className="fixed top-0 left-0 right-0 z-50 h-14">

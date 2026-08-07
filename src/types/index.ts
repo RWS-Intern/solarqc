@@ -1,6 +1,7 @@
 // ─── Auth / Users ──────────────────────────────────────────────────────────────
 
-export type UserRole = 'admin' | 'field' | 'proposal' | 'backend' | 'logistics' | 'installation' | 'view_only' | 'backend_manager';
+import type { UserRole } from '@/config/roles';
+export type { UserRole };
 
 export interface User {
   id:                string;

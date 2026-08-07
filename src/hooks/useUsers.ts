@@ -22,7 +22,7 @@ export function useUsers() {
             id:               d.id,
             name:             data['name']               ?? '',
             email:            data['email']              ?? '',
-            role:             data['role']               ?? 'field',
+            role:             data['role']               ?? 'qc_inspector',
             active:           data['active']             ?? true,
             createdAt:        data['createdAt']?.toDate?.()  ?? new Date(0),
             createdBy:        data['createdBy']          ?? undefined,

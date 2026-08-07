@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { ref, onValue } from 'firebase/database';
 import { rtdb } from '@/firebase/config';
 import { useAuthStore } from '@/store/authStore';
+import { can } from '@/config/roles';
 
 export interface PresenceEntry {
   uid:      string;
@@ -16,7 +17,7 @@ export function useOnlineUsers() {
   const [presenceMap, setPresenceMap] = useState<Record<string, PresenceEntry>>({});
 
   useEffect(() => {
-    if (currentUser?.role !== 'admin' && currentUser?.role !== 'view_only') return;
+    if (!can(currentUser?.role, 'viewPresence')) return;
 
     const presenceRef = ref(rtdb, 'presence');
 

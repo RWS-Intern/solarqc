@@ -1,9 +1,8 @@
 import {
   doc, setDoc, updateDoc, serverTimestamp, runTransaction, getDoc,
-  getDocs, query, collection, where, writeBatch, deleteField,
+  getDocs, query, collection, where, writeBatch,
 } from 'firebase/firestore';
 import { initializeApp, getApps } from 'firebase/app';
-import { initMemberInCounts } from '@/firebase/initAppConfig';
 import {
   getAuth,
   createUserWithEmailAndPassword,
@@ -14,7 +13,17 @@ import { db, firebaseConfig } from '@/firebase/config';
 import { useAuthStore } from '@/store/authStore';
 import { useToast }     from '@/components/ui/toast';
 import { resolveAndAutoAddStateDistrict } from '@/utils/districtUtils';
+import { ROLE_CODE_PREFIX, roleLabel } from '@/config/roles';
 import type { UserRole, User } from '@/types';
+
+// Single source of truth for role → employee-code assignment. Prefixes come
+// from roles.ts; counter keys live here since they're a Firestore-storage
+// detail, not part of the role registry itself.
+const ROLE_CODE_CONFIG: Partial<Record<UserRole, { prefix: string; counterKey: string }>> = {
+  qc_inspector: { prefix: ROLE_CODE_PREFIX.qc_inspector!, counterKey: 'inspectorNumCounter' },
+  approver:     { prefix: ROLE_CODE_PREFIX.approver!,     counterKey: 'approverNumCounter'  },
+  qc_manager:   { prefix: ROLE_CODE_PREFIX.qc_manager!,   counterKey: 'managerNumCounter'   },
+};
 
 const secondaryApp =
   getApps().find((a) => a.name === 'secondary') ??
@@ -68,16 +77,9 @@ export function useUserActions() {
       const configRef = doc(db, 'appConfig', 'global');
       let engineerCode: string | null = null;
 
-      const roleCodeMap: Record<string, { prefix: string; counterKey: string }> = {
-        field:        { prefix: 'ENG',  counterKey: 'engineerNumCounter'  },
-        proposal:     { prefix: 'PROP', counterKey: 'proposalNumCounter'  },
-        backend:      { prefix: 'BACK', counterKey: 'backendNumCounter'   },
-        logistics:    { prefix: 'LOG',  counterKey: 'logisticsNumCounter' },
-        installation: { prefix: 'INST', counterKey: 'installationNumCounter' },
-      };
-
-      if (roleCodeMap[role]) {
-        const { prefix, counterKey } = roleCodeMap[role];
+      const codeConfig = ROLE_CODE_CONFIG[role];
+      if (codeConfig) {
+        const { prefix, counterKey } = codeConfig;
         const actualMax = await resolveActualMax(prefix);
         await runTransaction(db, async (tx) => {
           const configSnap    = await tx.get(configRef);
@@ -98,7 +100,7 @@ export function useUserActions() {
         email:             email.toLowerCase().trim(),
         role,
         active:            true,
-        engineerCode:      roleCodeMap[role] ? engineerCode : null,
+        engineerCode:      codeConfig ? engineerCode : null,
         mobileNumber:      mobileNumber?.trim() || null,
         createdAt:         serverTimestamp(),
         createdBy:         currentUser?.uid ?? '',
@@ -108,13 +110,6 @@ export function useUserActions() {
         fcmTokenUpdatedAt: null,
         photoURL:          null,
       });
-
-      // Initialize member in counts if proposal/backend
-      if (role === 'proposal' || role === 'backend') {
-        initMemberInCounts(uid, role).catch(
-          (err) => console.error('[createUser] initMemberInCounts failed:', err)
-        );
-      }
 
       await sendPasswordResetEmail(secondaryAuth, email.toLowerCase().trim());
       showToast(`Account created. Password setup email sent to ${email}.`, 'success');
@@ -132,7 +127,7 @@ export function useUserActions() {
     }
   }
 
-  async function updateUserName(userId: string, newName: string, role: string): Promise<void> {
+  async function updateUserName(userId: string, newName: string): Promise<void> {
     const trimmed = newName.trim();
     if (!trimmed) { showToast('Name cannot be empty', 'error'); return; }
     try {
@@ -141,12 +136,6 @@ export function useUserActions() {
       });
       // Sync denormalized name in field engineer slot (assignedTo)
       await syncTasksForUser(userId, { assignedToName: trimmed });
-      // Sync proposal/backend role slots if applicable
-      if (role === 'proposal') {
-        await syncRoleAssignedName(userId, 'proposalAssignedTo', 'proposalAssignedToName', trimmed);
-      } else if (role === 'backend') {
-        await syncRoleAssignedName(userId, 'backendAssignedTo', 'backendAssignedToName', trimmed);
-      }
       // Sync engineerCounts.{userId}.name if entry exists — guard with getDoc to avoid
       // creating a partial entry (name-only, no assigned/completed) for users who have
       // never had a task assigned to them.
@@ -194,30 +183,6 @@ export function useUserActions() {
       showToast('Failed to update account. Try again.', 'error');
       throw err;
     }
-
-    // Recount member tasks when re-enabling a proposal/backend user
-    try {
-      const userSnap = await getDoc(doc(db, 'users', userId));
-      const role = userSnap.data()?.['role'] as string;
-
-      if (active && (role === 'proposal' || role === 'backend')) {
-        const field = role === 'proposal' ? 'proposalAssignedTo' : 'backendAssignedTo';
-        const stage = role === 'proposal' ? 'proposal' : 'backend';
-
-        const taskSnap = await getDocs(query(
-          collection(db, 'tasks'),
-          where(field,            '==', userId),
-          where('pipelineStage',  '==', stage),
-          where('archived',       '==', false),
-        ));
-
-        await updateDoc(doc(db, 'appConfig', 'global'), {
-          [`memberCounts.${userId}`]: taskSnap.size,
-        });
-      }
-    } catch (err) {
-      console.error('[setUserActive] memberCounts recount failed:', err);
-    }
   }
 
   async function changeRole(
@@ -250,31 +215,14 @@ export function useUserActions() {
       }
     }
 
-    const roleCodeMap: Record<string, { prefix: string; counterKey: string; label: string }> = {
-      field:        { prefix: 'ENG',  counterKey: 'engineerNumCounter',     label: 'Field Engineer'        },
-      proposal:     { prefix: 'PROP', counterKey: 'proposalNumCounter',     label: 'Proposal Engineer'     },
-      backend:      { prefix: 'BACK', counterKey: 'backendNumCounter',      label: 'Backend Engineer'      },
-      logistics:    { prefix: 'LOG',  counterKey: 'logisticsNumCounter',    label: 'Logistics'             },
-      installation: { prefix: 'INST', counterKey: 'installationNumCounter', label: 'Installation Engineer' },
-    };
-
     try {
       const configRef = doc(db, 'appConfig', 'global');
       const userRef   = doc(db, 'users', targetUserId);
+      const codeConfig = ROLE_CODE_CONFIG[newRole];
 
-      if (newRole === 'admin') {
-        // Any role → Admin: keep engineerCode for history
-        await updateDoc(userRef, {
-          role:      'admin',
-          updatedAt: serverTimestamp(),
-        });
-        showToast(
-          'Role changed to Admin. User must log out and back in for full effect.',
-          'success',
-        );
-      } else if (roleCodeMap[newRole]) {
-        // Admin or any role → code-bearing role: assign role-specific code atomically
-        const { prefix, counterKey, label } = roleCodeMap[newRole];
+      if (codeConfig) {
+        // Code-bearing role: assign role-specific code atomically
+        const { prefix, counterKey } = codeConfig;
         const actualMax = await resolveActualMax(prefix);
         let engineerCode = '';
         await runTransaction(db, async (tx) => {
@@ -291,11 +239,12 @@ export function useUserActions() {
         });
         await syncTasksForUser(targetUserId, { assignedToCode: engineerCode });
         showToast(
-          `Role changed to ${label}. Assigned ${engineerCode}. User must log out and back in.`,
+          `Role changed to ${roleLabel(newRole)}. Assigned ${engineerCode}. User must log out and back in.`,
           'success',
         );
       } else {
-        // Roles with no code (view_only, backend_manager): update role only
+        // Roles with no code (admin, viewer): update role only, keep any
+        // existing engineerCode for history
         await updateDoc(userRef, {
           role:      newRole,
           updatedAt: serverTimestamp(),
@@ -306,32 +255,6 @@ export function useUserActions() {
       console.error('[changeRole] failed:', err);
       showToast('Failed to change role. Try again.', 'error');
       throw err;
-    }
-
-    // Update memberCounts when role changes
-    try {
-      const appConfigRef = doc(db, 'appConfig', 'global');
-      const updates: Record<string, unknown> = {};
-
-      // Remove from memberCounts if leaving proposal/backend
-      if (targetCurrentRole === 'proposal' || targetCurrentRole === 'backend') {
-        updates[`memberCounts.${targetUserId}`] = deleteField();
-      }
-
-      // Add to memberCounts if joining proposal/backend
-      if (newRole === 'proposal' || newRole === 'backend') {
-        const configSnap = await getDoc(appConfigRef);
-        const existing = (configSnap.data()?.['memberCounts'] ?? {}) as Record<string, number>;
-        if (!(targetUserId in existing)) {
-          updates[`memberCounts.${targetUserId}`] = 0;
-        }
-      }
-
-      if (Object.keys(updates).length > 0) {
-        await updateDoc(appConfigRef, updates);
-      }
-    } catch (err) {
-      console.error('[changeRole] memberCounts update failed:', err);
     }
   }
 
@@ -355,34 +278,6 @@ export function useUserActions() {
       console.error('[transferSuperAdmin] failed:', err);
       showToast('Transfer failed. Try again.', 'error');
       throw err;
-    }
-  }
-
-  async function syncRoleAssignedName(
-    userId:    string,
-    uidField:  string,
-    nameField: string,
-    newName:   string,
-  ): Promise<void> {
-    try {
-      const snap = await getDocs(query(
-        collection(db, 'tasks'),
-        where(uidField,   '==', userId),
-        where('archived', '==', false),
-      ));
-      if (snap.empty) return;
-      const CHUNK = 499;
-      const docs  = snap.docs;
-      for (let i = 0; i < docs.length; i += CHUNK) {
-        const batch = writeBatch(db);
-        docs.slice(i, i + CHUNK).forEach((d) => {
-          batch.update(d.ref, { [nameField]: newName, updatedAt: serverTimestamp() });
-        });
-        await batch.commit();
-      }
-      console.warn(`[syncRoleAssignedName] Updated ${docs.length} tasks — ${nameField}`);
-    } catch (err) {
-      console.error('[syncRoleAssignedName] failed:', err);
     }
   }
 

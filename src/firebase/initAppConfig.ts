@@ -3,8 +3,7 @@ import {
   getDocs, query, collection, where, writeBatch, serverTimestamp,
 } from 'firebase/firestore';
 import { db } from './config';
-import { computeSaleClosedEvidence } from '@/utils/computeSaleClosed';
-import type { JourneyStepDefinition, SaleClosedConfig } from '@/types';
+import type { JourneyStepDefinition } from '@/types';
 
 const FULL_TEMPLATE = [
   {
@@ -600,26 +599,6 @@ export async function backfillMemberCounts(): Promise<void> {
   }
 }
 
-export async function initMemberInCounts(
-  uid:  string,
-  role: string,
-): Promise<void> {
-  if (role !== 'proposal' && role !== 'backend') return;
-  try {
-    const configSnap = await getDoc(doc(db, 'appConfig', 'global'));
-    if (!configSnap.exists()) return;
-    const existing = (configSnap.data()['memberCounts'] ?? {}) as Record<string, number>;
-    if (!(uid in existing)) {
-      await updateDoc(doc(db, 'appConfig', 'global'), {
-        [`memberCounts.${uid}`]: 0,
-      });
-      console.warn(`[initMemberInCounts] Added ${uid} (${role}) with count 0`);
-    }
-  } catch (err) {
-    console.error('[initMemberInCounts] failed:', err);
-  }
-}
-
 export async function reconcilePipelineCounts(): Promise<void> {
   try {
     const configSnap = await getDoc(doc(db, 'appConfig', 'global'));
@@ -686,71 +665,6 @@ export async function backfillCreatedBy(adminUid: string): Promise<void> {
   } catch (err) {
     console.error('[backfillCreatedBy] failed:', err);
   }
-}
-
-export async function reconcileSaleClosed(): Promise<{
-  totalScanned:  number;
-  updated:       number;
-  skippedManual: number;
-}> {
-  const configSnap = await getDoc(doc(db, 'appConfig', 'global'));
-  const saleClosedConfig = configSnap.data()?.['saleClosedConfig'] as SaleClosedConfig | undefined;
-
-  const snap = await getDocs(query(
-    collection(db, 'tasks'),
-    where('archived', '==', false),
-  ));
-
-  let skippedManual = 0;
-  const toUpdate: { id: string; saleClosed: boolean }[] = [];
-
-  snap.docs.forEach((d) => {
-    const data   = d.data();
-    const source = data['saleClosedSource'] as 'auto' | 'manual' | null | undefined;
-
-    // Never touch a lead an admin manually marked/unmarked.
-    if (source === 'manual') {
-      skippedManual++;
-      return;
-    }
-
-    const computed = computeSaleClosedEvidence(
-      {
-        fieldAnswers:    data['fieldAnswers'],
-        fieldPhotos:     data['fieldPhotos'],
-        documentAnswers: data['documentAnswers'],
-        documentPhotos:  data['documentPhotos'],
-      },
-      saleClosedConfig,
-    );
-    const current = (data['saleClosed'] as boolean | undefined) ?? false;
-
-    // Only stage a write if the computed value actually differs.
-    if (computed !== current) {
-      toUpdate.push({ id: d.id, saleClosed: computed });
-    }
-  });
-
-  const CHUNK = 499;
-  for (let i = 0; i < toUpdate.length; i += CHUNK) {
-    const batch = writeBatch(db);
-    toUpdate.slice(i, i + CHUNK).forEach(({ id, saleClosed }) => {
-      batch.update(doc(db, 'tasks', id), {
-        saleClosed,
-        saleClosedSource: 'auto',
-        updatedAt:        serverTimestamp(),
-      });
-    });
-    await batch.commit();
-  }
-
-  const summary = {
-    totalScanned: snap.docs.length,
-    updated:      toUpdate.length,
-    skippedManual,
-  };
-  console.warn('[reconcileSaleClosed] Done:', summary);
-  return summary;
 }
 
 export async function ensureSuperAdmin(uid: string): Promise<void> {

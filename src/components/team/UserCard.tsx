@@ -1,9 +1,8 @@
 import { UserCog, Wifi } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { useEngineerTaskStats } from '@/hooks/useEngineerTaskStats';
-import { getProposalDoneCount } from '@/utils/engineerStats';
-import type { User, UserRole, Task } from '@/types';
+import { ALL_ROLES, ROLES, roleLabel, ROLE_CODE_PREFIX } from '@/config/roles';
+import type { User, UserRole } from '@/types';
 
 interface UserCardProps {
   user:            User;
@@ -13,7 +12,6 @@ interface UserCardProps {
   onView?:         (user: User) => void;
   onChangeRole?:   (user: User, newRole: UserRole) => void;
   isSuperAdmin?:   boolean;
-  stats?:          { tasks: Task[]; loading: boolean };
   isOnline?:       boolean;
   lastSeen?:       number | null;
 }
@@ -28,20 +26,9 @@ function timeAgo(ms: number): string {
   return `${Math.floor(hrs / 24)}d ago`;
 }
 
-const ROLE_CONFIG: Record<string, { label: string; avatarBg: string; badgeBg: string; badgeText: string }> = {
-  admin:        { label: 'Admin',                 avatarBg: 'bg-brand-navy',  badgeBg: 'bg-brand-navy/10', badgeText: 'text-brand-navy'  },
-  field:        { label: 'Field Engineer',        avatarBg: 'bg-teal-600',    badgeBg: 'bg-teal-100',      badgeText: 'text-teal-700'    },
-  proposal:     { label: 'Proposal Engineer',     avatarBg: 'bg-violet-600',  badgeBg: 'bg-violet-100',    badgeText: 'text-violet-700'  },
-  backend:      { label: 'Backend Engineer',      avatarBg: 'bg-orange-500',  badgeBg: 'bg-orange-100',    badgeText: 'text-orange-700'  },
-  logistics:       { label: 'Logistics',             avatarBg: 'bg-sky-600',     badgeBg: 'bg-sky-100',       badgeText: 'text-sky-700'     },
-  installation:    { label: 'Installation Engineer', avatarBg: 'bg-green-700',   badgeBg: 'bg-green-100',     badgeText: 'text-green-700'   },
-  view_only:       { label: 'View Only',             avatarBg: 'bg-slate-500',   badgeBg: 'bg-slate-100',     badgeText: 'text-slate-600'   },
-  backend_manager: { label: 'Backend Manager',       avatarBg: 'bg-amber-600',   badgeBg: 'bg-amber-100',     badgeText: 'text-amber-700'   },
-};
-
 function Avatar({ user }: { user: User }) {
   const initial = user.name.trim().charAt(0).toUpperCase() || '?';
-  const bg = ROLE_CONFIG[user.role]?.avatarBg ?? 'bg-gray-500';
+  const bg = ROLES[user.role]?.badgeBg ?? 'bg-gray-500';
 
   return (
     <div
@@ -57,7 +44,7 @@ function Avatar({ user }: { user: User }) {
 }
 
 function RoleBadge({ role }: { role: User['role'] }) {
-  const cfg = ROLE_CONFIG[role];
+  const cfg = ROLES[role];
   return (
     <span
       className={cn(
@@ -71,53 +58,28 @@ function RoleBadge({ role }: { role: User['role'] }) {
   );
 }
 
-export function UserCard({ user, isSelf, onEdit, onToggleActive, onView, onChangeRole, isSuperAdmin, stats, isOnline, lastSeen }: UserCardProps) {
-  const isNonAdmin = user.role !== 'admin' && user.role !== 'view_only' && user.role !== 'backend_manager';
-  const fallback = useEngineerTaskStats(
-    (!stats && isNonAdmin) ? user.id : '',
-    user.role,
-  );
-  const { tasks, loading: statsLoading } = stats ?? fallback;
-
-  const assignedCount  = tasks.length;
-  const completedCount = user.role === 'backend'
-    ? tasks.filter((t) => t.pipelineStage === 'completed').length
-    : user.role === 'proposal'
-    ? getProposalDoneCount(tasks)
-    : tasks.filter((t) => t.status === 'completed').length;
-  const completionPct  = assignedCount > 0
-    ? Math.round((completedCount / assignedCount) * 100)
-    : 0;
+export function UserCard({ user, isSelf, onEdit, onToggleActive, onView, onChangeRole, isSuperAdmin, isOnline, lastSeen }: UserCardProps) {
+  const hasCode = !!ROLE_CODE_PREFIX[user.role];
 
   function handleChangeRole() {
     if (!onChangeRole) return;
-    const roleOptions = ['field', 'proposal', 'backend', 'admin', 'view_only', 'backend_manager'] as UserRole[];
-    const labels: Record<string, string> = {
-      field:           'Field Engineer',
-      proposal:        'Proposal Team',
-      backend:         'Backend Team',
-      admin:           'Admin',
-      view_only:       'View Only',
-      backend_manager: 'Backend Manager',
-    };
-    const optionStr = roleOptions
-      .filter((r) => r !== user.role)
-      .map((r, i) => `${i + 1}. ${labels[r]}`)
+    const options = ALL_ROLES.filter((r) => r !== user.role);
+    const optionStr = options
+      .map((r, i) => `${i + 1}. ${roleLabel(r)}`)
       .join('\n');
     const input = window.prompt(
-      `Change role for ${user.name} (currently ${labels[user.role] ?? user.role}).\n\nSelect new role:\n${optionStr}\n\nEnter number:`,
+      `Change role for ${user.name} (currently ${roleLabel(user.role)}).\n\nSelect new role:\n${optionStr}\n\nEnter number:`,
     );
     if (!input) return;
-    const available = roleOptions.filter((r) => r !== user.role);
     const idx = parseInt(input.trim(), 10) - 1;
-    if (isNaN(idx) || idx < 0 || idx >= available.length) {
+    if (isNaN(idx) || idx < 0 || idx >= options.length) {
       window.alert('Invalid selection. No changes made.');
       return;
     }
-    const newRole = available[idx];
+    const newRole = options[idx];
     const confirmMsg = newRole === 'admin'
       ? `Promote ${user.name} to Admin? They will have FULL access to everything.`
-      : `Change ${user.name}'s role to ${labels[newRole]}?`;
+      : `Change ${user.name}'s role to ${roleLabel(newRole)}?`;
     if (!window.confirm(confirmMsg)) return;
     onChangeRole(user, newRole);
   }
@@ -160,12 +122,12 @@ export function UserCard({ user, isSelf, onEdit, onToggleActive, onView, onChang
 
         <div className="flex items-center gap-2 mt-1.5 flex-wrap">
           <RoleBadge role={user.role} />
-          {isNonAdmin && user.engineerCode && (
+          {hasCode && user.engineerCode && (
             <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-gray-100 text-gray-600 font-mono">
               {user.engineerCode}
             </span>
           )}
-          {user.role === 'field' && user.district && (
+          {user.district && (
             <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-blue-50 text-blue-600">
               {user.district}
             </span>
@@ -176,59 +138,10 @@ export function UserCard({ user, isSelf, onEdit, onToggleActive, onView, onChang
             </span>
           )}
         </div>
-
-        {isNonAdmin && (
-          <p className="text-xs text-gray-400 mt-1.5">
-            {statsLoading ? (
-              <span className="text-gray-300">Loading tasks…</span>
-            ) : (
-              (() => {
-                if (user.role === 'proposal') {
-                  const active = tasks.filter((t) =>
-                    t.pipelineStage === 'proposal'
-                  ).length;
-                  const done = getProposalDoneCount(tasks);
-                  return (
-                    <>
-                      <span className="font-medium text-gray-600">{active}</span> active
-                      {' · '}
-                      <span className="font-medium text-gray-600">{done}</span> done
-                    </>
-                  );
-                }
-                if (user.role === 'backend') {
-                  const active = tasks.filter((t) =>
-                    t.pipelineStage === 'backend'
-                  ).length;
-                  const converted = tasks.filter((t) =>
-                    t.pipelineStage === 'completed'
-                  ).length;
-                  return (
-                    <>
-                      <span className="font-medium text-gray-600">{active}</span> active
-                      {' · '}
-                      <span className="font-medium text-gray-600">{converted}</span> converted
-                    </>
-                  );
-                }
-                // field engineer default
-                return (
-                  <>
-                    <span className="font-medium text-gray-600">{assignedCount}</span> assigned
-                    {' · '}
-                    <span className="font-medium text-gray-600">{completedCount}</span> completed
-                    {' · '}
-                    <span className="font-medium text-gray-600">{completionPct}%</span>
-                  </>
-                );
-              })()
-            )}
-          </p>
-        )}
       </div>
 
       <div className="flex flex-col gap-1.5 shrink-0">
-        {isNonAdmin && onView && (
+        {hasCode && onView && (
           <Button
             size="sm"
             variant="outline"

@@ -4,8 +4,8 @@ import { useUserStore } from '@/store/userStore';
 import { useUserActions } from '@/hooks/useUserActions';
 import { useAuthStore }   from '@/store/authStore';
 import { useAppConfig }   from '@/hooks/useAppConfig';
-import { useTeamStats }     from '@/hooks/useTeamStats';
 import { useOnlineUsers }   from '@/hooks/useOnlineUsers';
+import { ALL_ROLES, roleLabel, can } from '@/config/roles';
 import { UserCard }               from '@/components/team/UserCard';
 import { EditUserModal }          from '@/components/team/EditUserModal';
 import { CreateUserModal }        from '@/components/team/CreateUserModal';
@@ -45,17 +45,12 @@ function exportEngineersCsv(users: User[]): void {
   URL.revokeObjectURL(url);
 }
 
-type FilterTab = 'all' | 'admin' | 'field' | 'proposal' | 'backend' | 'view_only' | 'backend_manager' | 'disabled';
+type FilterTab = 'all' | UserRole | 'disabled';
 
 const TABS: { key: FilterTab; label: string }[] = [
-  { key: 'all',             label: 'All'              },
-  { key: 'admin',           label: 'Admins'            },
-  { key: 'field',           label: 'Field Engineers'   },
-  { key: 'proposal',        label: 'Proposal Team'     },
-  { key: 'backend',         label: 'Backend Team'      },
-  { key: 'view_only',       label: 'View Only'         },
-  { key: 'backend_manager', label: 'Backend Managers'  },
-  { key: 'disabled',        label: 'Disabled'          },
+  { key: 'all', label: 'All' },
+  ...ALL_ROLES.map((r) => ({ key: r as FilterTab, label: roleLabel(r) })),
+  { key: 'disabled', label: 'Disabled' },
 ];
 
 export function TeamPage() {
@@ -63,10 +58,8 @@ export function TeamPage() {
   const { currentUser }    = useAuthStore();
   const { config }         = useAppConfig();
   const { setUserActive, changeRole } = useUserActions();
-  const teamStats = useTeamStats(users);
   const { presenceMap } = useOnlineUsers();
-  const isViewOnly = currentUser?.role === 'view_only';
-  const canEdit    = !isViewOnly;
+  const canEdit = can(currentUser?.role, 'manageUsers');
 
   const [search,         setSearch]         = useState('');
   const [stateFilter,    setStateFilter]    = useState('');
@@ -85,12 +78,7 @@ export function TeamPage() {
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim();
     return users.filter((u) => {
-      if (activeTab === 'admin'           && u.role !== 'admin')           return false;
-      if (activeTab === 'field'           && u.role !== 'field')           return false;
-      if (activeTab === 'proposal'        && u.role !== 'proposal')        return false;
-      if (activeTab === 'backend'         && u.role !== 'backend')         return false;
-      if (activeTab === 'view_only'       && u.role !== 'view_only')       return false;
-      if (activeTab === 'backend_manager' && u.role !== 'backend_manager') return false;
+      if (activeTab !== 'all' && activeTab !== 'disabled' && u.role !== activeTab) return false;
       if (activeTab === 'disabled' && u.active)           return false;
       if (activeTab !== 'disabled' && !u.active)          return false;
       if (stateFilter    && (u.state    ?? '') !== stateFilter)    return false;
@@ -105,16 +93,15 @@ export function TeamPage() {
     });
   }, [users, activeTab, search, stateFilter, districtFilter]);
 
-  const counts = useMemo(() => ({
-    all:             users.filter((u) => u.active).length,
-    admin:           users.filter((u) => u.role === 'admin'           && u.active).length,
-    field:           users.filter((u) => u.role === 'field'           && u.active).length,
-    proposal:        users.filter((u) => u.role === 'proposal'        && u.active).length,
-    backend:         users.filter((u) => u.role === 'backend'         && u.active).length,
-    view_only:       users.filter((u) => u.role === 'view_only'       && u.active).length,
-    backend_manager: users.filter((u) => u.role === 'backend_manager' && u.active).length,
-    disabled:        users.filter((u) => !u.active).length,
-  }), [users]);
+  const counts = useMemo(() => {
+    const result: Record<FilterTab, number> = { all: 0, disabled: 0 } as Record<FilterTab, number>;
+    result.all      = users.filter((u) => u.active).length;
+    result.disabled = users.filter((u) => !u.active).length;
+    ALL_ROLES.forEach((r) => {
+      result[r] = users.filter((u) => u.role === r && u.active).length;
+    });
+    return result;
+  }, [users]);
 
   function requestToggleActive(user: User) { setConfirmUser(user); }
 
@@ -173,7 +160,7 @@ export function TeamPage() {
         />
       </div>
 
-      {Object.keys(config.districtsByState ?? {}).length > 0 && (activeTab === 'all' || activeTab === 'field') && (
+      {Object.keys(config.districtsByState ?? {}).length > 0 && activeTab === 'all' && (
         <div className="mb-3">
           <select
             value={stateFilter}
@@ -194,7 +181,7 @@ export function TeamPage() {
         </div>
       )}
 
-      {(stateFilter ? (config.districtsByState?.[stateFilter] ?? []) : (config.districts ?? [])).length > 0 && (activeTab === 'all' || activeTab === 'field') && (
+      {(stateFilter ? (config.districtsByState?.[stateFilter] ?? []) : (config.districts ?? [])).length > 0 && activeTab === 'all' && (
         <div className="mb-3">
           <select
             value={districtFilter}
@@ -251,7 +238,6 @@ export function TeamPage() {
               user={user}
               isSelf={user.id === currentUser?.uid}
               isSuperAdmin={user.id === config.superAdminUid}
-              stats={teamStats[user.id]}
               isOnline={presenceMap[user.id]?.online ?? false}
               lastSeen={presenceMap[user.id]?.lastSeen ?? null}
               onEdit={canEdit ? setEditUser : undefined}

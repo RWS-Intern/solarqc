@@ -8,16 +8,13 @@ import { Layout }      from '@/components/layout/Layout';
 import { LoginPage }   from '@/pages/LoginPage';
 import { SignupPage }  from '@/pages/SignupPage';
 import { DashboardPage } from '@/pages/DashboardPage';
-import { TasksPage }   from '@/pages/TasksPage';
 import { TeamPage }    from '@/pages/TeamPage';
 import { TemplatePage } from '@/pages/TemplatePage';
 import { ReportsPage }  from '@/pages/ReportsPage';
-import { ProposalPage }        from '@/pages/ProposalPage';
-import { BackendPage }         from '@/pages/BackendPage';
-import { BackendManagerPage }  from '@/pages/BackendManagerPage';
 import { ErrorLogsPage }       from '@/pages/ErrorLogsPage';
+import { defaultRouteFor, type UserRole } from '@/config/roles';
 
-function ComingSoonPage() {
+function PlaceholderPage() {
   return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 px-6 text-center">
       <p className="text-5xl">🚧</p>
@@ -36,13 +33,11 @@ function AuthInit({ children }: { children: React.ReactNode }) {
 }
 
 interface ProtectedRouteProps {
-  requireAdmin?:       boolean;
-  requireRole?:        string;
-  requireAdminOrField?: boolean;
-  children:            React.ReactNode;
+  allow?:    UserRole[];
+  children: React.ReactNode;
 }
 
-function ProtectedRoute({ requireAdmin = false, requireRole, requireAdminOrField = false, children }: ProtectedRouteProps) {
+function ProtectedRoute({ allow, children }: ProtectedRouteProps) {
   const { currentUser, loading } = useAuthStore();
 
   if (loading) {
@@ -54,18 +49,8 @@ function ProtectedRoute({ requireAdmin = false, requireRole, requireAdminOrField
   }
 
   if (!currentUser) return <Navigate to="/login" replace />;
-  if (requireAdmin && currentUser.role !== 'admin' && currentUser.role !== 'view_only') return <Navigate to="/dashboard" replace />;
-  if (requireRole && currentUser.role !== requireRole && currentUser.role !== 'admin') {
-    return <Navigate to="/dashboard" replace />;
-  }
-  if (requireAdminOrField) {
-    const role = currentUser.role;
-    if (role === 'proposal') return <Navigate to="/proposal" replace />;
-    if (role === 'backend') return <Navigate to="/backend" replace />;
-    if (role === 'backend_manager') return <Navigate to="/backend-manager" replace />;
-    if (role === 'logistics' || role === 'installation') {
-      return <Navigate to="/coming-soon" replace />;
-    }
+  if (allow && !allow.includes(currentUser.role)) {
+    return <Navigate to={defaultRouteFor(currentUser.role)} replace />;
   }
   return <>{children}</>;
 }
@@ -73,7 +58,7 @@ function ProtectedRoute({ requireAdmin = false, requireRole, requireAdminOrField
 function CatchAll() {
   const { currentUser, loading } = useAuthStore();
   if (loading) return null;
-  return <Navigate to={currentUser ? '/dashboard' : '/login'} replace />;
+  return <Navigate to={currentUser ? defaultRouteFor(currentUser.role) : '/login'} replace />;
 }
 
 export default function App() {
@@ -92,40 +77,24 @@ export default function App() {
 
           <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
             <Route path="/dashboard" element={<DashboardPage />} />
-            <Route path="/tasks"     element={<ProtectedRoute requireAdminOrField><TasksPage /></ProtectedRoute>} />
 
-            <Route
-              path="/proposal"
-              element={
-                <ProtectedRoute requireRole="proposal">
-                  <ProposalPage />
-                </ProtectedRoute>
-              }
-            />
+            <Route path="/jobs" element={
+              <ProtectedRoute allow={['admin', 'qc_manager', 'viewer']}><PlaceholderPage /></ProtectedRoute>
+            } />
+            <Route path="/my-jobs" element={
+              <ProtectedRoute allow={['qc_inspector']}><PlaceholderPage /></ProtectedRoute>
+            } />
+            <Route path="/approvals" element={
+              <ProtectedRoute allow={['approver', 'admin']}><PlaceholderPage /></ProtectedRoute>
+            } />
+            <Route path="/customers" element={
+              <ProtectedRoute allow={['admin', 'qc_manager']}><PlaceholderPage /></ProtectedRoute>
+            } />
 
-            <Route
-              path="/backend"
-              element={
-                <ProtectedRoute requireRole="backend">
-                  <BackendPage />
-                </ProtectedRoute>
-              }
-            />
-
-            <Route
-              path="/backend-manager"
-              element={
-                <ProtectedRoute requireRole="backend_manager">
-                  <BackendManagerPage />
-                </ProtectedRoute>
-              }
-            />
-
-            <Route path="/coming-soon" element={<ComingSoonPage />} />
-            <Route path="/team"     element={<ProtectedRoute requireAdmin><TeamPage /></ProtectedRoute>} />
-            <Route path="/template" element={<ProtectedRoute requireAdmin><TemplatePage /></ProtectedRoute>} />
-            <Route path="/reports"     element={<ProtectedRoute requireAdmin><ReportsPage /></ProtectedRoute>} />
-            <Route path="/error-logs"  element={<ProtectedRoute requireAdmin><ErrorLogsPage /></ProtectedRoute>} />
+            <Route path="/team"     element={<ProtectedRoute allow={['admin']}><TeamPage /></ProtectedRoute>} />
+            <Route path="/template" element={<ProtectedRoute allow={['admin']}><TemplatePage /></ProtectedRoute>} />
+            <Route path="/reports"  element={<ProtectedRoute allow={['admin', 'qc_manager', 'viewer']}><ReportsPage /></ProtectedRoute>} />
+            <Route path="/error-logs" element={<ProtectedRoute allow={['admin']}><ErrorLogsPage /></ProtectedRoute>} />
           </Route>
 
           <Route path="*" element={<CatchAll />} />

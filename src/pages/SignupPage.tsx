@@ -18,6 +18,7 @@ import { Input }  from '@/components/ui/input';
 import { Label }  from '@/components/ui/label';
 import { Card, CardContent } from '@/components/ui/card';
 import { logError } from '@/utils/logError';
+import { roleLabel } from '@/config/roles';
 
 type PageState  = 'loading' | 'invalid' | 'expired' | 'already_used' | 'ready' | 'success';
 type ErrorType  = 'generic' | 'existing_account' | 'partial_account' | null;
@@ -202,13 +203,7 @@ export function SignupPage() {
           <p className="text-xs text-gray-500 mb-5 text-center">
             You've been invited as a{' '}
             <span className="font-semibold text-brand-blue capitalize">
-              {inviteRole === 'admin'        ? 'Admin' :
-               inviteRole === 'field'        ? 'Field Engineer' :
-               inviteRole === 'proposal'     ? 'Proposal Engineer' :
-               inviteRole === 'backend'      ? 'Backend Engineer' :
-               inviteRole === 'logistics'    ? 'Logistics' :
-               inviteRole === 'installation' ? 'Installation Engineer' :
-               inviteRole}
+              {roleLabel(inviteRole)}
             </span>
             . Create your account below.
           </p>

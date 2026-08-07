@@ -1,12 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AlertTriangle, Plus, Trash2, ChevronUp, ChevronDown, Save, Check, X, ChevronRight, Pencil, Route, FileText } from 'lucide-react';
-import { collection, doc, getDocs, query, updateDoc, where, writeBatch } from 'firebase/firestore';
-import { backfillEngineerDistrictCounts, reconcileSaleClosed } from '@/firebase/initAppConfig';
-import { db }                 from '@/firebase/config';
 import { toTitleCase }        from '@/utils/districtUtils';
 import { useAppConfig }       from '@/hooks/useAppConfig';
 import { useAuthStore }       from '@/store/authStore';
 import { useTemplateActions } from '@/hooks/useTemplateActions';
+import { can }                from '@/config/roles';
 import { _emitToast }         from '@/components/ui/toast';
 import { Button }  from '@/components/ui/button';
 import { Input }   from '@/components/ui/input';
@@ -578,7 +576,7 @@ function SaleClosedMappingEditor() {
   const { config, loading }       = useAppConfig();
   const { saveSaleClosedConfig }  = useTemplateActions();
   const { currentUser }           = useAuthStore();
-  const isViewOnly                = currentUser?.role === 'view_only';
+  const isViewOnly                = !can(currentUser?.role, 'manageTemplate');
 
   const [surveyType,   setSurveyType]   = useState<string>('');
   const [surveyAmount, setSurveyAmount] = useState<string>('');
@@ -745,7 +743,7 @@ function SaleClosedMappingEditor() {
 
 export function TemplatePage() {
   const { currentUser }      = useAuthStore();
-  const isViewOnly           = currentUser?.role === 'view_only';
+  const isViewOnly           = !can(currentUser?.role, 'manageTemplate');
   const { config, loading }  = useAppConfig();
   const { saveTemplate, saveDocumentTemplate, saveDistrictsByState, saveLeadSources } = useTemplateActions();
 
@@ -760,12 +758,6 @@ export function TemplatePage() {
   const [docDirty,       setDocDirty]       = useState(false);
   const [docSaving,      setDocSaving]      = useState(false);
   const [docExpandedIdx, setDocExpandedIdx] = useState<number | null>(null);
-
-  const [recalculating,                 setRecalculating]                = useState(false);
-  const [recalculatingEngineerDistrict, setRecalculatingEngineerDistrict] = useState(false);
-  const [migratingState,                setMigratingState]               = useState(false);
-  const [migratingCorrections, setMigratingCorrections] = useState(false);
-  const [backfillingSaleClosed, setBackfillingSaleClosed] = useState(false);
 
   const [districtsByState,       setDistrictsByState]       = useState<Record<string, string[]>>({});
   const [newState,               setNewState]               = useState('');
@@ -847,225 +839,6 @@ export function TemplatePage() {
     }
   }
 
-  async function handleRecalculateEngineerDistrictCounts() {
-    if (currentUser?.role !== 'admin') return;
-    setRecalculatingEngineerDistrict(true);
-    try {
-      const tasksSnap = await getDocs(
-        query(collection(db, 'tasks'), where('archived', '==', false))
-      );
-      const confirmed = window.confirm(
-        `Recalculate engineer & district counts from all ${tasksSnap.size} non-archived tasks?\n\nThis will overwrite stored values. This cannot be undone.`
-      );
-      if (!confirmed) return;
-
-      await backfillEngineerDistrictCounts();
-      _emitToast('Engineer & district counts recalculated successfully.', 'success');
-    } catch (err) {
-      console.error('[recalculateEngineerDistrict] failed:', err);
-      _emitToast('Failed to recalculate engineer & district counts. Try again.', 'error');
-    } finally {
-      setRecalculatingEngineerDistrict(false);
-    }
-  }
-
-  async function handleMigrateToMaharashtra() {
-    if (currentUser?.role !== 'admin') return;
-    setMigratingState(true);
-    try {
-      // Check if already migrated
-      if (config.districtsByState && Object.keys(config.districtsByState).length > 0) {
-        const proceed = window.confirm(
-          'States & Districts data already exists. Running this again will ' +
-          'ADD to the existing Maharashtra district list (safe, no duplicates ' +
-          'due to case-insensitive matching) but will NOT re-touch tasks/' +
-          'engineers that already have a state set. Continue?'
-        );
-        if (!proceed) { setMigratingState(false); return; }
-      }
-
-      const existingFlatDistricts = config.districts ?? [];
-
-      // Count tasks that need state set
-      const tasksSnap = await getDocs(query(
-        collection(db, 'tasks'),
-        where('archived', '==', false),
-      ));
-      const tasksNeedingState = tasksSnap.docs.filter((d) => {
-        const data = d.data();
-        return !!data['district'] && !data['state'];
-      });
-
-      // Count users that need state set
-      const usersSnap = await getDocs(collection(db, 'users'));
-      const usersNeedingState = usersSnap.docs.filter((d) => {
-        const data = d.data();
-        return !!data['district'] && !data['state'];
-      });
-
-      const confirmed = window.confirm(
-        `This will:\n\n` +
-        `1. Move ${existingFlatDistricts.length} existing districts under "Maharashtra"\n` +
-        `2. Set state = "Maharashtra" on ${tasksNeedingState.length} existing tasks\n` +
-        `3. Set state = "Maharashtra" on ${usersNeedingState.length} existing field engineers\n\n` +
-        `This is safe because your platform has only operated in Maharashtra ` +
-        `so far. This cannot be automatically undone. Continue?`
-      );
-      if (!confirmed) { setMigratingState(false); return; }
-
-      // 1. Set up districtsByState with existing flat list under Maharashtra
-      const newDistrictsByState = {
-        ...(config.districtsByState ?? {}),
-        Maharashtra: Array.from(new Set([
-          ...(config.districtsByState?.['Maharashtra'] ?? []),
-          ...existingFlatDistricts,
-        ])),
-      };
-      await updateDoc(doc(db, 'appConfig', 'global'), {
-        districtsByState: newDistrictsByState,
-      });
-
-      // 2. Batch-update tasks, chunked at 499
-      const CHUNK = 499;
-      for (let i = 0; i < tasksNeedingState.length; i += CHUNK) {
-        const batch = writeBatch(db);
-        tasksNeedingState.slice(i, i + CHUNK).forEach((d) => {
-          batch.update(doc(db, 'tasks', d.id), { state: 'Maharashtra' });
-        });
-        await batch.commit();
-      }
-
-      // 3. Batch-update users, chunked at 499
-      for (let i = 0; i < usersNeedingState.length; i += CHUNK) {
-        const batch = writeBatch(db);
-        usersNeedingState.slice(i, i + CHUNK).forEach((d) => {
-          batch.update(doc(db, 'users', d.id), { state: 'Maharashtra' });
-        });
-        await batch.commit();
-      }
-
-      _emitToast(
-        `Migration complete: ${tasksNeedingState.length} tasks and ` +
-        `${usersNeedingState.length} engineers set to Maharashtra.`,
-        'success',
-      );
-    } catch (err) {
-      console.error('[handleMigrateToMaharashtra] failed:', err);
-      _emitToast('Migration failed. Try again.', 'error');
-    } finally {
-      setMigratingState(false);
-    }
-  }
-
-  async function handleMigrateHistoricalCorrections() {
-    if (currentUser?.role !== 'admin') return;
-    setMigratingCorrections(true);
-    try {
-      const PIPELINE_ORDER: Record<string, number> = {
-        survey: 0, proposal: 1, field_review: 2, documents: 3, backend: 4,
-        completed: 5,
-      };
-
-      const tasksSnap = await getDocs(query(
-        collection(db, 'tasks'),
-        where('archived', '==', false),
-      ));
-
-      const candidates: { id: string; fromStage: string; note: string; timestamp: unknown }[] = [];
-
-      tasksSnap.docs.forEach((d) => {
-        const data = d.data();
-        if (data['correctionReturnTo']) return; // already tracked — never touch
-
-        const history = (data['stageHistory'] ?? []) as Array<Record<string, unknown>>;
-        const lastOverride = [...history].reverse().find(
-          (e) => e['actorRole'] === 'admin_override',
-        );
-        if (!lastOverride) return;
-
-        const fromStage = lastOverride['fromStage'] as string | undefined;
-        const toStage   = lastOverride['toStage']   as string | undefined;
-        if (!fromStage || !toStage) return;
-        if (!(fromStage in PIPELINE_ORDER) || !(toStage in PIPELINE_ORDER)) return;
-
-        // Only a genuine backward move
-        if (PIPELINE_ORDER[toStage] >= PIPELINE_ORDER[fromStage]) return;
-
-        // Only if the task hasn't moved since — still sitting exactly at
-        // the override's destination. If it's moved on, it was already
-        // resolved the old way; leave it alone.
-        if (data['pipelineStage'] !== toStage) return;
-
-        const note = (lastOverride['note'] as string) ?? '';
-        // Exclude Full Restart overrides — these produce this EXACT auto-
-        // generated default note (see adminOverrideStage's fallback:
-        // `note || \`Admin moved from ${currentStage} to ${newStage}\``).
-        // A Full Restart is a deliberate admin choice to NOT track this as a
-        // correction — retroactively tracking it would override that choice.
-        const isDefaultFullRestartNote = note === `Admin moved from ${fromStage} to ${toStage}`;
-        if (isDefaultFullRestartNote) return;
-
-        candidates.push({
-          id: d.id,
-          fromStage,
-          note,
-          timestamp: lastOverride['timestamp'],
-        });
-      });
-
-      if (candidates.length === 0) {
-        _emitToast('No historical un-resolved reverts found — nothing to migrate.', 'success');
-        return;
-      }
-
-      const confirmed = window.confirm(
-        `Found ${candidates.length} task(s) reverted before correction ` +
-        `tracking existed, still sitting unresolved at their reverted stage.\n\n` +
-        `This will ADD correction tracking to them (badge, filter, sort) ` +
-        `and reset status to 'pending' if stuck on 'completed'. It does NOT ` +
-        `touch any task that already has correction tracking. Continue?`
-      );
-      if (!confirmed) return;
-
-      const CHUNK = 499;
-      for (let i = 0; i < candidates.length; i += CHUNK) {
-        const batch = writeBatch(db);
-        candidates.slice(i, i + CHUNK).forEach((c) => {
-          batch.update(doc(db, 'tasks', c.id), {
-            correctionReturnTo:             c.fromStage,
-            correctionReturnAssignedTo:     null,
-            correctionReturnAssignedToName: '',
-            correctionNote:                 c.note || 'Retroactively identified — reverted before correction tracking existed',
-            correctionSetAt:                c.timestamp,
-          });
-        });
-        await batch.commit();
-      }
-
-      const candidateIds = new Set(candidates.map((c) => c.id));
-      const staleStatusDocs = tasksSnap.docs.filter(
-        (d) => candidateIds.has(d.id) && d.data()['status'] === 'completed',
-      );
-      for (let i = 0; i < staleStatusDocs.length; i += CHUNK) {
-        const batch = writeBatch(db);
-        staleStatusDocs.slice(i, i + CHUNK).forEach((d) => {
-          batch.update(doc(db, 'tasks', d.id), { status: 'pending' });
-        });
-        await batch.commit();
-      }
-
-      _emitToast(
-        `Migration complete: ${candidates.length} historical revert(s) now tracked correctly.`,
-        'success',
-      );
-    } catch (err) {
-      console.error('[handleMigrateHistoricalCorrections] failed:', err);
-      _emitToast('Migration failed. Try again.', 'error');
-    } finally {
-      setMigratingCorrections(false);
-    }
-  }
-
   function handleAddLeadSource() {
     const val = newLeadSource.trim();
     if (!val || leadSources.some((s) => s.toLowerCase() === val.toLowerCase())) return;
@@ -1088,76 +861,6 @@ export function TemplatePage() {
       // toast shown by saveLeadSources
     } finally {
       setSavingLeadSources(false);
-    }
-  }
-
-  async function handleRecalculatePipelineCounts() {
-    if (currentUser?.role !== 'admin') return;
-    setRecalculating(true);
-    try {
-      const tasksSnap = await getDocs(
-        query(collection(db, 'tasks'), where('archived', '==', false))
-      );
-
-      const computed: Record<string, number> = {
-        survey: 0, proposal: 0, field_review: 0, documents: 0,
-        backend: 0, completed: 0, dropped: 0,
-        unassigned_proposal: 0, unassigned_backend: 0, total_active: 0,
-      };
-      const activeStages = new Set(['survey', 'proposal', 'field_review', 'documents', 'backend']);
-
-      tasksSnap.forEach((snap) => {
-        const d     = snap.data();
-        const stage = (d['pipelineStage'] as string) ?? 'survey';
-        if (stage in computed) computed[stage]++;
-        if (stage === 'proposal' && !d['proposalAssignedTo']) computed['unassigned_proposal']++;
-        if (stage === 'backend'  && !d['backendAssignedTo'])  computed['unassigned_backend']++;
-        if (activeStages.has(stage)) computed['total_active']++;
-      });
-
-      const stored = (config.pipelineCounts ?? {}) as Record<string, number>;
-      const diffs  = Object.keys(computed).filter((k) => (stored[k] ?? 0) !== computed[k]);
-
-      if (diffs.length === 0) {
-        _emitToast('Pipeline counts are already accurate — no changes needed.', 'success');
-        return;
-      }
-
-      const diffLines = diffs
-        .map((k) => `  ${k}: ${stored[k] ?? 0} → ${computed[k]}`)
-        .join('\n');
-
-      const confirmed = window.confirm(
-        `Pipeline counts mismatch detected:\n\n${diffLines}\n\nUpdate dashboard counters to match actual task data?\nThis cannot be undone.`
-      );
-      if (!confirmed) return;
-
-      await updateDoc(doc(db, 'appConfig', 'global'), { pipelineCounts: computed });
-
-      const summary = diffs.map((k) => `${k}: ${stored[k] ?? 0}→${computed[k]}`).join(', ');
-      _emitToast(`Pipeline counts recalculated — ${summary}`, 'success');
-    } catch (err) {
-      console.error('[recalculate] failed:', err);
-      _emitToast('Failed to recalculate pipeline counts. Try again.', 'error');
-    } finally {
-      setRecalculating(false);
-    }
-  }
-
-  async function handleBackfillSaleClosed() {
-    if (currentUser?.role !== 'admin') return;
-    setBackfillingSaleClosed(true);
-    try {
-      const { totalScanned, updated, skippedManual } = await reconcileSaleClosed();
-      _emitToast(
-        `Scanned ${totalScanned}, updated ${updated}, skipped ${skippedManual} manual`,
-        'success',
-      );
-    } catch (err) {
-      console.error('[backfillSaleClosed] failed:', err);
-      _emitToast('Failed to backfill Sales Closed. Try again.', 'error');
-    } finally {
-      setBackfillingSaleClosed(false);
     }
   }
 
@@ -1736,78 +1439,6 @@ export function TemplatePage() {
         </div>
         <SaleClosedMappingEditor />
       </div>
-
-      {/* Admin Tools */}
-      {currentUser?.role === 'admin' && (
-        <div className="mt-8 border-t border-gray-200 pt-6">
-          <div className="mb-3">
-            <h2 className="text-base font-semibold text-gray-900">Admin Tools</h2>
-            <p className="text-xs text-gray-500 mt-0.5">
-              One-time maintenance actions for fixing data inconsistencies
-            </p>
-          </div>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={handleRecalculatePipelineCounts}
-            disabled={recalculating}
-            className="flex items-center gap-2"
-          >
-            {recalculating && (
-              <span className="h-4 w-4 animate-spin rounded-full border-2 border-gray-400 border-t-transparent" />
-            )}
-            🔧 Recalculate Pipeline Counts
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={handleBackfillSaleClosed}
-            disabled={backfillingSaleClosed}
-            className="flex items-center gap-2"
-          >
-            {backfillingSaleClosed && (
-              <span className="h-4 w-4 animate-spin rounded-full border-2 border-gray-400 border-t-transparent" />
-            )}
-            🔧 Backfill Sales Closed
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={handleRecalculateEngineerDistrictCounts}
-            disabled={recalculatingEngineerDistrict}
-            className="flex items-center gap-2"
-          >
-            {recalculatingEngineerDistrict && (
-              <span className="h-4 w-4 animate-spin rounded-full border-2 border-gray-400 border-t-transparent" />
-            )}
-            📊 Recalculate Engineer &amp; District Counts
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={handleMigrateToMaharashtra}
-            disabled={migratingState}
-            className="flex items-center gap-2"
-          >
-            {migratingState && (
-              <span className="h-4 w-4 animate-spin rounded-full border-2 border-gray-400 border-t-transparent" />
-            )}
-            🗺️ Migrate Existing Districts to Maharashtra
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={handleMigrateHistoricalCorrections}
-            disabled={migratingCorrections}
-            className="flex items-center gap-2"
-          >
-            {migratingCorrections && (
-              <span className="h-4 w-4 animate-spin rounded-full border-2 border-gray-400 border-t-transparent" />
-            )}
-            ↩ Migrate Historical Reverted Tasks
-          </Button>
-        </div>
-      )}
 
     </div>
   );

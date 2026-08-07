@@ -7,6 +7,7 @@ import {
 import { Eye, EyeOff } from 'lucide-react';
 import { auth } from '@/firebase/config';
 import { useAuthStore } from '@/store/authStore';
+import { defaultRouteFor } from '@/config/roles';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -41,16 +42,9 @@ export function LoginPage() {
 
   const { showToast } = useToast();
 
-  function getHomeRoute(role?: string): string {
-    if (role === 'proposal')        return '/proposal';
-    if (role === 'backend')         return '/backend';
-    if (role === 'backend_manager') return '/backend-manager';
-    return '/dashboard';
-  }
-
   useEffect(() => {
     if (currentUser) {
-      navigate(getHomeRoute(currentUser.role), { replace: true });
+      navigate(defaultRouteFor(currentUser.role), { replace: true });
     }
   }, [currentUser, navigate]);
 
