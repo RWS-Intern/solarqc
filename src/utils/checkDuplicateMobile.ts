@@ -2,29 +2,29 @@ import { collection, getDocs, query, where } from 'firebase/firestore';
 import { db } from '@/firebase/config';
 
 export interface DuplicateMatch {
-  taskId:    string;
-  taskNum:   string;
-  title:     string;
+  jobId:     string;
+  qcNum:     string;
+  name:      string;
   createdAt: Date;
 }
 
-export async function checkDuplicateConsumerMobile(
+export async function checkDuplicateCustomerMobile(
   mobile: string,
-  excludeTaskId?: string,
+  excludeJobId?: string,
 ): Promise<DuplicateMatch | null> {
   const snap = await getDocs(query(
-    collection(db, 'tasks'),
+    collection(db, 'qcJobs'),
     where('archived', '==', false),
-    where('consumerMobile', '==', mobile),
+    where('customer.mobile', '==', mobile),
   ));
-  const match = snap.docs.find((d) => d.id !== excludeTaskId);
+  const match = snap.docs.find((d) => d.id !== excludeJobId);
   if (!match) return null;
   const data = match.data();
   const createdAtRaw = data['createdAt'] as { toDate?: () => Date } | null;
   return {
-    taskId:    match.id,
-    taskNum:   (data['taskNum'] as string) ?? '',
-    title:     (data['title']   as string) ?? '',
+    jobId:     match.id,
+    qcNum:     (data['qcNum'] as string) ?? '',
+    name:      (data['customer'] as { name?: string } | undefined)?.name ?? '',
     createdAt: createdAtRaw?.toDate?.() ?? new Date(),
   };
 }

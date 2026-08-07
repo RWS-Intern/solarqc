@@ -71,6 +71,14 @@ beforeEach(async () => {
       verdict: null, verdictNote: '', rejectionReason: '',
       createdBy: ADMIN_UID, updatedAt: new Date(),
     });
+
+    await setDoc(doc(db, 'qcJobs', 'job-4-unassigned'), {
+      qcNum: 'QC-000004', status: 'unassigned', reworkRound: 0,
+      inspectorUid: null, approverUid: null,
+      answers: {}, tally: emptyTally,
+      verdict: null, verdictNote: '', rejectionReason: '',
+      createdBy: ADMIN_UID, updatedAt: new Date(),
+    });
   });
 });
 
@@ -342,6 +350,39 @@ describe('manager assignment — admin/qc_manager can reassign, never touch cont
     await assertFails(updateDoc(doc(db, 'qcJobs', 'job-1'), {
       inspectorUid: OTHER_INSPECTOR_UID, inspectorName: 'Other',
     }));
+  });
+
+  // §2.1 regression — the manager status-transition hole found while
+  // speccing Phase 3: managerFields() includes 'status', but nothing
+  // previously restricted which values it could move to. That let
+  // qc_manager (and admin, via this same clause) force a job straight to
+  // 'approved' or 'rework' with no verdict, no note, no approver at all.
+  it('rejects qc_manager forcing status straight to approved', async () => {
+    const db = testEnv.authenticatedContext(QC_MANAGER_UID).firestore();
+    await assertFails(updateDoc(doc(db, 'qcJobs', 'job-2-pending'), {
+      status: 'approved', updatedAt: new Date(),
+    }));
+  });
+  it('rejects qc_manager forcing status straight to rework', async () => {
+    const db = testEnv.authenticatedContext(QC_MANAGER_UID).firestore();
+    await assertFails(updateDoc(doc(db, 'qcJobs', 'job-2-pending'), {
+      status: 'rework', updatedAt: new Date(),
+    }));
+  });
+  it('still allows admin/qc_manager to move unassigned -> assigned (the actual assignQcJob transition)', async () => {
+    for (const uid of [ADMIN_UID, QC_MANAGER_UID]) {
+      await testEnv.withSecurityRulesDisabled((ctx) =>
+        updateDoc(doc(ctx.firestore(), 'qcJobs', 'job-4-unassigned'), {
+          status: 'unassigned', inspectorUid: null, inspectorName: '',
+        }),
+      );
+      const db = testEnv.authenticatedContext(uid).firestore();
+      await assertSucceeds(updateDoc(doc(db, 'qcJobs', 'job-4-unassigned'), {
+        inspectorUid: INSPECTOR_UID, inspectorName: 'Inspector',
+        inspectorCode: 'INS-001', inspectorMobile: '9999999999',
+        status: 'assigned', updatedAt: new Date(),
+      }));
+    }
   });
 });
 

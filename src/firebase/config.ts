@@ -25,6 +25,13 @@ export const db = initializeFirestore(app, {
   localCache: persistentLocalCache({
     tabManager: persistentMultipleTabManager(),
   }),
+  // QcJob (and everything after it — answers, sign-offs, verdict fields)
+  // carries many optional properties typed `foo?: string`. Building those
+  // as `foo: x || undefined` is the natural way to express "omit if empty"
+  // in TS, but the Firestore SDK rejects a literal `undefined` field value
+  // outright (`WriteBatch.set() called with invalid data`) unless told to
+  // treat it as "omit this key" instead — which is what this does.
+  ignoreUndefinedProperties: true,
 });
 
 // ── Local emulator support ──────────────────────────────────────────────

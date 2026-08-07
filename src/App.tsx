@@ -12,6 +12,9 @@ import { TeamPage }    from '@/pages/TeamPage';
 import { TemplatePage } from '@/pages/TemplatePage';
 import { ReportsPage }  from '@/pages/ReportsPage';
 import { ErrorLogsPage }       from '@/pages/ErrorLogsPage';
+import { JobsPage }     from '@/pages/JobsPage';
+import { MyJobsPage }   from '@/pages/MyJobsPage';
+import { CustomersPage } from '@/pages/CustomersPage';
 import { defaultRouteFor, type UserRole } from '@/config/roles';
 
 function PlaceholderPage() {
@@ -79,16 +82,16 @@ export default function App() {
             <Route path="/dashboard" element={<DashboardPage />} />
 
             <Route path="/jobs" element={
-              <ProtectedRoute allow={['admin', 'qc_manager', 'viewer']}><PlaceholderPage /></ProtectedRoute>
+              <ProtectedRoute allow={['admin', 'qc_manager', 'viewer']}><JobsPage /></ProtectedRoute>
             } />
             <Route path="/my-jobs" element={
-              <ProtectedRoute allow={['qc_inspector']}><PlaceholderPage /></ProtectedRoute>
+              <ProtectedRoute allow={['qc_inspector']}><MyJobsPage /></ProtectedRoute>
             } />
             <Route path="/approvals" element={
               <ProtectedRoute allow={['approver', 'admin']}><PlaceholderPage /></ProtectedRoute>
             } />
             <Route path="/customers" element={
-              <ProtectedRoute allow={['admin', 'qc_manager']}><PlaceholderPage /></ProtectedRoute>
+              <ProtectedRoute allow={['admin', 'qc_manager']}><CustomersPage /></ProtectedRoute>
             } />
 
             <Route path="/team"     element={<ProtectedRoute allow={['admin']}><TeamPage /></ProtectedRoute>} />

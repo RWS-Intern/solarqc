@@ -63,11 +63,20 @@ service cloud.firestore {
             || (request.resource.data.rejectionReason is string
                 && request.resource.data.rejectionReason.size() > 0));
 
-      // Admin / qc_manager: assignment and lifecycle fields only —
-      // never the checklist, never the verdict.
+      // Admin / qc_manager: assignment and lifecycle fields only — never
+      // the checklist, never the verdict, and never a status transition
+      // that belongs to the inspector/approver flow. managerFields()
+      // includes 'status' for assignment purposes only (unassigned <->
+      // assigned); anything else (approved, rework, in_progress,
+      // pending_approval) must go through the inspector/approver rules
+      // above, which is what actually enforces a typed verdict and a
+      // rejection reason. Without this, admin/qc_manager could write
+      // status: 'approved' directly with no verdict at all.
       allow update: if signedIn() && active()
         && role() in ['admin', 'qc_manager']
-        && touched().hasOnly(managerFields());
+        && touched().hasOnly(managerFields())
+        && (!touched().hasAny(['status'])
+            || request.resource.data.status in ['unassigned', 'assigned']);
 
       // Audit trail: append-only, forever — including for admin.
       match /events/{eventId} {
