@@ -15,7 +15,7 @@ export function Nav({ variant }: NavProps) {
 
   if (variant === 'bottom') {
     return (
-      <nav className="fixed bottom-0 left-0 right-0 z-50 flex h-[4.5rem] items-stretch border-t border-gray-100 bg-white shadow-[0_-4px_20px_rgba(0,0,0,0.08)] md:hidden">
+      <nav className="fixed bottom-0 left-0 right-0 z-50 flex h-[4.5rem] items-stretch overflow-x-auto border-t border-gray-100 bg-white shadow-[0_-4px_20px_rgba(0,0,0,0.08)] md:hidden">
         {items.map(({ to, label, icon }) => {
           const Icon = Icons[icon as keyof typeof Icons] as React.ComponentType<{ className?: string }>;
           return (
@@ -24,7 +24,13 @@ export function Nav({ variant }: NavProps) {
               to={to}
               className={({ isActive }) =>
                 cn(
-                  'relative flex flex-1 flex-col items-center justify-center gap-0.5 transition-colors',
+                  // flex-1 + basis-0 fills the bar evenly for roles with few
+                  // items (2-4 — unchanged from before), same as always. But
+                  // min-w stops any item shrinking past a legible width —
+                  // admin's 8 items no longer overlap each other's labels;
+                  // the bar scrolls horizontally instead (overflow-x-auto
+                  // above), same pattern as JobsPage's status tabs.
+                  'relative flex flex-1 shrink-0 basis-0 min-w-[4.25rem] flex-col items-center justify-center gap-0.5 transition-colors',
                   isActive ? 'text-brand-blue' : 'text-gray-400 hover:text-gray-600'
                 )
               }
@@ -35,7 +41,7 @@ export function Nav({ variant }: NavProps) {
                     <span className="absolute top-0 left-1/2 -translate-x-1/2 h-0.5 w-8 rounded-full bg-brand-blue" />
                   )}
                   <Icon className={cn('h-6 w-6', isActive && 'text-brand-blue')} />
-                  <span className={cn('text-[11px] font-medium', isActive ? 'text-brand-blue' : 'text-gray-400')}>
+                  <span className={cn('text-[11px] font-medium whitespace-nowrap', isActive ? 'text-brand-blue' : 'text-gray-400')}>
                     {label}
                   </span>
                 </>

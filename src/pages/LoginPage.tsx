@@ -94,7 +94,7 @@ export function LoginPage() {
           <span className="text-4xl">☀️</span>
         </div>
         <div className="text-center">
-          <h1 className="text-3xl font-extrabold text-white tracking-tight">SolarOps</h1>
+          <h1 className="text-3xl font-extrabold text-white tracking-tight">SolarQC</h1>
           <p className="text-sm text-white/70 mt-1">Rite Solar Field Operations</p>
         </div>
       </div>

@@ -172,7 +172,7 @@ export function SignupPage() {
           <div className="inline-flex items-center justify-center h-16 w-16 rounded-full bg-brand-blue mb-4">
             <span className="text-2xl font-extrabold text-white leading-none">RS</span>
           </div>
-          <h1 className="text-3xl font-extrabold text-brand-navy leading-tight">SolarOps</h1>
+          <h1 className="text-3xl font-extrabold text-brand-navy leading-tight">SolarQC</h1>
           <p className="text-sm text-gray-500 mt-1">Rite Solar Field Operations</p>
         </div>
         <Card className="w-full max-w-sm shadow-md">
@@ -194,7 +194,7 @@ export function SignupPage() {
         <div className="inline-flex items-center justify-center h-16 w-16 rounded-full bg-brand-blue mb-4">
           <span className="text-2xl font-extrabold text-white leading-none">RS</span>
         </div>
-        <h1 className="text-3xl font-extrabold text-brand-navy leading-tight">SolarOps</h1>
+        <h1 className="text-3xl font-extrabold text-brand-navy leading-tight">SolarQC</h1>
         <p className="text-sm text-gray-500 mt-1">Rite Solar Field Operations</p>
       </div>
 

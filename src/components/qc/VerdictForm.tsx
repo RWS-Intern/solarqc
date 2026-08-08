@@ -118,7 +118,7 @@ export function VerdictForm({ job, currentUser, reworkPointIds, onSubmit, submit
 
       <div className="border-t border-gray-100 pt-3 flex flex-col gap-2">
         <p className="text-sm font-medium text-gray-900">
-          Approver: {currentUser.name} ({currentUser.engineerCode ?? currentUser.uid})
+          Approver: {currentUser.name} ({currentUser.engineerCode ?? '—'})
         </p>
         <SingleSignOff
           role="approver"

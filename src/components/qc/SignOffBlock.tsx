@@ -80,7 +80,7 @@ export function SignOffBlock({
       {/* ── Inspector (mandatory) ────────────────────────────────────────── */}
       <div className="flex flex-col gap-2">
         <p className="text-sm font-medium text-gray-900">
-          Inspector: {currentUser.name} ({currentUser.engineerCode ?? currentUser.uid})
+          Inspector: {currentUser.name} ({currentUser.engineerCode ?? '—'})
         </p>
         <SingleSignOff
           role="inspector"

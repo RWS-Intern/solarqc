@@ -61,7 +61,7 @@ export function exportQcTemplateToExcel(fields: QcFieldDefinition[]): void {
   ];
   XLSX.utils.book_append_sheet(wb, ws, 'QC Checklist');
 
-  const filename = `solarops_qc_checklist_${new Date().toISOString().slice(0, 10)}.xlsx`;
+  const filename = `solarqc_checklist_${new Date().toISOString().slice(0, 10)}.xlsx`;
   XLSX.writeFile(wb, filename);
 }
 

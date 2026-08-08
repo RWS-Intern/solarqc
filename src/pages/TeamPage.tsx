@@ -120,7 +120,7 @@ export function TeamPage() {
     <div className="w-full max-w-2xl mx-auto">
       <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-4">
         <div>
-          <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-0.5">Team</h2>
+          <h1 className="text-xl font-bold text-gray-900 mb-0.5">Team</h1>
           <p className="text-sm text-gray-500">
             {loading
               ? 'Loading…'

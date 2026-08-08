@@ -1,7 +1,7 @@
 {
-  "name": "SolarOps",
-  "short_name": "SolarOps",
-  "description": "Solar Field Operations Management",
+  "name": "SolarQC",
+  "short_name": "SolarQC",
+  "description": "Rite Solar rooftop QC inspection app",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",
