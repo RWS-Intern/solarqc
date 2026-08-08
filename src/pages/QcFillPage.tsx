@@ -14,34 +14,9 @@ import {
 } from '@/components/ui/dialog';
 import { _emitToast } from '@/components/ui/toast';
 import { validateQcJob } from '@/utils/qcValidation';
+import { groupBySections } from '@/utils/qcSections';
 import { QC_STATUS_LABELS, QC_STATUS_COLOR } from '@/config/qcStatus';
 import { cn } from '@/lib/utils';
-import type { QcFieldDefinition } from '@/types/qc';
-
-interface SectionGroup {
-  key:    string;
-  title:  string;
-  fields: QcFieldDefinition[];
-}
-
-function groupBySections(template: QcFieldDefinition[]): SectionGroup[] {
-  const sorted = [...template].sort((a, b) => a.sortOrder - b.sortOrder);
-  const groups: SectionGroup[] = [];
-  let current: SectionGroup | null = null;
-  for (const field of sorted) {
-    if (field.type === 'section_header') {
-      current = { key: field.fieldId, title: field.label, fields: [] };
-      groups.push(current);
-    } else {
-      if (!current) {
-        current = { key: '__ungrouped', title: 'Checklist', fields: [] };
-        groups.push(current);
-      }
-      current.fields.push(field);
-    }
-  }
-  return groups;
-}
 
 // A job that has left the inspector's editable states — post-submit this
 // becomes 'pending_approval' immediately, and could later be
@@ -60,7 +35,6 @@ export function QcFillPage() {
     answers, answerField,
     location, locationCapturedAt, locationUnavailable, captureLocation,
     inspectorSignOff, customerSignOff, onInspectorSign, onCustomerSign,
-    declarationAccepted, setDeclarationAccepted,
     tally, dirty, saving,
     saveDraft, onSectionCollapse,
   } = useQcFill(id);
@@ -70,9 +44,12 @@ export function QcFillPage() {
 
   const sections = useMemo(() => groupBySections(job?.template ?? []), [job?.template]);
 
+  // Signing implies the declaration was checked — SingleSignOff gates
+  // Confirm on the checkbox internally, so a non-null signature is a
+  // sufficient proxy; no separate declarationAccepted state to track.
   const allIssues = useMemo(
-    () => validateQcJob(job?.template ?? [], answers, inspectorSignOff, declarationAccepted),
-    [job?.template, answers, inspectorSignOff, declarationAccepted],
+    () => validateQcJob(job?.template ?? [], answers, inspectorSignOff, !!inspectorSignOff),
+    [job?.template, answers, inspectorSignOff],
   );
 
   const criticalFailFields = useMemo(() => {
@@ -132,7 +109,7 @@ export function QcFillPage() {
     if (!job) return;
     // Re-run validation fresh rather than trusting the last render's
     // memoized allIssues — state may have shifted between render and click.
-    const freshIssues = validateQcJob(job.template, answers, inspectorSignOff, declarationAccepted);
+    const freshIssues = validateQcJob(job.template, answers, inspectorSignOff, !!inspectorSignOff);
     if (freshIssues.length > 0) {
       _emitToast(
         `Can't submit — ${freshIssues.length} outstanding issue${freshIssues.length !== 1 ? 's' : ''}.`,
@@ -201,8 +178,6 @@ export function QcFillPage() {
           customerSignOff={customerSignOff}
           onInspectorSign={onInspectorSign}
           onCustomerSign={onCustomerSign}
-          declarationAccepted={declarationAccepted}
-          onDeclarationChange={setDeclarationAccepted}
           disabled={isLocked}
         />
       </div>

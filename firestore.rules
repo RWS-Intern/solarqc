@@ -10,11 +10,14 @@ service cloud.firestore {
     function signedIn() { return request.auth != null; }
     function touched()  { return request.resource.data.diff(resource.data).affectedKeys(); }
 
-    // Fields ONLY an approver may ever write
+    // Fields ONLY an approver may ever write. inspectorSignOff/
+    // customerSignOff are here ONLY so a reject can null them — see the
+    // update rule below, which restricts that to null specifically.
     function approverFields() {
       return ['verdict', 'verdictNote', 'conditions', 'rejectionReason',
               'reworkPointIds', 'approverComments', 'approverSignOff',
-              'reviewedAt', 'completedAt', 'status', 'updatedAt'];
+              'reviewedAt', 'completedAt', 'status', 'updatedAt',
+              'reworkRound', 'inspectorSignOff', 'customerSignOff'];
     }
     // Fields ONLY an inspector may write
     function inspectorFields() {
@@ -50,18 +53,35 @@ service cloud.firestore {
         && (!touched().hasAny(['status'])
             || request.resource.data.status in ['in_progress', 'pending_approval']);
 
-      // Approver: only jobs awaiting review, only approver fields, and a
-      // verdict must be typed — no silent approvals, no reason-less rejects.
+      // Approver (or admin — roles.ts already grants admin the
+      // approveJobs capability, and plan §5.1 lists both roles for
+      // /approvals): only jobs awaiting review, only approver fields, and
+      // a verdict must be typed — no silent approvals, no reason-less
+      // rejects, no conditional verdict without conditions, no reject
+      // without at least one flagged rework point, and reworkRound can
+      // only ever advance by exactly one on a reject (stops it being
+      // bumped further, which would corrupt the rounds/{n} numbering).
+      // inspectorSignOff/customerSignOff may only ever be nulled here,
+      // never set to real signature data — clearing a stale round-1
+      // signature off the live doc on reject, nothing else.
       allow update: if signedIn() && active()
-        && role() == 'approver'
+        && role() in ['approver', 'admin']
         && resource.data.status == 'pending_approval'
         && touched().hasOnly(approverFields())
         && request.resource.data.status in ['approved', 'rework']
         && request.resource.data.verdictNote is string
         && request.resource.data.verdictNote.size() > 0
+        && (request.resource.data.verdict != 'conditional'
+            || (request.resource.data.conditions is string
+                && request.resource.data.conditions.size() > 0))
+        && (!touched().hasAny(['inspectorSignOff']) || request.resource.data.inspectorSignOff == null)
+        && (!touched().hasAny(['customerSignOff'])  || request.resource.data.customerSignOff  == null)
         && (request.resource.data.status != 'rework'
             || (request.resource.data.rejectionReason is string
-                && request.resource.data.rejectionReason.size() > 0));
+                && request.resource.data.rejectionReason.size() > 0
+                && request.resource.data.reworkPointIds is list
+                && request.resource.data.reworkPointIds.size() > 0
+                && request.resource.data.reworkRound == resource.data.reworkRound + 1));
 
       // Admin / qc_manager: assignment and lifecycle fields only — never
       // the checklist, never the verdict, and never a status transition

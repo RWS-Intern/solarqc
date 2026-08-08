@@ -15,20 +15,10 @@ import { ErrorLogsPage }       from '@/pages/ErrorLogsPage';
 import { JobsPage }     from '@/pages/JobsPage';
 import { MyJobsPage }   from '@/pages/MyJobsPage';
 import { QcFillPage }   from '@/pages/QcFillPage';
+import { ApprovalsPage } from '@/pages/ApprovalsPage';
+import { ApprovalReviewPage } from '@/pages/ApprovalReviewPage';
 import { CustomersPage } from '@/pages/CustomersPage';
 import { defaultRouteFor, type UserRole } from '@/config/roles';
-
-function PlaceholderPage() {
-  return (
-    <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 px-6 text-center">
-      <p className="text-5xl">🚧</p>
-      <h1 className="text-2xl font-bold text-gray-800">Coming Soon</h1>
-      <p className="text-sm text-gray-500 max-w-xs">
-        This section is under construction. Check back soon!
-      </p>
-    </div>
-  );
-}
 
 function AuthInit({ children }: { children: React.ReactNode }) {
   useAuth();
@@ -92,7 +82,10 @@ export default function App() {
               <ProtectedRoute allow={['qc_inspector']}><QcFillPage /></ProtectedRoute>
             } />
             <Route path="/approvals" element={
-              <ProtectedRoute allow={['approver', 'admin']}><PlaceholderPage /></ProtectedRoute>
+              <ProtectedRoute allow={['approver', 'admin']}><ApprovalsPage /></ProtectedRoute>
+            } />
+            <Route path="/approvals/:id" element={
+              <ProtectedRoute allow={['approver', 'admin']}><ApprovalReviewPage /></ProtectedRoute>
             } />
             <Route path="/customers" element={
               <ProtectedRoute allow={['admin', 'qc_manager']}><CustomersPage /></ProtectedRoute>

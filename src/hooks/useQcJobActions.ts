@@ -198,5 +198,76 @@ export function useQcJobActions() {
     await batch.commit();
   }
 
-  return { createQcJob, assignQcJob, unassignQcJob, cancelQcJob, archiveQcJob, submitQcJob };
+  // One batch per outcome — the round freeze (on reject), the job update,
+  // and the event all need to land together, same reasoning as
+  // submitQcJob: a partial failure here is a real audit-trail gap, not a
+  // retry-and-move-on situation.
+  async function submitVerdict(
+    job: QcJob,
+    outcome:
+      | { kind: 'approve';     verdictNote: string; approverSignOff: SignOff }
+      | { kind: 'conditional'; verdictNote: string; conditions: string; approverSignOff: SignOff }
+      | { kind: 'reject';      verdictNote: string; rejectionReason: string; reworkPointIds: string[]; approverSignOff: SignOff },
+    approverComments: Record<string, string>,
+  ): Promise<void> {
+    if (!currentUser) throw new Error('Not authenticated');
+
+    const batch     = writeBatch(db);
+    const jobRef    = doc(db, 'qcJobs', job.id);
+    const eventRef  = doc(collection(db, 'qcJobs', job.id, 'events'));
+
+    const signedOff = { ...outcome.approverSignOff, signedAt: serverTimestamp() };
+
+    if (outcome.kind === 'reject') {
+      // Freeze the round BEFORE anything changes on the live doc — this is
+      // the permanent record of round N as the approver actually saw it.
+      const roundRef = doc(db, 'qcJobs', job.id, 'rounds', String(job.reworkRound));
+      batch.set(roundRef, {
+        round: job.reworkRound, frozenAt: serverTimestamp(),
+        answers: job.answers, tally: job.tally,
+        template: job.template, templateVersion: job.templateVersion,
+        inspectorSignOff: job.inspectorSignOff, customerSignOff: job.customerSignOff,
+      });
+
+      batch.update(jobRef, {
+        verdict: 'reject', verdictNote: outcome.verdictNote,
+        rejectionReason: outcome.rejectionReason, reworkPointIds: outcome.reworkPointIds,
+        approverComments, approverSignOff: signedOff,
+        status: 'rework', reworkRound: job.reworkRound + 1,
+        // Cleared, not carried forward — a stale round-1 signature sitting
+        // on the live doc would let the inspector resubmit round 2 without
+        // ever re-attesting to it; qcValidation.ts's signature_missing
+        // check only looks at presence, not which round it belongs to.
+        inspectorSignOff: null, customerSignOff: null,
+        reviewedAt: serverTimestamp(), updatedAt: serverTimestamp(),
+      });
+
+      batch.set(eventRef, {
+        type: 'rejected', actorUid: currentUser.uid, actorName: currentUser.name,
+        actorRole: currentUser.role, at: serverTimestamp(), round: job.reworkRound,
+        note: outcome.rejectionReason,
+        snapshot: { tally: job.tally, verdict: 'reject', status: 'rework' },
+      });
+    } else {
+      const verdict = outcome.kind === 'conditional' ? 'conditional' : 'pass';
+      batch.update(jobRef, {
+        verdict, verdictNote: outcome.verdictNote,
+        conditions: outcome.kind === 'conditional' ? outcome.conditions : '',
+        approverComments, approverSignOff: signedOff,
+        status: 'approved',
+        reviewedAt: serverTimestamp(), completedAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+      batch.set(eventRef, {
+        type: verdict === 'conditional' ? 'approved_conditional' : 'approved',
+        actorUid: currentUser.uid, actorName: currentUser.name,
+        actorRole: currentUser.role, at: serverTimestamp(), round: job.reworkRound,
+        snapshot: { tally: job.tally, verdict, status: 'approved' },
+      });
+    }
+
+    await batch.commit();
+  }
+
+  return { createQcJob, assignQcJob, unassignQcJob, cancelQcJob, archiveQcJob, submitQcJob, submitVerdict };
 }

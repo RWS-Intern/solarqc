@@ -34,12 +34,6 @@ export function useQcFill(jobId: string | null | undefined) {
   const [locationUnavailable, setLocationUnavailable] = useState(false);
   const [inspectorSignOff, setInspectorSignOff] = useState<SignOff | null>(null);
   const [customerSignOff,  setCustomerSignOff]  = useState<SignOff | null>(null);
-  // Seeded from whether the job already has an inspectorSignOff (signing
-  // implies the declaration was shown and accepted); otherwise a plain
-  // local checkbox the inspector must tick before SignOffBlock lets them
-  // draw — there is no separate persisted field for this, only the exact
-  // declaration text captured inside the SignOff itself once signed.
-  const [declarationAccepted, setDeclarationAccepted] = useState(false);
   const [dirty,    setDirty]    = useState(false);
   const [saving,   setSaving]   = useState(false);
 
@@ -86,7 +80,6 @@ export function useQcFill(jobId: string | null | undefined) {
     setLocationUnavailable(false);
     setInspectorSignOff(job.inspectorSignOff);
     setCustomerSignOff(job.customerSignOff);
-    setDeclarationAccepted(!!job.inspectorSignOff);
     dirtyRef.current = false;
     setDirty(false);
     locationDirtyRef.current = false;
@@ -96,6 +89,12 @@ export function useQcFill(jobId: string | null | undefined) {
     if (!job.location) captureLocation();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [job]);
+
+  // jobRef mirrors the latest job so answerField (stable via empty deps,
+  // called from 54 individual QcCheckItems) always stamps the CURRENT
+  // rework round rather than closing over a stale one from first render.
+  const jobRef = useRef(job);
+  useEffect(() => { jobRef.current = job; }, [job]);
 
   const answerField = useCallback((fieldId: string, patch: Partial<QcAnswer>) => {
     setAnswers((prev) => {
@@ -109,6 +108,11 @@ export function useQcFill(jobId: string | null | undefined) {
           ...base, ...patch,
           answeredAt: new Date(),
           answeredBy: currentUserRef.current?.uid ?? '',
+          // Stamp the CURRENT round, not whatever round this answer was
+          // first created in — once rework exists, re-touching a
+          // previously-answered field during round 2 must actually
+          // become round 1, not stay silently stuck at round 0 forever.
+          round: jobRef.current?.reworkRound ?? base.round,
         },
       };
     });
@@ -206,7 +210,6 @@ export function useQcFill(jobId: string | null | undefined) {
   const onInspectorSign = useCallback((signOff: Omit<SignOff, 'signedAt'>) => {
     const withPlaceholder: SignOff = { ...signOff, signedAt: new Date() };
     setInspectorSignOff(withPlaceholder);
-    setDeclarationAccepted(true);
     inspectorSignDirtyRef.current = true;
     void saveDraftRef.current({ inspectorSignOff: withPlaceholder });
   }, []);
@@ -228,7 +231,6 @@ export function useQcFill(jobId: string | null | undefined) {
     answers, answerField,
     location, locationCapturedAt, locationUnavailable, captureLocation,
     inspectorSignOff, customerSignOff, onInspectorSign, onCustomerSign,
-    declarationAccepted, setDeclarationAccepted,
     tally, dirty, saving,
     saveDraft, onSectionCollapse,
   };

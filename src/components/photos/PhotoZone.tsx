@@ -15,6 +15,7 @@ interface PhotoZoneProps {
   qcNum?:               string;
   fieldId?:             string;
   capture?:             'environment' | 'user';
+  onPhotoClick?:        (url: string, allUrls: string[], index: number) => void;
 }
 
 function isPdfUrl(url: string): boolean {
@@ -53,6 +54,7 @@ export function PhotoZone({
   qcNum,
   fieldId,
   capture,
+  onPhotoClick,
 }: PhotoZoneProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [pendingUploads, setPendingUploads] = useState<PendingUpload[]>([]);
@@ -211,7 +213,11 @@ export function PhotoZone({
                   <img
                     src={url}
                     alt={`${label} ${i + 1}`}
-                    className="absolute inset-0 h-full w-full object-cover"
+                    onClick={onPhotoClick ? () => onPhotoClick(url, photos, i) : undefined}
+                    className={cn(
+                      'absolute inset-0 h-full w-full object-cover',
+                      onPhotoClick && 'cursor-pointer',
+                    )}
                   />
                 )}
               </div>

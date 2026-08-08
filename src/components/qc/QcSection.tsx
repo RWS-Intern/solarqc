@@ -15,9 +15,19 @@ interface QcSectionProps {
   onCollapse:     () => void;
   qcNum?:         string;
   disabled?:      boolean;
+  // Review-mode only (ApprovalReviewPage) — threaded straight through to
+  // each QcCheckItem; no-ops in fill mode when not passed.
+  onPhotoClick?:            (url: string, allUrls: string[], index: number) => void;
+  approverComments?:        Record<string, string>;
+  onApproverCommentChange?: (fieldId: string, comment: string) => void;
+  reworkPointIds?:          string[];
+  onToggleRework?:          (fieldId: string) => void;
 }
 
-export function QcSection({ title, fields, answers, onAnswerChange, allIssues, onCollapse, qcNum, disabled }: QcSectionProps) {
+export function QcSection({
+  title, fields, answers, onAnswerChange, allIssues, onCollapse, qcNum, disabled,
+  onPhotoClick, approverComments, onApproverCommentChange, reworkPointIds, onToggleRework,
+}: QcSectionProps) {
   const [expanded, setExpanded] = useState(true);
 
   const visibleFields = fields.filter((f) => isFieldVisible(f, answers));
@@ -70,6 +80,11 @@ export function QcSection({ title, fields, answers, onAnswerChange, allIssues, o
               allIssues={allIssues}
               qcNum={qcNum}
               disabled={disabled}
+              onPhotoClick={onPhotoClick}
+              approverComment={approverComments?.[field.fieldId]}
+              onApproverCommentChange={onApproverCommentChange}
+              flaggedForRework={reworkPointIds?.includes(field.fieldId)}
+              onToggleRework={onToggleRework}
             />
           ))}
         </div>

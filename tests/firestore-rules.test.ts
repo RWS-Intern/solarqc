@@ -169,11 +169,12 @@ describe('property 3 — verdict and rejection reason are mandatory', () => {
     }));
   });
 
-  it('allows a rework decision with a populated rejectionReason', async () => {
+  it('allows a rework decision with a populated rejectionReason, reworkPointIds, and a correct reworkRound bump', async () => {
     const db = testEnv.authenticatedContext(APPROVER_UID).firestore();
     await assertSucceeds(updateDoc(doc(db, 'qcJobs', 'job-2-pending'), {
       status: 'rework', verdict: 'reject', verdictNote: 'Sent back for rework.',
       rejectionReason: 'Earth resistance out of range on point 3.3.',
+      reworkPointIds: ['qc_3_3'], reworkRound: 1,
     }));
   });
 
@@ -181,6 +182,109 @@ describe('property 3 — verdict and rejection reason are mandatory', () => {
     const db = testEnv.authenticatedContext(APPROVER_UID).firestore();
     await assertFails(updateDoc(doc(db, 'qcJobs', 'job-2-pending'), {
       status: 'cancelled', verdict: 'pass', verdictNote: 'irrelevant',
+    }));
+  });
+});
+
+// Phase 6 — four real gaps found while working out exactly what the
+// approval screen needs to write: reworkRound wasn't writable at all,
+// reworkPointIds non-empty wasn't enforced on reject, conditions
+// non-empty wasn't enforced on a conditional verdict, and admin (who
+// roles.ts already grants the approveJobs capability) couldn't approve
+// anything because the old rule only checked role() == 'approver'.
+describe('property 5 — Phase 6: admin parity, conditional/reject completeness, reworkRound integrity, signature nulling', () => {
+  it('lets admin (not just approver) submit a valid plain approval', async () => {
+    const db = testEnv.authenticatedContext(ADMIN_UID).firestore();
+    await assertSucceeds(updateDoc(doc(db, 'qcJobs', 'job-2-pending'), {
+      status: 'approved', verdict: 'pass', verdictNote: 'Reviewed by admin, all clean.',
+    }));
+  });
+
+  it('rejects a reject decision with an empty reworkPointIds array', async () => {
+    const db = testEnv.authenticatedContext(APPROVER_UID).firestore();
+    await assertFails(updateDoc(doc(db, 'qcJobs', 'job-2-pending'), {
+      status: 'rework', verdict: 'reject', verdictNote: 'Sent back.',
+      rejectionReason: 'Earth resistance out of range.', reworkPointIds: [],
+      reworkRound: 1,
+    }));
+  });
+
+  it('allows a reject decision with reworkPointIds populated + rejectionReason populated', async () => {
+    const db = testEnv.authenticatedContext(APPROVER_UID).firestore();
+    await assertSucceeds(updateDoc(doc(db, 'qcJobs', 'job-2-pending'), {
+      status: 'rework', verdict: 'reject', verdictNote: 'Sent back.',
+      rejectionReason: 'Earth resistance out of range.', reworkPointIds: ['qc_3_3'],
+      reworkRound: 1,
+    }));
+  });
+
+  it('rejects a conditional verdict with empty conditions', async () => {
+    const db = testEnv.authenticatedContext(APPROVER_UID).firestore();
+    await assertFails(updateDoc(doc(db, 'qcJobs', 'job-2-pending'), {
+      status: 'approved', verdict: 'conditional', verdictNote: 'Approved with notes.',
+      conditions: '',
+    }));
+  });
+
+  it('allows a conditional verdict with populated conditions', async () => {
+    const db = testEnv.authenticatedContext(APPROVER_UID).firestore();
+    await assertSucceeds(updateDoc(doc(db, 'qcJobs', 'job-2-pending'), {
+      status: 'approved', verdict: 'conditional', verdictNote: 'Approved with notes.',
+      conditions: 'Re-torque mounting bolts within 30 days.',
+    }));
+  });
+
+  it('allows a reject to null both inspectorSignOff and customerSignOff on the live doc', async () => {
+    const db = testEnv.authenticatedContext(APPROVER_UID).firestore();
+    await assertSucceeds(updateDoc(doc(db, 'qcJobs', 'job-2-pending'), {
+      status: 'rework', verdict: 'reject', verdictNote: 'Sent back.',
+      rejectionReason: 'Needs another pass.', reworkPointIds: ['qc_1_1'],
+      reworkRound: 1, inspectorSignOff: null, customerSignOff: null,
+    }));
+  });
+
+  it('rejects an approver trying to SET inspectorSignOff to real signature data instead of nulling it', async () => {
+    const db = testEnv.authenticatedContext(APPROVER_UID).firestore();
+    await assertFails(updateDoc(doc(db, 'qcJobs', 'job-2-pending'), {
+      status: 'rework', verdict: 'reject', verdictNote: 'Sent back.',
+      rejectionReason: 'Needs another pass.', reworkPointIds: ['qc_1_1'],
+      reworkRound: 1,
+      inspectorSignOff: {
+        role: 'inspector', name: 'Forged', uid: INSPECTOR_UID, signatureUrl: 'https://x/y.png',
+        signedAt: new Date(), location: null, deviceInfo: '', declaration: 'forged',
+      },
+    }));
+  });
+
+  it('allows reworkRound to advance by exactly 1 on reject', async () => {
+    const db = testEnv.authenticatedContext(APPROVER_UID).firestore();
+    await assertSucceeds(updateDoc(doc(db, 'qcJobs', 'job-2-pending'), {
+      status: 'rework', verdict: 'reject', verdictNote: 'Sent back.',
+      rejectionReason: 'Needs another pass.', reworkPointIds: ['qc_1_1'],
+      reworkRound: 1,
+    }));
+  });
+
+  it('rejects reworkRound advancing by 2 in a single reject', async () => {
+    const db = testEnv.authenticatedContext(APPROVER_UID).firestore();
+    await assertFails(updateDoc(doc(db, 'qcJobs', 'job-2-pending'), {
+      status: 'rework', verdict: 'reject', verdictNote: 'Sent back.',
+      rejectionReason: 'Needs another pass.', reworkPointIds: ['qc_1_1'],
+      reworkRound: 2,
+    }));
+  });
+
+  it('rejects qc_manager attempting a verdict write even with every field otherwise valid', async () => {
+    const db = testEnv.authenticatedContext(QC_MANAGER_UID).firestore();
+    await assertFails(updateDoc(doc(db, 'qcJobs', 'job-2-pending'), {
+      status: 'approved', verdict: 'pass', verdictNote: 'Sneaking in as manager.',
+    }));
+  });
+
+  it('rejects viewer attempting a verdict write even with every field otherwise valid', async () => {
+    const db = testEnv.authenticatedContext(VIEWER_UID).firestore();
+    await assertFails(updateDoc(doc(db, 'qcJobs', 'job-2-pending'), {
+      status: 'approved', verdict: 'pass', verdictNote: 'Sneaking in as viewer.',
     }));
   });
 });

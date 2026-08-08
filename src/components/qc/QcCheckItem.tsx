@@ -26,15 +26,26 @@ interface QcCheckItemProps {
   allIssues:      QcValidationIssue[];
   qcNum?:         string;
   disabled?:      boolean;
+  // Review-mode only (ApprovalReviewPage) — all optional, all no-ops in
+  // fill mode (Phases 4–5) when simply not passed.
+  onPhotoClick?:           (url: string, allUrls: string[], index: number) => void;
+  approverComment?:        string;
+  onApproverCommentChange?: (fieldId: string, comment: string) => void;
+  flaggedForRework?:       boolean;
+  onToggleRework?:         (fieldId: string) => void;
 }
 
-export function QcCheckItem({ field, answer, onAnswerChange, allIssues, qcNum, disabled }: QcCheckItemProps) {
+export function QcCheckItem({
+  field, answer, onAnswerChange, allIssues, qcNum, disabled,
+  onPhotoClick, approverComment, onApproverCommentChange, flaggedForRework, onToggleRework,
+}: QcCheckItemProps) {
   // Live validation, not submit-time: this field's own outstanding issues
   // only surface once the inspector has actually interacted with it (a
   // status pick, or blurring a text/measurement control) — plan §5.2's
   // explicit target is per-field feedback as they go, not a wall of errors
   // only a wrong submit would have revealed.
   const [touched, setTouched] = useState(false);
+  const [commentExpanded, setCommentExpanded] = useState(!!approverComment);
 
   const fieldIssues = touched ? allIssues.filter((i) => i.fieldId === field.fieldId) : [];
   const hasIssue = (code: QcValidationIssue['code']) => fieldIssues.some((i) => i.code === code);
@@ -67,20 +78,60 @@ export function QcCheckItem({ field, answer, onAnswerChange, allIssues, qcNum, d
     </div>
   );
 
+  // Review-mode only: a collapsed-by-default approver comment box (plan
+  // §5.4) and the per-point "flag for rework" checkbox that's how
+  // reworkPointIds actually gets built — checked on the specific points
+  // that need another look while reviewing, not a disconnected multi-
+  // select bolted onto the verdict form.
+  const reviewExtras = (onApproverCommentChange || onToggleRework) && (
+    <div className="flex flex-col gap-2 border-t border-gray-100 pt-2 mt-1">
+      {onApproverCommentChange && (
+        commentExpanded ? (
+          <Textarea
+            value={approverComment ?? ''}
+            onChange={(e) => onApproverCommentChange(field.fieldId, e.target.value)}
+            placeholder="Comment (visible only to admin/approver)"
+            className="text-sm"
+          />
+        ) : (
+          <button
+            type="button"
+            onClick={() => setCommentExpanded(true)}
+            className="self-start text-xs font-medium text-brand-blue hover:underline"
+          >
+            {approverComment ? 'Edit comment' : '+ Add comment'}
+          </button>
+        )
+      )}
+      {onToggleRework && (
+        <label className="flex items-center gap-2 text-xs font-medium text-amber-700">
+          <input
+            type="checkbox"
+            checked={!!flaggedForRework}
+            onChange={() => onToggleRework(field.fieldId)}
+            className="h-4 w-4 rounded border-gray-300 accent-amber-600"
+          />
+          Flag for rework
+        </label>
+      )}
+    </div>
+  );
+
   if (field.type === 'signature') {
     return (
-      <div className="rounded-xl border border-gray-200 bg-white p-4 flex flex-col gap-3">
+      <div id={field.fieldId} className="rounded-xl border border-gray-200 bg-white p-4 flex flex-col gap-3">
         {header}
         <p className="rounded-lg border border-dashed border-gray-200 bg-gray-50 px-3 py-4 text-center text-xs text-gray-400">
           Signature capture is coming in a later update.
         </p>
+        {reviewExtras}
       </div>
     );
   }
 
   if (field.type === 'photo_only') {
     return (
-      <div className="rounded-xl border border-gray-200 bg-white p-4 flex flex-col gap-3">
+      <div id={field.fieldId} className="rounded-xl border border-gray-200 bg-white p-4 flex flex-col gap-3">
         {header}
         <PhotoZone
           label={field.label}
@@ -92,8 +143,10 @@ export function QcCheckItem({ field, answer, onAnswerChange, allIssues, qcNum, d
           fieldId={field.fieldId}
           capture="environment"
           disabled={disabled}
+          onPhotoClick={onPhotoClick}
         />
         {hasIssue('required') && <p className="text-xs text-brand-red">This point is required.</p>}
+        {reviewExtras}
       </div>
     );
   }
@@ -101,7 +154,7 @@ export function QcCheckItem({ field, answer, onAnswerChange, allIssues, qcNum, d
   if (field.type === 'number' || field.type === 'text' || field.type === 'longtext' || field.type === 'date') {
     const inputType = field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : 'text';
     return (
-      <div className="rounded-xl border border-gray-200 bg-white p-4 flex flex-col gap-3">
+      <div id={field.fieldId} className="rounded-xl border border-gray-200 bg-white p-4 flex flex-col gap-3">
         {header}
         {field.type === 'longtext' ? (
           <Textarea
@@ -124,13 +177,14 @@ export function QcCheckItem({ field, answer, onAnswerChange, allIssues, qcNum, d
           />
         )}
         {hasIssue('required') && <p className="text-xs text-brand-red">This point is required.</p>}
+        {reviewExtras}
       </div>
     );
   }
 
   if (field.type === 'select') {
     return (
-      <div className="rounded-xl border border-gray-200 bg-white p-4 flex flex-col gap-3">
+      <div id={field.fieldId} className="rounded-xl border border-gray-200 bg-white p-4 flex flex-col gap-3">
         {header}
         <select
           value={answer?.value ?? ''}
@@ -142,6 +196,7 @@ export function QcCheckItem({ field, answer, onAnswerChange, allIssues, qcNum, d
           {field.options.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
         </select>
         {hasIssue('required') && <p className="text-xs text-brand-red">This point is required.</p>}
+        {reviewExtras}
       </div>
     );
   }
@@ -153,7 +208,7 @@ export function QcCheckItem({ field, answer, onAnswerChange, allIssues, qcNum, d
   const photoIssue = hasIssue('photo_required') || hasIssue('photo_required_on_fail');
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-4 flex flex-col gap-3">
+    <div id={field.fieldId} className="rounded-xl border border-gray-200 bg-white p-4 flex flex-col gap-3">
       {header}
 
       {field.type === 'measurement' && (
@@ -205,6 +260,7 @@ export function QcCheckItem({ field, answer, onAnswerChange, allIssues, qcNum, d
           fieldId={field.fieldId}
           capture="environment"
           disabled={disabled}
+          onPhotoClick={onPhotoClick}
         />
       </div>
 
@@ -221,6 +277,8 @@ export function QcCheckItem({ field, answer, onAnswerChange, allIssues, qcNum, d
         />
         {remarkRequired && <p className="text-xs text-brand-red">⚠ Remark required for a Fail.</p>}
       </div>
+
+      {reviewExtras}
     </div>
   );
 }
