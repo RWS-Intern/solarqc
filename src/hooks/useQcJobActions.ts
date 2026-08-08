@@ -1,9 +1,9 @@
 import {
-  collection, doc, updateDoc, runTransaction, serverTimestamp,
+  collection, doc, updateDoc, runTransaction, serverTimestamp, writeBatch,
 } from 'firebase/firestore';
 import { db } from '@/firebase/config';
 import { useAuthStore } from '@/store/authStore';
-import type { QcJob, QcFieldDefinition } from '@/types/qc';
+import type { QcJob, QcFieldDefinition, SignOff } from '@/types/qc';
 
 export interface CreateQcJobInput {
   customer: QcJob['customer'];   // caller resolves nameLower/nameWords first
@@ -149,5 +149,54 @@ export function useQcJobActions() {
     });
   }
 
-  return { createQcJob, assignQcJob, unassignQcJob, cancelQcJob, archiveQcJob };
+  // One writeBatch, not two sequential writes — the job flipping to
+  // pending_approval and the audit event existing need to succeed or fail
+  // together. A pair of separate updateDoc/addDoc calls could leave the
+  // job submitted with no event (or vice versa on a mid-request failure),
+  // which is a real audit-trail gap for a QC record, not an edge case to
+  // shrug off.
+  async function submitQcJob(
+    jobId: string,
+    reworkRound: number,
+    payload: {
+      answers:          QcJob['answers'];
+      tally:            QcJob['tally'];
+      location:         QcJob['location'];
+      inspectorSignOff: SignOff;
+      customerSignOff:  SignOff | null;
+    },
+  ): Promise<void> {
+    if (!currentUser) throw new Error('Not authenticated');
+
+    const batch  = writeBatch(db);
+    const jobRef = doc(db, 'qcJobs', jobId);
+
+    batch.update(jobRef, {
+      answers:          payload.answers,
+      tally:            payload.tally,
+      location:         payload.location,
+      inspectorSignOff: { ...payload.inspectorSignOff, signedAt: serverTimestamp() },
+      customerSignOff:  payload.customerSignOff
+        ? { ...payload.customerSignOff, signedAt: serverTimestamp() }
+        : null,
+      status:      'pending_approval',
+      submittedAt: serverTimestamp(),
+      updatedAt:   serverTimestamp(),
+    });
+
+    const eventRef = doc(collection(db, 'qcJobs', jobId, 'events'));
+    batch.set(eventRef, {
+      type: 'submitted',
+      actorUid:  currentUser.uid,
+      actorName: currentUser.name,
+      actorRole: currentUser.role,
+      at:    serverTimestamp(),
+      round: reworkRound,
+      snapshot: { tally: payload.tally, status: 'pending_approval' },
+    });
+
+    await batch.commit();
+  }
+
+  return { createQcJob, assignQcJob, unassignQcJob, cancelQcJob, archiveQcJob, submitQcJob };
 }

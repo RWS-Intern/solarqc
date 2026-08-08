@@ -1,10 +1,29 @@
 import { useState, useEffect } from 'react';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '@/firebase/config';
-import type { QcJob } from '@/types/qc';
+import type { QcJob, SignOff } from '@/types/qc';
 
 function toDate(v: unknown): Date | null {
   return (v as { toDate?: () => Date } | null)?.toDate?.() ?? null;
+}
+
+// A naive cast of the raw Firestore map leaves `signedAt` as a Timestamp,
+// not the `Date` the SignOff type promises — harmless until a real
+// signature exists to reload, which is exactly what Phase 5 adds.
+function toSignOff(raw: unknown): SignOff | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  return {
+    role:         r['role'] as SignOff['role'],
+    name:         (r['name'] as string) ?? '',
+    designation:  r['designation'] as string | undefined,
+    uid:          (r['uid'] as string | null) ?? null,
+    signatureUrl: (r['signatureUrl'] as string) ?? '',
+    signedAt:     toDate(r['signedAt']) ?? new Date(0),
+    location:     (r['location'] as SignOff['location']) ?? null,
+    deviceInfo:   (r['deviceInfo'] as string) ?? '',
+    declaration:  (r['declaration'] as string) ?? '',
+  };
 }
 
 function docToQcJob(id: string, data: Record<string, unknown>): QcJob {
@@ -41,9 +60,9 @@ function docToQcJob(id: string, data: Record<string, unknown>): QcJob {
     location:   (data['location'] as QcJob['location']) ?? null,
     locationAt: toDate(data['locationAt']),
 
-    inspectorSignOff: (data['inspectorSignOff'] as QcJob['inspectorSignOff']) ?? null,
-    customerSignOff:  (data['customerSignOff']  as QcJob['customerSignOff'])  ?? null,
-    approverSignOff:  (data['approverSignOff']  as QcJob['approverSignOff'])  ?? null,
+    inspectorSignOff: toSignOff(data['inspectorSignOff']),
+    customerSignOff:  toSignOff(data['customerSignOff']),
+    approverSignOff:  toSignOff(data['approverSignOff']),
 
     verdict:          (data['verdict']          as QcJob['verdict']) ?? null,
     verdictNote:      (data['verdictNote']      as string) ?? '',

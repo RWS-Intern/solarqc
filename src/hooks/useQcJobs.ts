@@ -5,12 +5,30 @@ import {
 } from 'firebase/firestore';
 import { db } from '@/firebase/config';
 import { useAuthStore } from '@/store/authStore';
-import type { QcJob, QcStatus } from '@/types/qc';
+import type { QcJob, QcStatus, SignOff } from '@/types/qc';
 
 const PAGE_SIZE = 25;
 
 function toDate(v: unknown): Date | null {
   return (v as { toDate?: () => Date } | null)?.toDate?.() ?? null;
+}
+
+// See useQcJob.ts's identical helper — a naive cast leaves `signedAt` as a
+// Firestore Timestamp, not the `Date` the SignOff type promises.
+function toSignOff(raw: unknown): SignOff | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  return {
+    role:         r['role'] as SignOff['role'],
+    name:         (r['name'] as string) ?? '',
+    designation:  r['designation'] as string | undefined,
+    uid:          (r['uid'] as string | null) ?? null,
+    signatureUrl: (r['signatureUrl'] as string) ?? '',
+    signedAt:     toDate(r['signedAt']) ?? new Date(0),
+    location:     (r['location'] as SignOff['location']) ?? null,
+    deviceInfo:   (r['deviceInfo'] as string) ?? '',
+    declaration:  (r['declaration'] as string) ?? '',
+  };
 }
 
 function docToQcJob(d: QueryDocumentSnapshot<DocumentData>): QcJob {
@@ -48,9 +66,9 @@ function docToQcJob(d: QueryDocumentSnapshot<DocumentData>): QcJob {
     location:   data['location'] ?? null,
     locationAt: toDate(data['locationAt']),
 
-    inspectorSignOff: data['inspectorSignOff'] ?? null,
-    customerSignOff:  data['customerSignOff']  ?? null,
-    approverSignOff:  data['approverSignOff']  ?? null,
+    inspectorSignOff: toSignOff(data['inspectorSignOff']),
+    customerSignOff:  toSignOff(data['customerSignOff']),
+    approverSignOff:  toSignOff(data['approverSignOff']),
 
     verdict:          data['verdict']          ?? null,
     verdictNote:      data['verdictNote']      ?? '',

@@ -10,11 +10,12 @@ export async function uploadToCloudinary(
   options?: {
     onProgress?:      (percent: number) => void;
     qcNum?:           string;
-    fieldId?:         string;
+    fieldId?:         string;   // for uploadType 'signature', the signer's role ('inspector' | 'customer')
     index?:           number;
-    uploadType?:      'checklist';   // Phase 5 adds 'signature' when it needs one
-    skipCompression?: boolean;       // unused this phase — Phase 5 wires it for
-                                      // signature PNGs
+    uploadType?:      'checklist' | 'signature';
+    skipCompression?: boolean;  // signatures: never through the JPEG pipeline —
+                                 // it would mangle thin strokes and destroy the
+                                 // transparent PNG background
   },
 ): Promise<UploadResult> {
   const cloudName    = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME    as string;
@@ -22,9 +23,11 @@ export async function uploadToCloudinary(
 
   if (!cloudName || !uploadPreset) throw new Error('Cloudinary env vars not set');
 
-  const { onProgress, qcNum, fieldId } = options ?? {};
+  const { onProgress, qcNum, fieldId, uploadType, skipCompression } = options ?? {};
 
-  const folder = qcNum && fieldId
+  const folder = uploadType === 'signature' && qcNum && fieldId
+    ? `ritesolar-qc/${qcNum}/signatures/${fieldId}`
+    : qcNum && fieldId
     ? `ritesolar-qc/${qcNum}/${fieldId}`
     : 'ritesolar-qc/unfiled';
 
@@ -32,7 +35,9 @@ export async function uploadToCloudinary(
                 file.name.toLowerCase().endsWith('.pdf');
 
   let compressed: File;
-  if (isPdf) {
+  if (skipCompression) {
+    compressed = file;
+  } else if (isPdf) {
     // Rename PDF so Cloudinary doesn't use original filename
     compressed = new File([file], `document_${Date.now()}.pdf`,
       { type: file.type });
