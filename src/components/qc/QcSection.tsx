@@ -13,6 +13,7 @@ interface QcSectionProps {
   onAnswerChange: (fieldId: string, patch: Partial<QcAnswer>) => void;
   allIssues:      QcValidationIssue[];
   onCollapse:     () => void;
+  jobId?:         string;
   qcNum?:         string;
   disabled?:      boolean;
   // Review-mode only (ApprovalReviewPage) — threaded straight through to
@@ -25,7 +26,7 @@ interface QcSectionProps {
 }
 
 export function QcSection({
-  title, fields, answers, onAnswerChange, allIssues, onCollapse, qcNum, disabled,
+  title, fields, answers, onAnswerChange, allIssues, onCollapse, jobId, qcNum, disabled,
   onPhotoClick, approverComments, onApproverCommentChange, reworkPointIds, onToggleRework,
 }: QcSectionProps) {
   const [expanded, setExpanded] = useState(true);
@@ -78,6 +79,7 @@ export function QcSection({
               answer={answers[field.fieldId]}
               onAnswerChange={onAnswerChange}
               allIssues={allIssues}
+              jobId={jobId}
               qcNum={qcNum}
               disabled={disabled}
               onPhotoClick={onPhotoClick}

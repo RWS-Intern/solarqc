@@ -1,10 +1,10 @@
 import { WifiOff, Clock } from 'lucide-react';
-import { useNetworkStatus }    from '@/hooks/useNetworkStatus';
-import { useTaskOfflineQueue } from '@/hooks/useTaskOfflineQueue';
+import { useNetworkStatus }     from '@/hooks/useNetworkStatus';
+import { useOfflineQueueCount } from '@/hooks/useOfflineQueue';
 
 export function OfflineBanner() {
-  const isOnline       = useNetworkStatus();
-  const { queueCount } = useTaskOfflineQueue();
+  const isOnline   = useNetworkStatus();
+  const queueCount = useOfflineQueueCount();
 
   if (isOnline && queueCount === 0) return null;
 

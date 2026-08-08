@@ -1,6 +1,9 @@
 import { useRef, useState, useEffect } from 'react';
-import { Camera, X, Loader2 } from 'lucide-react';
+import { Camera, X, Loader2, Clock } from 'lucide-react';
 import { uploadToCloudinary } from '@/utils/uploadToCloudinary';
+import { enqueuePhoto, type QueuedPhoto } from '@/utils/offlinePhotoQueue';
+import { isConnectivityFailure } from '@/utils/offlineQueueReplay';
+import { useOfflinePhotosFor } from '@/hooks/useOfflineQueue';
 import { _emitToast } from '@/components/ui/toast';
 import { cn } from '@/lib/utils';
 
@@ -12,10 +15,40 @@ interface PhotoZoneProps {
   minPhotos?:           number;
   maxPhotos?:           number;
   disabled?:            boolean;
+  jobId?:               string;
   qcNum?:               string;
   fieldId?:             string;
   capture?:             'environment' | 'user';
   onPhotoClick?:        (url: string, allUrls: string[], index: number) => void;
+}
+
+// A queued-but-unconfirmed photo — same visual footprint as a confirmed
+// tile, but a distinct amber treatment so it's never mistaken for one.
+// Its own memoized blob URL, revoked on unmount/change rather than
+// leaked, since a fresh IndexedDB read hands back a new Blob reference
+// on every queue-change poll.
+function QueuedPhotoThumbnail({ item }: { item: QueuedPhoto }) {
+  const [url, setUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    const objUrl = URL.createObjectURL(item.blob);
+    setUrl(objUrl);
+    return () => URL.revokeObjectURL(objUrl);
+  }, [item]);
+
+  return (
+    <div className="relative">
+      <div className="relative rounded-lg overflow-hidden bg-amber-50" style={{ paddingBottom: '100%' }}>
+        {url && (
+          <img src={url} alt="Pending sync" className="absolute inset-0 h-full w-full object-cover opacity-60" />
+        )}
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-black/5">
+          <Clock className="h-5 w-5 text-amber-600" />
+          <span className="text-[9px] font-semibold text-amber-700 text-center px-1 leading-tight">Pending sync</span>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function isPdfUrl(url: string): boolean {
@@ -51,6 +84,7 @@ export function PhotoZone({
   minPhotos  = 0,
   maxPhotos  = 5,
   disabled   = false,
+  jobId,
   qcNum,
   fieldId,
   capture,
@@ -58,6 +92,7 @@ export function PhotoZone({
 }: PhotoZoneProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [pendingUploads, setPendingUploads] = useState<PendingUpload[]>([]);
+  const queuedPhotos = useOfflinePhotosFor(jobId, fieldId);
 
   const latestPhotosRef       = useRef<string[]>(photos);
   const onChangeRef           = useRef(onPhotosChange);
@@ -86,7 +121,7 @@ export function PhotoZone({
     pendingRef.current.forEach((p) => URL.revokeObjectURL(p.previewUrl));
   }, []);
 
-  const totalShown = photos.length + pendingUploads.length;
+  const totalShown = photos.length + pendingUploads.length + queuedPhotos.length;
   const canAdd     = !disabled && totalShown < maxPhotos;
   const isEmpty    = totalShown === 0;
   const showError  = totalShown < minPhotos;
@@ -127,17 +162,33 @@ export function PhotoZone({
         latestPhotosRef.current = updated;
         onChangeRef.current(updated);
       })
-      .catch(() => {
+      .catch(async (err: unknown) => {
         setPendingUploads((prev) => prev.filter((p) => p.tempId !== tempId));
         URL.revokeObjectURL(previewUrl);
-        // Never write a data: URL into photoUrls (plan §11.1) — a failed
-        // upload is a clean error, online or offline. Phase 7 builds the
-        // real offline queue (IndexedDB, never touching Firestore with
-        // raw image data); this is a stopgap-free honest failure until then.
+
+        // Never write a data: URL into photoUrls (plan §11.1). A failure
+        // that looks like a connectivity problem queues the raw file in
+        // IndexedDB instead of erroring — it uploads for real once back
+        // online (Phase 7). Anything else (bad preset, quota, a genuine
+        // 4xx from Cloudinary) is a real error and must stay one, or a
+        // config problem would look like "resilience" and hide forever.
+        if (jobId && isConnectivityFailure(err)) {
+          try {
+            await enqueuePhoto({
+              kind: 'checklist', jobId, qcNum: qcNum ?? '', fieldId: fieldId ?? '',
+              blob: file, mimeType: file.type || 'image/jpeg',
+            });
+            _emitToast("Offline — photo saved on this device and will upload once you're back online.", 'success');
+            return;
+          } catch (queueErr) {
+            console.error('[PhotoZone] enqueue failed:', queueErr);
+          }
+        }
+
         _emitToast(
           navigator.onLine
             ? 'Upload failed. Please try uploading the photo again.'
-            : "You're offline — photo upload failed. Offline support is coming in a later update; please retry once you're connected.",
+            : "You're offline and this photo couldn't be saved for later sync. Please try again once you're connected.",
           'error',
         );
       });
@@ -172,7 +223,7 @@ export function PhotoZone({
     });
     if (valid.length === 0) return;
 
-    const remaining = maxPhotos - (latestPhotosRef.current.length + pendingUploads.length);
+    const remaining = maxPhotos - (latestPhotosRef.current.length + pendingUploads.length + queuedPhotos.length);
     if (remaining <= 0) {
       _emitToast(`Maximum ${maxPhotos} photo${maxPhotos !== 1 ? 's' : ''} allowed.`, 'warning');
       return;
@@ -181,7 +232,7 @@ export function PhotoZone({
       _emitToast(`Only ${remaining} more photo${remaining !== 1 ? 's' : ''} can be added.`, 'warning');
     }
 
-    const baseIndex = latestPhotosRef.current.length + pendingRef.current.length;
+    const baseIndex = latestPhotosRef.current.length + pendingRef.current.length + queuedPhotos.length;
     valid.slice(0, remaining).forEach((f, i) => startUpload(f, baseIndex + i));
   }
 
@@ -257,6 +308,10 @@ export function PhotoZone({
                 </div>
               </div>
             </div>
+          ))}
+
+          {queuedPhotos.map((p) => (
+            <QueuedPhotoThumbnail key={p.id} item={p} />
           ))}
         </div>
       )}

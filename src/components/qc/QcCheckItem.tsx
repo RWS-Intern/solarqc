@@ -24,6 +24,7 @@ interface QcCheckItemProps {
   answer:         QcAnswer | undefined;
   onAnswerChange: (fieldId: string, patch: Partial<QcAnswer>) => void;
   allIssues:      QcValidationIssue[];
+  jobId?:         string;
   qcNum?:         string;
   disabled?:      boolean;
   // Review-mode only (ApprovalReviewPage) — all optional, all no-ops in
@@ -36,7 +37,7 @@ interface QcCheckItemProps {
 }
 
 export function QcCheckItem({
-  field, answer, onAnswerChange, allIssues, qcNum, disabled,
+  field, answer, onAnswerChange, allIssues, jobId, qcNum, disabled,
   onPhotoClick, approverComment, onApproverCommentChange, flaggedForRework, onToggleRework,
 }: QcCheckItemProps) {
   // Live validation, not submit-time: this field's own outstanding issues
@@ -139,6 +140,7 @@ export function QcCheckItem({
           onPhotosChange={(urls) => { onAnswerChange(field.fieldId, { photoUrls: urls }); setTouched(true); }}
           minPhotos={field.photoRequired ? (field.minPhotos ?? 1) : 0}
           maxPhotos={field.maxPhotos ?? 5}
+          jobId={jobId}
           qcNum={qcNum}
           fieldId={field.fieldId}
           capture="environment"
@@ -256,6 +258,7 @@ export function QcCheckItem({
           onPhotosChange={(urls) => { onAnswerChange(field.fieldId, { photoUrls: urls }); setTouched(true); }}
           minPhotos={field.photoRequired ? (field.minPhotos ?? 1) : 0}
           maxPhotos={field.maxPhotos ?? 5}
+          jobId={jobId}
           qcNum={qcNum}
           fieldId={field.fieldId}
           capture="environment"

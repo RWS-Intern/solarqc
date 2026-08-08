@@ -22,7 +22,7 @@ interface SaveOverrides {
 // overwritten by their own prior autosave.
 export function useQcFill(jobId: string | null | undefined) {
   const { currentUser } = useAuthStore();
-  const { job, loading, error } = useQcJob(jobId);
+  const { job, loading, error, hasPendingWrites } = useQcJob(jobId);
 
   const [answers,  setAnswers]  = useState<Record<string, QcAnswer>>({});
   const [location, setLocation] = useState<QcJob['location']>(null);
@@ -95,6 +95,51 @@ export function useQcFill(jobId: string | null | undefined) {
   // rework round rather than closing over a stale one from first render.
   const jobRef = useRef(job);
   useEffect(() => { jobRef.current = job; }, [job]);
+
+  // A background offline-queue replay (Phase 7) can land a confirmed
+  // photoUrl or a real sign-off directly on the live document while this
+  // hook's own local draft sits in memory unaware — the seed effect above
+  // deliberately never re-syncs from a live snapshot after mount, to stop
+  // a routine remote echo (including this hook's own autosave echoing
+  // back) from clobbering an inspector's in-progress edit. A replay isn't
+  // a routine echo, though: it's evidence this same device queued and is
+  // now confirming, and if it's never merged in, the next autosave's
+  // whole-map write for `answers` would silently revert it — the exact
+  // kind of silent loss this phase exists to prevent. Both merges below
+  // are strictly additive (only add a URL, or adopt a sign-off local
+  // state doesn't already have) so they can never discard an in-progress
+  // edit, and they're safe to run on every snapshot since they're
+  // idempotent once caught up.
+  useEffect(() => {
+    if (!job) return;
+    setAnswers((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const [fieldId, serverAns] of Object.entries(job.answers)) {
+        const serverUrls = serverAns.photoUrls ?? [];
+        if (serverUrls.length === 0) continue;
+        const localAns  = next[fieldId];
+        const localUrls = localAns?.photoUrls ?? [];
+        const missing   = serverUrls.filter((u) => !localUrls.includes(u));
+        if (missing.length === 0) continue;
+        changed = true;
+        next[fieldId] = {
+          ...(localAns ?? {
+            fieldId, status: null, remark: '', photoUrls: [],
+            answeredAt: null, answeredBy: '', round: serverAns.round,
+          }),
+          photoUrls: [...localUrls, ...missing],
+        };
+      }
+      return changed ? next : prev;
+    });
+    setInspectorSignOff((prev) => (
+      !inspectorSignDirtyRef.current && job.inspectorSignOff && !prev ? job.inspectorSignOff : prev
+    ));
+    setCustomerSignOff((prev) => (
+      !customerSignDirtyRef.current && job.customerSignOff && !prev ? job.customerSignOff : prev
+    ));
+  }, [job]);
 
   const answerField = useCallback((fieldId: string, patch: Partial<QcAnswer>) => {
     setAnswers((prev) => {
@@ -227,7 +272,7 @@ export function useQcFill(jobId: string | null | undefined) {
   );
 
   return {
-    job, loading, error,
+    job, loading, error, hasPendingWrites,
     answers, answerField,
     location, locationCapturedAt, locationUnavailable, captureLocation,
     inspectorSignOff, customerSignOff, onInspectorSign, onCustomerSign,

@@ -107,6 +107,7 @@ export function useQcJobs(opts: UseQcJobsOptions = {}) {
   const [loading,      setLoading]    = useState(true);
   const [loadingMore,  setLoadingMore] = useState(false);
   const [hasMore,      setHasMore]    = useState(false);
+  const [hasPendingWrites, setHasPendingWrites] = useState(false);
   const lastDocRef = useRef<QueryDocumentSnapshot<DocumentData> | null>(null);
 
   // Load-bearing, not stylistic — plan §2.4 / Phase 3 §2.4. Firestore's
@@ -145,10 +146,12 @@ export function useQcJobs(opts: UseQcJobsOptions = {}) {
 
     const unsubscribe = onSnapshot(
       q,
+      { includeMetadataChanges: true },
       (snap) => {
         setJobs(snap.docs.map(docToQcJob));
         lastDocRef.current = snap.docs[snap.docs.length - 1] ?? null;
         setHasMore(snap.docs.length === PAGE_SIZE);
+        setHasPendingWrites(snap.metadata.hasPendingWrites);
         setLoading(false);
       },
       (err) => {
@@ -185,5 +188,5 @@ export function useQcJobs(opts: UseQcJobsOptions = {}) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [role, uid, status, loadingMore, currentUser]);
 
-  return { jobs, loading, loadingMore, hasMore, loadMore };
+  return { jobs, loading, loadingMore, hasMore, loadMore, hasPendingWrites };
 }

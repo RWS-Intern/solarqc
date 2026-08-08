@@ -358,28 +358,3 @@ export interface Invite {
   acceptedAt?: Date | null;
   revokedAt?:  Date | null;
 }
-
-// ─── Offline Queue ─────────────────────────────────────────────────────────────
-
-export interface QueuedTaskUpdate {
-  id?:            number;
-  taskId:         string;
-  taskNum:        string;
-  title:          string;
-  previousStatus: TaskStatus;
-  payload: {
-    status:           TaskStatus;
-    blockedReason:    string | null;
-    fieldAnswers:     Record<string, { value: string; type: FieldType }>;
-    fieldPhotos:      Record<string, string[]>;
-    location:         { lat: number; lng: number; accuracy?: number } | null;
-    followUpDate:     Date | string | null;
-    submittedAt:      string;
-    fields?:          FieldDefinition[];
-    completionPhotos?: string[];
-  };
-  queuedAt:        number;
-  attempts:        number;
-  lastError?:      string;
-  historyWritten?: boolean;
-}

@@ -181,6 +181,7 @@ export function ApprovalReviewPage() {
             onAnswerChange={() => {}}
             allIssues={[]}
             onCollapse={() => {}}
+            jobId={job.id}
             qcNum={job.qcNum}
             disabled
             onPhotoClick={(_url, allUrls, index) => setGallery({ photos: allUrls, index })}

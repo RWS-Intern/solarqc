@@ -31,7 +31,7 @@ export function QcFillPage() {
   const { submitQcJob } = useQcJobActions();
 
   const {
-    job, loading, error,
+    job, loading, error, hasPendingWrites,
     answers, answerField,
     location, locationCapturedAt, locationUnavailable, captureLocation,
     inspectorSignOff, customerSignOff, onInspectorSign, onCustomerSign,
@@ -166,12 +166,14 @@ export function QcFillPage() {
             onAnswerChange={answerField}
             allIssues={allIssues}
             onCollapse={onSectionCollapse}
+            jobId={job!.id}
             qcNum={job!.qcNum}
             disabled={isLocked}
           />
         ))}
 
         <SignOffBlock
+          jobId={job!.id}
           qcNum={job!.qcNum}
           currentUser={currentUser!}
           inspectorSignOff={inspectorSignOff}
@@ -195,7 +197,7 @@ export function QcFillPage() {
           )}
           <div className="flex items-center gap-3">
             <Button variant="outline" className="flex-1" onClick={() => void saveDraft()} disabled={saving}>
-              {saving ? 'Saving…' : dirty ? 'Save draft' : 'Saved'}
+              {saving ? 'Saving…' : dirty ? 'Save draft' : hasPendingWrites ? 'Saved locally — syncing…' : 'Saved'}
             </Button>
             <Button className="flex-1" onClick={handleSubmitClick} disabled={submitting || allIssues.length > 0}>
               {submitting ? 'Submitting…' : 'Submit for approval'}

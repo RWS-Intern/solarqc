@@ -129,6 +129,7 @@ export function VerdictForm({ job, currentUser, reworkPointIds, onSubmit, submit
           existing={approverSignOff}
           onSign={(signOff) => setApproverSignOff({ ...signOff, signedAt: new Date() })}
           qcNum={job.qcNum}
+          jobId={job.id}
           disabled={submitting}
         />
       </div>

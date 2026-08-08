@@ -20,7 +20,16 @@ export function useAuth() {
       }
 
       try {
-        const tokenResult = await firebaseUser.getIdTokenResult(true);
+        // No forced refresh: nothing in this codebase ever sets a custom
+        // claim (no Cloud Function does it, and there's no `role` claim to
+        // freshen), so force-refreshing bought nothing but a mandatory
+        // network round trip on every single app load — which fails
+        // outright offline (auth/network-request-failed) and signs the
+        // user out of the UI even though Auth's own local persistence has
+        // a perfectly good cached user. The unforced call still refreshes
+        // normally against the network whenever the cached token has
+        // actually expired and a connection exists.
+        const tokenResult = await firebaseUser.getIdTokenResult();
         const role = (tokenResult.claims['role'] as UserRole) ?? null;
 
         const userDocRef = doc(db, 'users', firebaseUser.uid);

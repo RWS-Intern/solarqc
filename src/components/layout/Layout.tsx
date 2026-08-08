@@ -1,17 +1,15 @@
 import { Navigate, Outlet } from 'react-router-dom';
 import { useAuthStore }      from '@/store/authStore';
 import { useUsers }          from '@/hooks/useUsers';
+import { useOfflineQueueProcessor } from '@/hooks/useOfflineQueueProcessor';
 import { can }               from '@/config/roles';
 import { Header }            from './Header';
 import { BottomNav }         from './BottomNav';
 import { SideNav }           from './SideNav';
 import { OfflineBanner }     from '@/components/offline/OfflineBanner';
 
-// TODO(Phase 4/7): reconnect a QcJobsListener / useQcOfflineQueue processor
-// here once qcJobs exist. The old TasksListener/FieldTasksListener pair and
-// <TaskQueueProcessor /> read the sales `tasks` collection and are gone.
-
-function UsersListener()  { useUsers();  return null; }
+function UsersListener()        { useUsers();                return null; }
+function OfflineQueueListener() { useOfflineQueueProcessor(); return null; }
 
 export function Layout() {
   const { currentUser, loading } = useAuthStore();
@@ -29,6 +27,7 @@ export function Layout() {
   return (
     <div className="min-h-screen bg-brand-background">
       {can(currentUser.role, 'viewPresence') && <UsersListener />}
+      <OfflineQueueListener />
 
       {/* Header — fixed at top, always visible */}
       <header className="fixed top-0 left-0 right-0 z-50 h-14">

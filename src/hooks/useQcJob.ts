@@ -91,16 +91,23 @@ export function useQcJob(jobId: string | null | undefined) {
   const [job,     setJob]     = useState<QcJob | null>(null);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState<string | null>(null);
+  // UX confidence-building, not a correctness signal — persistentLocalCache
+  // already guarantees a write survives regardless of this flag. Lets
+  // QcFillPage show "saved locally, syncing" distinctly from "confirmed"
+  // while a write is still working its way to the server (plan §7).
+  const [hasPendingWrites, setHasPendingWrites] = useState(false);
 
   useEffect(() => {
-    if (!jobId) { setJob(null); setLoading(false); return; }
+    if (!jobId) { setJob(null); setLoading(false); setHasPendingWrites(false); return; }
     setLoading(true);
     setError(null);
 
     const unsubscribe = onSnapshot(
       doc(db, 'qcJobs', jobId),
+      { includeMetadataChanges: true },
       (snap) => {
         setJob(snap.exists() ? docToQcJob(snap.id, snap.data()) : null);
+        setHasPendingWrites(snap.metadata.hasPendingWrites);
         setLoading(false);
       },
       (err) => {
@@ -113,5 +120,5 @@ export function useQcJob(jobId: string | null | undefined) {
     return unsubscribe;
   }, [jobId]);
 
-  return { job, loading, error };
+  return { job, loading, error, hasPendingWrites };
 }
