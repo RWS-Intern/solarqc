@@ -2,31 +2,37 @@
 // src/firebase/qcTemplateSeed.ts
 //
 // Default Rite Solar Post-Installation QC checklist.
-// Generated from RiteSolar_PostInstall_QA_Checklist_2.1.xlsx.
+// Originally generated from RiteSolar_PostInstall_QA_Checklist_2.1.xlsx
+// (54 points / 7 sections), then revised against a confirmed updated QA
+// checklist: sections 5–7 removed entirely, section 3 restructured (two
+// pairs of points merged into two new ones), and three standalone points
+// dropped from sections 1/2/4.
 //
-//   54 check points across 7 sections
-//   21 Critical · 23 Major · 10 Minor
-//   24 points require a photo even to PASS
-//   5 points are typed 'measurement' so the app can range-check the value
-//     (3.3 earth resistance, 4.3 production check, 5.1 Voc, 5.2 Isc, 5.3 IR)
+//   29 check points across 4 sections
+//   14 Critical · 13 Major · 2 Minor
+//   13 points require a photo even to PASS
+//   1 point is typed 'measurement' so the app can range-check the value
+//     (4.3 production check — the only measurement field left; the other
+//     4 all lived in the removed §3/§5 points)
 //
 // Seeded into appConfig/global.qcTemplate by initQcConfig() — which must check
 // for the key individually, because initAppConfig early-returns on an existing
 // config doc (initAppConfig.ts:160-162) and would never reach a live install.
+// initQcConfig() only ever seeds a genuinely-absent qcTemplate key, though —
+// it does nothing once one exists. Pushing this revision to an already-live
+// appConfig/global goes through Phase 2's own saveQcTemplate path instead
+// (Template → QC Checklist → Import, then Save), which version-locks
+// in-flight jobs correctly and is the only path that bumps qcTemplateVersion
+// on the live document.
 //
 // Admins edit this afterwards in Template → QC Checklist. A job version-locks
-// its own copy at creation, so template edits apply to NEW jobs only.
-//
-// TODO before rollout — see §9 of the change plan:
-//   • 5.1 / 5.2 expectedMin/Max must be derived from the module datasheet and
-//     string length; they are intentionally left undefined here.
-//   • 5.3 expectedMin is a placeholder — set it to your IR standard.
-//   • §5 is "when fault occurs" and §6 is "at handover": add showIf rules or
-//     accept N/A on a commissioning-day inspection.
+// its own copy at creation, so template edits (including this revision)
+// apply to NEW jobs only — nothing here ever reaches back into a job that's
+// already in progress.
 // ─────────────────────────────────────────────────────────────────────────────
 import type { QcFieldDefinition } from '@/types/qc';
 
-export const QC_TEMPLATE_VERSION = 1;
+export const QC_TEMPLATE_VERSION = 2;
 
 export const DEFAULT_QC_TEMPLATE: QcFieldDefinition[] = [
   // ── 1. Structural & Mounting Integrity ──────────────────────────────────
@@ -126,17 +132,7 @@ export const DEFAULT_QC_TEMPLATE: QcFieldDefinition[] = [
     photoRequiredOnFail: true, options: [],
   },
   {
-    fieldId: 'qc_1_10', code: '1.10', type: 'passfail', sortOrder: 10,
-    label: 'Wind/ballast design',
-    verifyText: 'Structure design (wind speed, ballast/anchoring) matches local wind zone',
-    target: 'Per site wind zone', method: 'Design doc check',
-    severity: 'major', photoRequired: false,
-    minPhotos: 0, maxPhotos: 5,
-    isRequired: true, allowNA: true, remarkRequiredOnFail: true,
-    photoRequiredOnFail: true, options: [],
-  },
-  {
-    fieldId: 'qc_1_11', code: '1.11', type: 'passfail', sortOrder: 11,
+    fieldId: 'qc_1_11', code: '1.11', type: 'passfail', sortOrder: 10,
     label: 'Foundation concreting',
     verifyText: 'Concrete (PCC) cast for all foundation legs / base plates; fully set and level',
     target: 'All legs concreted', method: 'Visual',
@@ -147,12 +143,12 @@ export const DEFAULT_QC_TEMPLATE: QcFieldDefinition[] = [
   },
   // ── 2. Electrical & Cable Management ────────────────────────────────────
   {
-    fieldId: 'qc_sec_2', type: 'section_header', sortOrder: 12,
+    fieldId: 'qc_sec_2', type: 'section_header', sortOrder: 11,
     label: '2. Electrical & Cable Management',
     isRequired: false, options: [],
   },
   {
-    fieldId: 'qc_2_1', code: '2.1', type: 'passfail', sortOrder: 13,
+    fieldId: 'qc_2_1', code: '2.1', type: 'passfail', sortOrder: 12,
     label: 'Conduit protection',
     verifyText: 'All DC & AC cables run through rigid UV-resistant PVC (RPVC) or metal conduit',
     target: 'No loose/exposed wiring', method: 'Visual',
@@ -162,7 +158,7 @@ export const DEFAULT_QC_TEMPLATE: QcFieldDefinition[] = [
     photoRequiredOnFail: true, options: [],
   },
   {
-    fieldId: 'qc_2_2', code: '2.2', type: 'passfail', sortOrder: 14,
+    fieldId: 'qc_2_2', code: '2.2', type: 'passfail', sortOrder: 13,
     label: 'MC4 connectors',
     verifyText: 'Panel-to-panel joins use proper crimped & locked MC4 connectors — no taped joints',
     target: 'Genuine MC4, locked', method: 'Visual / pull test',
@@ -172,7 +168,7 @@ export const DEFAULT_QC_TEMPLATE: QcFieldDefinition[] = [
     photoRequiredOnFail: true, options: [],
   },
   {
-    fieldId: 'qc_2_3', code: '2.3', type: 'passfail', sortOrder: 15,
+    fieldId: 'qc_2_3', code: '2.3', type: 'passfail', sortOrder: 14,
     label: 'Cable sag / dressing',
     verifyText: 'Wiring neatly tied to racking rails with UV-resistant cable ties; no roof contact',
     target: 'No sag / roof contact', method: 'Visual',
@@ -182,7 +178,7 @@ export const DEFAULT_QC_TEMPLATE: QcFieldDefinition[] = [
     photoRequiredOnFail: true, options: [],
   },
   {
-    fieldId: 'qc_2_4', code: '2.4', type: 'passfail', sortOrder: 16,
+    fieldId: 'qc_2_4', code: '2.4', type: 'passfail', sortOrder: 15,
     label: 'Cable size',
     verifyText: 'DC & AC cable sizing correct for current & voltage-drop limits',
     target: 'Voltage drop < 3%', method: 'Design doc / measure',
@@ -192,7 +188,7 @@ export const DEFAULT_QC_TEMPLATE: QcFieldDefinition[] = [
     photoRequiredOnFail: true, options: [],
   },
   {
-    fieldId: 'qc_2_5', code: '2.5', type: 'passfail', sortOrder: 17,
+    fieldId: 'qc_2_5', code: '2.5', type: 'passfail', sortOrder: 16,
     label: 'DC string polarity',
     verifyText: 'String polarity verified correct (no reverse connections)',
     target: 'Correct polarity', method: 'Multimeter',
@@ -201,34 +197,23 @@ export const DEFAULT_QC_TEMPLATE: QcFieldDefinition[] = [
     isRequired: true, allowNA: true, remarkRequiredOnFail: true,
     photoRequiredOnFail: true, options: [],
   },
-  {
-    fieldId: 'qc_2_6', code: '2.6', type: 'passfail', sortOrder: 18,
-    label: 'Cable labelling',
-    verifyText: 'Strings, DC+/-, AC phases and earth conductors clearly labelled',
-    target: 'All labelled', method: 'Visual',
-    severity: 'minor', photoRequired: false,
-    minPhotos: 0, maxPhotos: 5,
-    isRequired: true, allowNA: true, remarkRequiredOnFail: true,
-    photoRequiredOnFail: true, options: [],
-  },
-  {
-    fieldId: 'qc_2_7', code: '2.7', type: 'passfail', sortOrder: 19,
-    label: 'Colour coding',
-    verifyText: 'Conductor colour coding follows standard (earth green/green-yellow, etc.)',
-    target: 'Per code', method: 'Visual',
-    severity: 'minor', photoRequired: false,
-    minPhotos: 0, maxPhotos: 5,
-    isRequired: true, allowNA: true, remarkRequiredOnFail: true,
-    photoRequiredOnFail: true, options: [],
-  },
   // ── 3. Earthing (Grounding) & Safety Devices ────────────────────────────
+  // Restructured, not just trimmed: 3.2 / old-3.3 (earth resistance) /
+  // old-3.4 / old-3.5 removed outright; old-3.6+3.7 merged into a fresh
+  // field (new display code 3.3); old-3.8/3.9 keep their original
+  // fieldIds and content unchanged — only their displayed code moved (to
+  // 3.4/3.5); old-3.10+3.11 merged into a fresh field (new display code
+  // 3.6). Fresh fieldIds for the two merged items — "3.3" and "3.6"
+  // already meant something else on every job created before this
+  // change, so reusing either would collide two unrelated meanings under
+  // one identifier.
   {
-    fieldId: 'qc_sec_3', type: 'section_header', sortOrder: 20,
+    fieldId: 'qc_sec_3', type: 'section_header', sortOrder: 17,
     label: '3. Earthing (Grounding) & Safety Devices',
     isRequired: false, options: [],
   },
   {
-    fieldId: 'qc_3_1', code: '3.1', type: 'passfail', sortOrder: 21,
+    fieldId: 'qc_3_1', code: '3.1', type: 'passfail', sortOrder: 18,
     label: 'DC-side earthing',
     verifyText: 'Panel frames & mounting structure earthed (separate earth line)',
     target: 'Continuous bond', method: 'Visual + continuity',
@@ -238,50 +223,9 @@ export const DEFAULT_QC_TEMPLATE: QcFieldDefinition[] = [
     photoRequiredOnFail: true, options: [],
   },
   {
-    fieldId: 'qc_3_2', code: '3.2', type: 'passfail', sortOrder: 22,
-    label: 'AC-side earthing',
-    verifyText: 'Inverter casing & distribution boxes earthed (separate earth line)',
-    target: 'Continuous bond', method: 'Visual + continuity',
-    severity: 'critical', photoRequired: false,
-    minPhotos: 0, maxPhotos: 5,
-    isRequired: true, allowNA: true, remarkRequiredOnFail: true,
-    photoRequiredOnFail: true, options: [],
-  },
-  {
-    fieldId: 'qc_3_3', code: '3.3', type: 'measurement', sortOrder: 23,
-    label: 'Earth resistance',
-    verifyText: 'Earth resistivity measured with tester',
-    target: '≤ 5 Ω (ideally)', method: 'Earth tester',
-    severity: 'critical', photoRequired: true,
-    minPhotos: 1, maxPhotos: 5,
-    unit: '\u03a9', expectedMax: 5,   // Earth resistance must be at or below 5 ohm
-    isRequired: true, allowNA: true, remarkRequiredOnFail: true,
-    photoRequiredOnFail: true, options: [],
-  },
-  {
-    fieldId: 'qc_3_4', code: '3.4', type: 'passfail', sortOrder: 24,
-    label: 'SPDs fitted',
-    verifyText: 'Surge Protection Devices present in DCDB & ACDB to protect inverter',
-    target: 'DC + AC SPD present', method: 'Visual',
-    severity: 'critical', photoRequired: true,
-    minPhotos: 1, maxPhotos: 5,
-    isRequired: true, allowNA: true, remarkRequiredOnFail: true,
-    photoRequiredOnFail: true, options: [],
-  },
-  {
-    fieldId: 'qc_3_5', code: '3.5', type: 'passfail', sortOrder: 25,
-    label: 'MCBs / MCCBs',
-    verifyText: 'Correctly rated breakers to isolate power under fault',
-    target: 'Correctly rated', method: 'Visual / rating check',
-    severity: 'critical', photoRequired: false,
-    minPhotos: 0, maxPhotos: 5,
-    isRequired: true, allowNA: true, remarkRequiredOnFail: true,
-    photoRequiredOnFail: true, options: [],
-  },
-  {
-    fieldId: 'qc_3_6', code: '3.6', type: 'passfail', sortOrder: 26,
-    label: 'DCDB present',
-    verifyText: 'Dedicated DC Distribution Box installed, IP-rated, UV-protected',
+    fieldId: 'qc_3_dcdb_acdb', code: '3.3', type: 'passfail', sortOrder: 19,
+    label: 'DCDB & ACDB present',
+    verifyText: 'Dedicated DC & AC Distribution Box installed, IP-rated, UV-protected',
     target: 'Installed & rated', method: 'Visual',
     severity: 'major', photoRequired: true,
     minPhotos: 1, maxPhotos: 5,
@@ -289,17 +233,7 @@ export const DEFAULT_QC_TEMPLATE: QcFieldDefinition[] = [
     photoRequiredOnFail: true, options: [],
   },
   {
-    fieldId: 'qc_3_7', code: '3.7', type: 'passfail', sortOrder: 27,
-    label: 'ACDB present',
-    verifyText: 'Dedicated AC Distribution Box installed, IP-rated',
-    target: 'Installed & rated', method: 'Visual',
-    severity: 'major', photoRequired: true,
-    minPhotos: 1, maxPhotos: 5,
-    isRequired: true, allowNA: true, remarkRequiredOnFail: true,
-    photoRequiredOnFail: true, options: [],
-  },
-  {
-    fieldId: 'qc_3_8', code: '3.8', type: 'passfail', sortOrder: 28,
+    fieldId: 'qc_3_8', code: '3.4', type: 'passfail', sortOrder: 20,
     label: 'Lightning arrestor',
     verifyText: 'Lightning arrestor installed & earthed (if in design scope)',
     target: 'Installed if in scope', method: 'Visual',
@@ -309,7 +243,7 @@ export const DEFAULT_QC_TEMPLATE: QcFieldDefinition[] = [
     photoRequiredOnFail: true, options: [],
   },
   {
-    fieldId: 'qc_3_9', code: '3.9', type: 'passfail', sortOrder: 29,
+    fieldId: 'qc_3_9', code: '3.5', type: 'passfail', sortOrder: 21,
     label: 'MC4 crimping',
     verifyText: 'MC4 connectors properly crimped, locked and UV-protected',
     target: 'Crimped & locked', method: 'Visual / pull',
@@ -319,20 +253,10 @@ export const DEFAULT_QC_TEMPLATE: QcFieldDefinition[] = [
     photoRequiredOnFail: true, options: [],
   },
   {
-    fieldId: 'qc_3_10', code: '3.10', type: 'passfail', sortOrder: 30,
-    label: 'DC isolator',
-    verifyText: 'DC isolator installed and functional (isolates array on demand)',
-    target: 'Functional', method: 'Switch test',
-    severity: 'critical', photoRequired: false,
-    minPhotos: 0, maxPhotos: 5,
-    isRequired: true, allowNA: true, remarkRequiredOnFail: true,
-    photoRequiredOnFail: true, options: [],
-  },
-  {
-    fieldId: 'qc_3_11', code: '3.11', type: 'passfail', sortOrder: 31,
-    label: 'AC isolator',
-    verifyText: 'Proper AC isolator installed between inverter and grid/load',
-    target: 'Installed & rated', method: 'Visual / test',
+    fieldId: 'qc_3_isolators', code: '3.6', type: 'passfail', sortOrder: 22,
+    label: 'DC & AC isolator',
+    verifyText: 'DC isolator installed and functional (isolates array on demand); proper AC isolator installed between inverter and grid/load',
+    target: 'Functional', method: 'Switch test / Visual',
     severity: 'critical', photoRequired: false,
     minPhotos: 0, maxPhotos: 5,
     isRequired: true, allowNA: true, remarkRequiredOnFail: true,
@@ -340,12 +264,12 @@ export const DEFAULT_QC_TEMPLATE: QcFieldDefinition[] = [
   },
   // ── 4. Inverter & Commissioning Checks ──────────────────────────────────
   {
-    fieldId: 'qc_sec_4', type: 'section_header', sortOrder: 32,
+    fieldId: 'qc_sec_4', type: 'section_header', sortOrder: 23,
     label: '4. Inverter & Commissioning Checks',
     isRequired: false, options: [],
   },
   {
-    fieldId: 'qc_4_1', code: '4.1', type: 'passfail', sortOrder: 33,
+    fieldId: 'qc_4_1', code: '4.1', type: 'passfail', sortOrder: 24,
     label: 'Location & ventilation',
     verifyText: 'Inverter in shaded, well-ventilated area; not in direct sun / enclosed heat',
     target: 'Shaded, ventilated', method: 'Visual',
@@ -355,7 +279,7 @@ export const DEFAULT_QC_TEMPLATE: QcFieldDefinition[] = [
     photoRequiredOnFail: true, options: [],
   },
   {
-    fieldId: 'qc_4_2', code: '4.2', type: 'passfail', sortOrder: 34,
+    fieldId: 'qc_4_2', code: '4.2', type: 'passfail', sortOrder: 25,
     label: 'Mounting',
     verifyText: 'Inverter firmly wall-mounted at correct height with clearance around it',
     target: 'Firm; clearance OK', method: 'Visual',
@@ -365,7 +289,7 @@ export const DEFAULT_QC_TEMPLATE: QcFieldDefinition[] = [
     photoRequiredOnFail: true, options: [],
   },
   {
-    fieldId: 'qc_4_3', code: '4.3', type: 'measurement', sortOrder: 35,
+    fieldId: 'qc_4_3', code: '4.3', type: 'measurement', sortOrder: 26,
     label: 'Production check',
     verifyText: 'At clear-sky noon, output is 70–80% of rated capacity (after losses)',
     target: '70–80% of rated kW', method: 'Inverter display / app',
@@ -376,7 +300,7 @@ export const DEFAULT_QC_TEMPLATE: QcFieldDefinition[] = [
     photoRequiredOnFail: true, options: [],
   },
   {
-    fieldId: 'qc_4_4', code: '4.4', type: 'passfail', sortOrder: 36,
+    fieldId: 'qc_4_4', code: '4.4', type: 'passfail', sortOrder: 27,
     label: 'Anti-islanding test',
     verifyText: 'Switch off grid breaker — inverter shuts down within seconds',
     target: 'Trips within seconds', method: 'Live test',
@@ -386,7 +310,7 @@ export const DEFAULT_QC_TEMPLATE: QcFieldDefinition[] = [
     photoRequiredOnFail: true, options: [],
   },
   {
-    fieldId: 'qc_4_5', code: '4.5', type: 'passfail', sortOrder: 37,
+    fieldId: 'qc_4_5', code: '4.5', type: 'passfail', sortOrder: 28,
     label: 'Utility settings configured',
     verifyText: 'Inverter grid/protection settings configured as per utility (DISCOM) requirements',
     target: 'Per utility spec', method: 'Inverter menu',
@@ -396,7 +320,7 @@ export const DEFAULT_QC_TEMPLATE: QcFieldDefinition[] = [
     photoRequiredOnFail: true, options: [],
   },
   {
-    fieldId: 'qc_4_6', code: '4.6', type: 'passfail', sortOrder: 38,
+    fieldId: 'qc_4_6', code: '4.6', type: 'passfail', sortOrder: 29,
     label: 'Starts without alarms',
     verifyText: 'Inverter powers up and starts without alarms; generation verified',
     target: 'No alarms; generating', method: 'Inverter display / app',
@@ -406,7 +330,7 @@ export const DEFAULT_QC_TEMPLATE: QcFieldDefinition[] = [
     photoRequiredOnFail: true, options: [],
   },
   {
-    fieldId: 'qc_4_7', code: '4.7', type: 'passfail', sortOrder: 39,
+    fieldId: 'qc_4_7', code: '4.7', type: 'passfail', sortOrder: 30,
     label: 'No fault / error codes',
     verifyText: 'Inverter display shows no active fault, fault or warning codes',
     target: 'No active faults', method: 'Inverter display',
@@ -416,7 +340,7 @@ export const DEFAULT_QC_TEMPLATE: QcFieldDefinition[] = [
     photoRequiredOnFail: true, options: [],
   },
   {
-    fieldId: 'qc_4_8', code: '4.8', type: 'passfail', sortOrder: 40,
+    fieldId: 'qc_4_8', code: '4.8', type: 'passfail', sortOrder: 31,
     label: 'Grid parameters',
     verifyText: 'Grid voltage & frequency within window; inverter syncing normally',
     target: 'Within limits', method: 'Inverter display',
@@ -426,191 +350,10 @@ export const DEFAULT_QC_TEMPLATE: QcFieldDefinition[] = [
     photoRequiredOnFail: true, options: [],
   },
   {
-    fieldId: 'qc_4_9', code: '4.9', type: 'passfail', sortOrder: 41,
+    fieldId: 'qc_4_9', code: '4.9', type: 'passfail', sortOrder: 32,
     label: 'Monitoring / RMS live',
     verifyText: 'Remote monitoring (RMS/app/Wi-Fi/GSM) commissioned and reporting data',
     target: 'Live on portal/app', method: 'App / portal',
-    severity: 'major', photoRequired: true,
-    minPhotos: 1, maxPhotos: 5,
-    isRequired: true, allowNA: true, remarkRequiredOnFail: true,
-    photoRequiredOnFail: true, options: [],
-  },
-  {
-    fieldId: 'qc_4_10', code: '4.10', type: 'passfail', sortOrder: 42,
-    label: 'Net-meter / bidirectional',
-    verifyText: 'Net / bidirectional meter installed and recording import & export',
-    target: 'Import & export logged', method: 'Meter reading',
-    severity: 'major', photoRequired: true,
-    minPhotos: 1, maxPhotos: 5,
-    isRequired: true, allowNA: true, remarkRequiredOnFail: true,
-    photoRequiredOnFail: true, options: [],
-  },
-  // ── 5. Testing & Measurements- (when Fault Occure) ──────────────────────
-  {
-    fieldId: 'qc_sec_5', type: 'section_header', sortOrder: 43,
-    label: '5. Testing & Measurements- (when Fault Occure)',
-    isRequired: false, options: [],
-  },
-  {
-    fieldId: 'qc_5_1', code: '5.1', type: 'measurement', sortOrder: 44,
-    label: 'Open Circuit Voltage (Voc)',
-    verifyText: 'String Voc measured and recorded; matches expected design value',
-    target: 'Within expected range', method: 'Multimeter',
-    severity: 'major', photoRequired: true,
-    minPhotos: 1, maxPhotos: 5,
-    unit: 'V',   // String Voc — set bounds from the module datasheet x string length
-    isRequired: true, allowNA: true, remarkRequiredOnFail: true,
-    photoRequiredOnFail: true, options: [],
-  },
-  {
-    fieldId: 'qc_5_2', code: '5.2', type: 'measurement', sortOrder: 45,
-    label: 'Short Circuit Current (Isc)',
-    verifyText: 'String Isc measured and recorded; matches expected design value',
-    target: 'Within expected range', method: 'Clamp meter',
-    severity: 'major', photoRequired: true,
-    minPhotos: 1, maxPhotos: 5,
-    unit: 'A',   // String Isc — set bounds from the module datasheet
-    isRequired: true, allowNA: true, remarkRequiredOnFail: true,
-    photoRequiredOnFail: true, options: [],
-  },
-  {
-    fieldId: 'qc_5_3', code: '5.3', type: 'measurement', sortOrder: 46,
-    label: 'Insulation Resistance (IR)',
-    verifyText: 'IR (megger) test on DC & AC circuits passed',
-    target: 'Passes IR test', method: 'Megger',
-    severity: 'critical', photoRequired: true,
-    minPhotos: 1, maxPhotos: 5,
-    unit: 'M\u03a9', expectedMin: 1,   // Insulation resistance — set expectedMin per your standard
-    isRequired: true, allowNA: true, remarkRequiredOnFail: true,
-    photoRequiredOnFail: true, options: [],
-  },
-  {
-    fieldId: 'qc_5_4', code: '5.4', type: 'passfail', sortOrder: 47,
-    label: 'Earth continuity',
-    verifyText: 'Earth continuity test passed across all bonded parts',
-    target: 'Continuous / passes', method: 'Continuity tester',
-    severity: 'critical', photoRequired: false,
-    minPhotos: 0, maxPhotos: 5,
-    isRequired: true, allowNA: true, remarkRequiredOnFail: true,
-    photoRequiredOnFail: true, options: [],
-  },
-  // ── 6. Documentation & Handover (at the time of handover) ───────────────
-  {
-    fieldId: 'qc_sec_6', type: 'section_header', sortOrder: 48,
-    label: '6. Documentation & Handover (at the time of handover)',
-    isRequired: false, options: [],
-  },
-  {
-    fieldId: 'qc_6_1', code: '6.1', type: 'passfail', sortOrder: 49,
-    label: 'Single-line diagram',
-    verifyText: 'As-built single-line diagram (SLD) available',
-    target: 'Provided', method: 'Doc check',
-    severity: 'major', photoRequired: false,
-    minPhotos: 0, maxPhotos: 5,
-    isRequired: true, allowNA: true, remarkRequiredOnFail: true,
-    photoRequiredOnFail: true, options: [],
-  },
-  {
-    fieldId: 'qc_6_2', code: '6.2', type: 'passfail', sortOrder: 50,
-    label: 'Warranty documents',
-    verifyText: 'Panel, inverter & workmanship warranty documents handed over',
-    target: 'Handed over', method: 'Doc check',
-    severity: 'major', photoRequired: false,
-    minPhotos: 0, maxPhotos: 5,
-    isRequired: true, allowNA: true, remarkRequiredOnFail: true,
-    photoRequiredOnFail: true, options: [],
-  },
-  {
-    fieldId: 'qc_6_3', code: '6.3', type: 'passfail', sortOrder: 51,
-    label: 'O&M manual',
-    verifyText: 'Operation & maintenance manual provided to customer',
-    target: 'Provided', method: 'Doc check',
-    severity: 'major', photoRequired: false,
-    minPhotos: 0, maxPhotos: 5,
-    isRequired: true, allowNA: true, remarkRequiredOnFail: true,
-    photoRequiredOnFail: true, options: [],
-  },
-  {
-    fieldId: 'qc_6_4', code: '6.4', type: 'passfail', sortOrder: 52,
-    label: 'Datasheets / serials',
-    verifyText: 'Module & inverter serial numbers recorded; datasheets included',
-    target: 'Recorded', method: 'Doc check',
-    severity: 'minor', photoRequired: true,
-    minPhotos: 1, maxPhotos: 5,
-    isRequired: true, allowNA: true, remarkRequiredOnFail: true,
-    photoRequiredOnFail: true, options: [],
-  },
-  {
-    fieldId: 'qc_6_5', code: '6.5', type: 'passfail', sortOrder: 53,
-    label: 'Subsidy / DISCOM docs',
-    verifyText: 'PM Surya Ghar / DISCOM net-metering & subsidy paperwork status confirmed',
-    target: 'Status confirmed', method: 'Doc check',
-    severity: 'major', photoRequired: false,
-    minPhotos: 0, maxPhotos: 5,
-    isRequired: true, allowNA: true, remarkRequiredOnFail: true,
-    photoRequiredOnFail: true, options: [],
-  },
-  {
-    fieldId: 'qc_6_6', code: '6.6', type: 'passfail', sortOrder: 54,
-    label: 'Customer walkthrough',
-    verifyText: 'Customer shown app, shutdown procedure, cleaning & safety do\'s/don\'ts',
-    target: 'Walkthrough done', method: 'On-site briefing',
-    severity: 'minor', photoRequired: false,
-    minPhotos: 0, maxPhotos: 5,
-    isRequired: true, allowNA: true, remarkRequiredOnFail: true,
-    photoRequiredOnFail: true, options: [],
-  },
-  {
-    fieldId: 'qc_6_7', code: '6.7', type: 'passfail', sortOrder: 55,
-    label: 'Site photos',
-    verifyText: 'Before/after & component photos captured for records',
-    target: 'Photos on file', method: 'Camera',
-    severity: 'minor', photoRequired: true,
-    minPhotos: 1, maxPhotos: 5,
-    isRequired: true, allowNA: true, remarkRequiredOnFail: true,
-    photoRequiredOnFail: true, options: [],
-  },
-  // ── 7. Site Cleanliness & Final (instructions in scope of installer) ────
-  {
-    fieldId: 'qc_sec_7', type: 'section_header', sortOrder: 56,
-    label: '7. Site Cleanliness & Final (instructions in scope of installer)',
-    isRequired: false, options: [],
-  },
-  {
-    fieldId: 'qc_7_1', code: '7.1', type: 'passfail', sortOrder: 57,
-    label: 'Site cleared',
-    verifyText: 'All installation debris, packaging & offcuts removed from site',
-    target: 'Site clean', method: 'Visual',
-    severity: 'minor', photoRequired: false,
-    minPhotos: 0, maxPhotos: 5,
-    isRequired: true, allowNA: true, remarkRequiredOnFail: true,
-    photoRequiredOnFail: true, options: [],
-  },
-  {
-    fieldId: 'qc_7_2', code: '7.2', type: 'passfail', sortOrder: 58,
-    label: 'Panels clean',
-    verifyText: 'Modules wiped clean; no dust, cement, footmarks or adhesive residue',
-    target: 'Clean surface', method: 'Visual',
-    severity: 'minor', photoRequired: true,
-    minPhotos: 1, maxPhotos: 5,
-    isRequired: true, allowNA: true, remarkRequiredOnFail: true,
-    photoRequiredOnFail: true, options: [],
-  },
-  {
-    fieldId: 'qc_7_3', code: '7.3', type: 'passfail', sortOrder: 59,
-    label: 'Safety signage',
-    verifyText: 'Warning labels / caution signage on DCDB, ACDB, inverter as required',
-    target: 'Signage present', method: 'Visual',
-    severity: 'minor', photoRequired: false,
-    minPhotos: 0, maxPhotos: 5,
-    isRequired: true, allowNA: true, remarkRequiredOnFail: true,
-    photoRequiredOnFail: true, options: [],
-  },
-  {
-    fieldId: 'qc_7_4', code: '7.4', type: 'passfail', sortOrder: 60,
-    label: 'Customer sign-off',
-    verifyText: 'Customer inspection sign-off obtained',
-    target: 'Signed', method: 'Sign-off form',
     severity: 'major', photoRequired: true,
     minPhotos: 1, maxPhotos: 5,
     isRequired: true, allowNA: true, remarkRequiredOnFail: true,
