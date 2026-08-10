@@ -139,6 +139,26 @@ service cloud.firestore {
       }
     }
 
+    // Error logs (logError.ts / ErrorLogsPage.tsx) — inherited since Phase
+    // 0, never actually had a rule of its own. Every write was silently
+    // denied (logError's own try/catch swallows the failure) and every
+    // read was silently denied too (ErrorLogsPage's getDocs has no
+    // .catch(), so isLoading just clears and it renders "No errors logged
+    // yet." regardless of whether that's true) — found only by actually
+    // triggering a real error and watching for it live, going into a
+    // real pilot with zero working visibility into what breaks for
+    // someone else. Write is scoped to the authenticated user logging
+    // about themselves, matching the events subcollection's own
+    // actorUid == request.auth.uid pattern; read is admin-only, matching
+    // ErrorLogsPage's own "admin only" framing. A caller who was never
+    // signed in at all (a failed login attempt, say) still can't log —
+    // a narrower, deliberately-accepted gap, not fixed here.
+    match /errorLogs/{logId} {
+      allow read:   if signedIn() && active() && role() == 'admin';
+      allow create: if signedIn() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if false;
+    }
+
     // Template + config: admin only. No client counter writes anywhere —
     // this is what closes the hole in plan §4.3 where any field engineer
     // could rewrite the survey template or overwrite superAdminUid.

@@ -3,7 +3,7 @@ import {
   initializeTestEnvironment, assertFails, assertSucceeds,
   type RulesTestEnvironment,
 } from '@firebase/rules-unit-testing';
-import { doc, setDoc, updateDoc, getDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, setDoc, updateDoc, getDoc, deleteDoc, serverTimestamp, collection, getDocs } from 'firebase/firestore';
 import { beforeAll, afterAll, beforeEach, describe, it } from 'vitest';
 
 let testEnv: RulesTestEnvironment;
@@ -563,6 +563,58 @@ describe('property 6 — Phase 8: certificate report fields', () => {
     await assertFails(updateDoc(doc(db, 'qcJobs', 'job-5-approved'), {
       reportUrl: 'https://res.cloudinary.com/x/report.pdf', reportedAt: new Date(), updatedAt: new Date(),
     }));
+  });
+});
+
+// Go-live — errorLogs had no rule of any kind, so every write from
+// logError() was silently denied (its own try/catch swallows the
+// failure) and every read from ErrorLogsPage was silently denied too
+// (no .catch() on its getDocs call) — found only by actually triggering
+// a real error against the live app and watching for it, not by reading
+// the code alone.
+describe('errorLogs — write your own, read admin-only', () => {
+  it('lets an authenticated user log an error about themselves', async () => {
+    const db = testEnv.authenticatedContext(INSPECTOR_UID).firestore();
+    await assertSucceeds(setDoc(doc(db, 'errorLogs', 'log-1'), {
+      action: 'test.action', errorMessage: 'boom', errorCode: null,
+      userId: INSPECTOR_UID, userName: 'Inspector', userRole: 'qc_inspector',
+      context: {}, online: true, createdAt: serverTimestamp(),
+    }));
+  });
+
+  it('rejects a user logging an error under someone else\'s userId', async () => {
+    const db = testEnv.authenticatedContext(INSPECTOR_UID).firestore();
+    await assertFails(setDoc(doc(db, 'errorLogs', 'log-2'), {
+      action: 'test.action', errorMessage: 'boom', errorCode: null,
+      userId: APPROVER_UID, userName: 'Inspector', userRole: 'qc_inspector',
+      context: {}, online: true, createdAt: serverTimestamp(),
+    }));
+  });
+
+  it('rejects an unauthenticated write', async () => {
+    const db = testEnv.unauthenticatedContext().firestore();
+    await assertFails(setDoc(doc(db, 'errorLogs', 'log-3'), {
+      action: 'test.action', errorMessage: 'boom', userId: null,
+    }));
+  });
+
+  it('lets admin read errorLogs', async () => {
+    const db = testEnv.authenticatedContext(ADMIN_UID).firestore();
+    await assertSucceeds(getDocs(collection(db, 'errorLogs')));
+  });
+
+  it('rejects a non-admin reading errorLogs', async () => {
+    const db = testEnv.authenticatedContext(INSPECTOR_UID).firestore();
+    await assertFails(getDocs(collection(db, 'errorLogs')));
+  });
+
+  it('rejects updating or deleting an existing error log', async () => {
+    await testEnv.withSecurityRulesDisabled((ctx) =>
+      setDoc(doc(ctx.firestore(), 'errorLogs', 'log-4'), { action: 'x', userId: INSPECTOR_UID }),
+    );
+    const db = testEnv.authenticatedContext(INSPECTOR_UID).firestore();
+    await assertFails(updateDoc(doc(db, 'errorLogs', 'log-4'), { action: 'y' }));
+    await assertFails(deleteDoc(doc(db, 'errorLogs', 'log-4')));
   });
 });
 
