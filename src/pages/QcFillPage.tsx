@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Phone, MapPin } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import { useQcFill } from '@/hooks/useQcFill';
 import { useQcJobActions } from '@/hooks/useQcJobActions';
@@ -15,6 +15,7 @@ import {
 import { _emitToast } from '@/components/ui/toast';
 import { validateQcJob } from '@/utils/qcValidation';
 import { groupBySections } from '@/utils/qcSections';
+import { directionsUrl } from '@/utils/directionsUrl';
 import { QC_STATUS_LABELS, QC_STATUS_COLOR } from '@/config/qcStatus';
 import { cn } from '@/lib/utils';
 
@@ -142,6 +143,27 @@ export function QcFillPage() {
               {job!.customer.name}{job!.system.sizeKw ? ` · ${job!.system.sizeKw} kW` : ''}
             </p>
             <p className="text-xs text-gray-400">Round {job!.reworkRound + 1} · {QC_STATUS_LABELS[job!.status]}</p>
+          </div>
+
+          <div className="flex items-center gap-1 shrink-0">
+            {job!.customer.mobile && (
+              <a
+                href={`tel:${job!.customer.mobile}`}
+                aria-label="Call customer"
+                className="flex h-8 w-8 items-center justify-center rounded-full text-gray-400 hover:text-brand-blue hover:bg-blue-50 transition-colors"
+              >
+                <Phone className="h-4 w-4" />
+              </a>
+            )}
+            <a
+              href={directionsUrl(job!.customer)}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Get directions"
+              className="flex h-8 w-8 items-center justify-center rounded-full text-gray-400 hover:text-brand-blue hover:bg-blue-50 transition-colors"
+            >
+              <MapPin className="h-4 w-4" />
+            </a>
           </div>
         </div>
 

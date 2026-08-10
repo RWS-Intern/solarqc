@@ -1,10 +1,12 @@
 import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Phone, MapPin } from 'lucide-react';
 import { useQcJobs } from '@/hooks/useQcJobs';
 import { QC_STATUS_LABELS, QC_STATUS_COLOR } from '@/config/qcStatus';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { directionsUrl } from '@/utils/directionsUrl';
 import type { QcJob, QcStatus } from '@/types/qc';
 
 // Group order — active work first, terminal states last. Purely a display
@@ -34,12 +36,34 @@ function JobCard({ job }: { job: QcJob }) {
         </span>
       </div>
       <p className="text-sm font-medium text-gray-900 mt-1">{job.customer.name}</p>
+      {job.customer.address && (
+        <p className="text-xs text-gray-500 mt-0.5">{job.customer.address}</p>
+      )}
       <p className="text-xs text-gray-400 mt-0.5">
         {job.customer.district}{job.customer.district && job.customer.state ? ', ' : ''}{job.customer.state}
-        {job.customer.mobile && <span className="ml-2">· {job.customer.mobile}</span>}
       </p>
+      <div className="flex items-center gap-3 mt-1.5">
+        {job.customer.mobile && (
+          <a
+            href={`tel:${job.customer.mobile}`}
+            onClick={(e) => e.stopPropagation()}
+            className="flex items-center gap-1 text-xs font-medium text-brand-blue hover:underline"
+          >
+            <Phone className="h-3.5 w-3.5" />{job.customer.mobile}
+          </a>
+        )}
+        <a
+          href={directionsUrl(job.customer)}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className="flex items-center gap-1 text-xs font-medium text-brand-blue hover:underline"
+        >
+          <MapPin className="h-3.5 w-3.5" />Directions
+        </a>
+      </div>
       {job.scheduledDate && (
-        <p className="text-xs text-gray-400 mt-0.5">
+        <p className="text-xs text-gray-400 mt-1">
           Scheduled {job.scheduledDate.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
         </p>
       )}

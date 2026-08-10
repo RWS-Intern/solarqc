@@ -13,7 +13,7 @@ import type { QcJob, QcFieldDefinition } from '@/types/qc';
 // ── Columns, exact per plan §5.6 ────────────────────────────────────────────
 export const IMPORT_COLUMNS = [
   'customerName', 'mobile', 'altMobile', 'address', 'district', 'state',
-  'pincode', 'salesRef', 'systemSizeKw', 'moduleMake', 'moduleWattage',
+  'pincode', 'salesRef', 'lat', 'lng', 'systemSizeKw', 'moduleMake', 'moduleWattage',
   'moduleCount', 'inverterMake', 'inverterModel', 'inverterSerial',
   'installationDate', 'installerCrew', 'systemType', 'inspectorCode',
   'scheduledDate',
@@ -125,6 +125,30 @@ export function useCustomerImport() {
         errors.push(`scheduledDate "${str(raw['scheduledDate'])}" is not a valid date.`);
       }
 
+      const latRaw = str(raw['lat']);
+      const lngRaw = str(raw['lng']);
+      let lat: number | undefined;
+      let lng: number | undefined;
+      if (latRaw) {
+        const parsed = Number(latRaw);
+        if (Number.isNaN(parsed) || parsed < -90 || parsed > 90) {
+          errors.push(`lat must be a number between -90 and 90 (got "${latRaw}").`);
+        } else {
+          lat = parsed;
+        }
+      }
+      if (lngRaw) {
+        const parsed = Number(lngRaw);
+        if (Number.isNaN(parsed) || parsed < -180 || parsed > 180) {
+          errors.push(`lng must be a number between -180 and 180 (got "${lngRaw}").`);
+        } else {
+          lng = parsed;
+        }
+      }
+      // Both or neither — one stray coordinate without its pair isn't an
+      // error, it just doesn't produce a location.
+      const location = (lat !== undefined && lng !== undefined) ? { lat, lng } : undefined;
+
       let inspector: CreateQcJobInput['inspector'] = null;
       const inspectorCode = str(raw['inspectorCode']);
       if (inspectorCode) {
@@ -157,6 +181,7 @@ export function useCustomerImport() {
         state: resolvedState,
         pincode: str(raw['pincode']) || undefined,
         salesRef: str(raw['salesRef']) || undefined,
+        location,
       };
 
       const system: QcJob['system'] = {

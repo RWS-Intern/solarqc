@@ -45,6 +45,8 @@ export function CustomerForm({ open, onClose }: CustomerFormProps) {
   const [district,      setDistrict]      = useState('');
   const [pincode,       setPincode]       = useState('');
   const [salesRef,      setSalesRef]      = useState('');
+  const [lat,           setLat]           = useState('');
+  const [lng,           setLng]           = useState('');
   const [sizeKw,        setSizeKw]        = useState('');
   const [moduleMake,    setModuleMake]    = useState('');
   const [inverterMake,  setInverterMake]  = useState('');
@@ -62,12 +64,26 @@ export function CustomerForm({ open, onClose }: CustomerFormProps) {
   const mobileError  = mobile.length > 0 && mobileDigits.length !== 10;
   const sizeKwNum    = Number(sizeKw);
   const sizeError    = sizeKw.length > 0 && (Number.isNaN(sizeKwNum) || sizeKwNum <= 0);
+  const latNum       = Number(lat);
+  const lngNum       = Number(lng);
+  const latError     = lat.length > 0 && (Number.isNaN(latNum) || latNum < -90 || latNum > 90);
+  const lngError     = lng.length > 0 && (Number.isNaN(lngNum) || lngNum < -180 || lngNum > 180);
   const canSubmit    = name.trim() && !mobileError && mobileDigits.length === 10
-    && state.trim() && district.trim() && sizeKw.length > 0 && !sizeError;
+    && state.trim() && district.trim() && sizeKw.length > 0 && !sizeError
+    && !latError && !lngError;
+
+  // Same address+district+state string §4's directionsUrl() falls back to
+  // when a job has no coordinates yet — reusing it here means whoever's
+  // entering the customer searches on exactly what the inspector would
+  // later see as the fallback destination, not just the bare street address.
+  const mapsQuery = [address.trim(), district.trim(), state.trim()].filter(Boolean).join(', ');
+  const mapsSearchUrl = mapsQuery
+    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(mapsQuery)}`
+    : null;
 
   function reset() {
     setName(''); setMobile(''); setAltMobile(''); setAddress(''); setState(''); setDistrict('');
-    setPincode(''); setSalesRef(''); setSizeKw(''); setModuleMake(''); setInverterMake('');
+    setPincode(''); setSalesRef(''); setLat(''); setLng(''); setSizeKw(''); setModuleMake(''); setInverterMake('');
     setInverterModel(''); setSystemType(''); setInstallationDate(''); setInstallerCrew('');
     setInspectorUid(''); setScheduledDate(''); setSubmitting(false); setCreatedNum(null);
   }
@@ -107,6 +123,9 @@ export function CustomerForm({ open, onClose }: CustomerFormProps) {
           state: resolvedState,
           pincode: pincode.trim() || undefined,
           salesRef: salesRef.trim() || undefined,
+          location: (lat.trim() && lng.trim() && !latError && !lngError)
+            ? { lat: latNum, lng: lngNum }
+            : undefined,
         },
         system: {
           sizeKw: sizeKwNum,
@@ -191,6 +210,36 @@ export function CustomerForm({ open, onClose }: CustomerFormProps) {
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="cf-salesref">Sales ref.</Label>
                 <Input id="cf-salesref" value={salesRef} onChange={(e) => setSalesRef(e.target.value)} />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <Label>Location (optional)</Label>
+              {mapsSearchUrl && (
+                <a
+                  href={mapsSearchUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-brand-blue hover:underline"
+                >
+                  Look up on Google Maps
+                </a>
+              )}
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="cf-lat">Latitude</Label>
+                <Input id="cf-lat" type="number" step="any" placeholder="e.g. 18.5204" value={lat}
+                  onChange={(e) => setLat(e.target.value)}
+                  className={latError ? 'border-brand-red' : ''} />
+                {latError && <p className="text-xs text-brand-red">Must be between -90 and 90</p>}
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="cf-lng">Longitude</Label>
+                <Input id="cf-lng" type="number" step="any" placeholder="e.g. 73.8567" value={lng}
+                  onChange={(e) => setLng(e.target.value)}
+                  className={lngError ? 'border-brand-red' : ''} />
+                {lngError && <p className="text-xs text-brand-red">Must be between -180 and 180</p>}
               </div>
             </div>
 

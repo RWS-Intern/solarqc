@@ -93,6 +93,7 @@ export interface QcJob {
     state:         string;
     pincode?:      string;
     salesRef?:     string;
+    location?:     { lat: number; lng: number };
   };
 
   system: {
