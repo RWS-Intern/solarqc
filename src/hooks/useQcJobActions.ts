@@ -3,6 +3,8 @@ import {
 } from 'firebase/firestore';
 import { db } from '@/firebase/config';
 import { useAuthStore } from '@/store/authStore';
+import { generateQcReport } from '@/utils/generateQcReport';
+import { uploadToCloudinary } from '@/utils/uploadToCloudinary';
 import type { QcJob, QcFieldDefinition, SignOff } from '@/types/qc';
 
 export interface CreateQcJobInput {
@@ -269,5 +271,39 @@ export function useQcJobActions() {
     await batch.commit();
   }
 
-  return { createQcJob, assignQcJob, unassignQcJob, cancelQcJob, archiveQcJob, submitQcJob, submitVerdict };
+  // Render -> upload -> write -> event, one coherent action. A batch is
+  // fine here (unlike submitQcJob/submitVerdict) — there's no rounds/{n}
+  // side-write and no branching outcome to keep atomic against, just the
+  // job update and its audit event landing together.
+  async function generateCertificate(job: QcJob): Promise<string> {
+    if (!currentUser) throw new Error('Not authenticated');
+
+    const blob = await generateQcReport(job);
+    const file = new File([blob], `${job.qcNum}-certificate.pdf`, { type: 'application/pdf' });
+    const { url } = await uploadToCloudinary(file, {
+      qcNum: job.qcNum, uploadType: 'report', skipCompression: true,
+    });
+
+    const batch    = writeBatch(db);
+    const jobRef   = doc(db, 'qcJobs', job.id);
+    const eventRef = doc(collection(db, 'qcJobs', job.id, 'events'));
+
+    batch.update(jobRef, {
+      reportUrl: url, reportedAt: serverTimestamp(), updatedAt: serverTimestamp(),
+    });
+    batch.set(eventRef, {
+      type: 'report_generated',
+      actorUid: currentUser.uid, actorName: currentUser.name, actorRole: currentUser.role,
+      at: serverTimestamp(), round: job.reworkRound,
+      snapshot: { status: job.status, verdict: job.verdict },
+    });
+
+    await batch.commit();
+    return url;
+  }
+
+  return {
+    createQcJob, assignQcJob, unassignQcJob, cancelQcJob, archiveQcJob,
+    submitQcJob, submitVerdict, generateCertificate,
+  };
 }

@@ -1,9 +1,14 @@
 import { useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '@/store/authStore';
 import { useOnlineUsers } from '@/hooks/useOnlineUsers';
+import { useQcStatusCounts, useQcCriticalFailCount } from '@/hooks/useQcStatusCounts';
 import { ensureSuperAdmin } from '@/firebase/initAppConfig';
 import { initQcConfig } from '@/firebase/initQcConfig';
 import { can, roleLabel } from '@/config/roles';
+import { QC_STATUS_LABELS, QC_STATUS_COLOR } from '@/config/qcStatus';
+import { cn } from '@/lib/utils';
+import type { QcStatus } from '@/types/qc';
 
 function formatFullDate(d: Date): string {
   return d.toLocaleDateString('en-GB', {
@@ -20,10 +25,121 @@ function greeting(name: string): string {
   return `Good ${part}, ${name.split(' ')[0]}`;
 }
 
-// TODO(Phase 9): rebuild per-role dashboards (inspector = my jobs by status +
-// overdue; approver = pending queue + turnaround; admin/manager = throughput,
-// critical-fail rate, per-inspector and per-district stats) per plan §5.1.
+function CountCard({
+  label, count, loading, color, onClick,
+}: {
+  label:    string;
+  count:    number | undefined;
+  loading:  boolean;
+  color?:   { bg: string; text: string };
+  onClick?: () => void;
+}) {
+  const Tag = onClick ? 'button' : 'div';
+  return (
+    <Tag
+      type={onClick ? 'button' : undefined}
+      onClick={onClick}
+      className={cn(
+        'rounded-xl border border-gray-200 bg-white p-3 flex flex-col gap-1 text-left',
+        onClick && 'hover:border-brand-blue/40 hover:bg-blue-50/30 transition-colors cursor-pointer',
+      )}
+    >
+      <span className={cn('text-2xl font-bold', color?.text ?? 'text-gray-900')}>
+        {loading ? '—' : count ?? 0}
+      </span>
+      <span className="text-xs text-gray-500">{label}</span>
+    </Tag>
+  );
+}
 
+const INSPECTOR_STATUSES: QcStatus[] = ['assigned', 'in_progress', 'rework'];
+const ALL_STATUSES: QcStatus[] = [
+  'unassigned', 'assigned', 'in_progress', 'pending_approval', 'approved', 'rework', 'cancelled',
+];
+
+function InspectorSection({ uid }: { uid: string }) {
+  const navigate = useNavigate();
+  const { counts, loading } = useQcStatusCounts(INSPECTOR_STATUSES, uid);
+
+  return (
+    <div className="mt-6">
+      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">My jobs</p>
+      <div className="grid grid-cols-3 gap-2">
+        {INSPECTOR_STATUSES.map((status) => (
+          <CountCard
+            key={status}
+            label={QC_STATUS_LABELS[status]}
+            count={counts[status]}
+            loading={loading}
+            color={QC_STATUS_COLOR[status]}
+            onClick={() => navigate('/my-jobs')}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ApproverSection() {
+  const navigate = useNavigate();
+  // Mirrors ApprovalsPage's own pending query shape (status ==
+  // 'pending_approval', org-wide, no approverUid filter) rather than
+  // inventing a second way to count the same queue. Unlike that page's
+  // own onSnapshot(...limit(50)) list, this is a real server-side count
+  // with no cap.
+  const { counts, loading } = useQcStatusCounts(['pending_approval']);
+
+  return (
+    <div className="mt-6">
+      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Approvals</p>
+      <div className="grid grid-cols-2 gap-2 max-w-xs">
+        <CountCard
+          label="Pending review"
+          count={counts.pending_approval}
+          loading={loading}
+          color={QC_STATUS_COLOR.pending_approval}
+          onClick={() => navigate('/approvals')}
+        />
+      </div>
+    </div>
+  );
+}
+
+function OrgSection() {
+  const navigate = useNavigate();
+  const { counts, loading } = useQcStatusCounts(ALL_STATUSES);
+  const criticalFailCount = useQcCriticalFailCount();
+
+  return (
+    <div className="mt-6">
+      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">All jobs</p>
+      <div className="grid grid-cols-3 gap-2">
+        {ALL_STATUSES.map((status) => (
+          <CountCard
+            key={status}
+            label={QC_STATUS_LABELS[status]}
+            count={counts[status]}
+            loading={loading}
+            color={QC_STATUS_COLOR[status]}
+            onClick={() => navigate('/jobs')}
+          />
+        ))}
+        <CountCard
+          label="Jobs with critical fails on record"
+          count={criticalFailCount ?? undefined}
+          loading={criticalFailCount === null}
+          color={QC_STATUS_COLOR.rework}
+          onClick={() => navigate('/jobs')}
+        />
+      </div>
+    </div>
+  );
+}
+
+// TODO(Phase 9): per-inspector and per-district stats, throughput,
+// turnaround time, critical-fail rate over time — none of that exists
+// yet, this phase is the real counts each role's own scope actually
+// needs today, not a full analytics rebuild.
 export function DashboardPage() {
   const { currentUser } = useAuthStore();
   const { onlineUsers, onlineCount } = useOnlineUsers();
@@ -43,14 +159,9 @@ export function DashboardPage() {
       <h1 className="text-xl font-bold text-gray-900 mb-0.5">Dashboard</h1>
       <p className="text-sm text-gray-400 mb-5">{formatFullDate(new Date())}</p>
 
-      <div className="rounded-xl border border-gray-200 bg-white p-5">
-        <p className="text-base font-semibold text-gray-800">
-          Welcome, {currentUser?.name} — {roleLabel(currentUser?.role)}.
-        </p>
-        <p className="text-sm text-gray-500 mt-1">
-          Your dashboard is being rebuilt for QC.
-        </p>
-      </div>
+      {currentUser?.role === 'qc_inspector' && <InspectorSection uid={currentUser.uid} />}
+      {currentUser?.role === 'approver' && <ApproverSection />}
+      {currentUser && ['admin', 'qc_manager', 'viewer'].includes(currentUser.role) && <OrgSection />}
 
       {currentUser && can(currentUser.role, 'viewPresence') && (
         <div className="rounded-xl border border-green-200 bg-green-50 p-4 mt-6">
@@ -74,6 +185,10 @@ export function DashboardPage() {
           )}
         </div>
       )}
+
+      <p className="text-xs text-gray-400 mt-4">
+        Signed in as {currentUser?.name} — {roleLabel(currentUser?.role)}.
+      </p>
     </div>
   );
 }

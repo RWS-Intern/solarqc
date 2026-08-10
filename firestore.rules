@@ -31,7 +31,16 @@ service cloud.firestore {
       return ['inspectorUid', 'inspectorName', 'inspectorCode',
                'inspectorMobile', 'approverUid', 'approverName', 'status',
                'scheduledDate', 'dueDate', 'archived', 'archivedAt',
-               'cancelReason', 'reportUrl', 'reportedAt', 'updatedAt'];
+               'cancelReason', 'updatedAt'];
+    }
+    // Fields the certificate-generation action writes (Phase 8). Kept out
+    // of managerFields() deliberately — that rule has no status
+    // precondition and no content validation, so leaving reportUrl/
+    // reportedAt there (as they were before this phase) would make the
+    // narrower rule below pointless: admin/qc_manager could just write
+    // garbage through the old permissive path instead.
+    function reportFields() {
+      return ['reportUrl', 'reportedAt', 'updatedAt'];
     }
 
     match /qcJobs/{jobId} {
@@ -97,6 +106,22 @@ service cloud.firestore {
         && touched().hasOnly(managerFields())
         && (!touched().hasAny(['status'])
             || request.resource.data.status in ['unassigned', 'assigned']);
+
+      // Certificate generation (Phase 8) — admin/qc_manager only. Note this
+      // is deliberately narrower than roles.ts's full viewReports set,
+      // which also includes 'viewer': viewer has no write capability
+      // anywhere else in this app, and generating a certificate is a
+      // write action, not a view. Gated on the job already being
+      // approved — you can't certify what hasn't passed. No precondition
+      // against reportUrl already being set: regenerating a certificate
+      // (a branding fix, whatever) is a reasonable thing to allow, not a
+      // one-shot action.
+      allow update: if signedIn() && active()
+        && role() in ['admin', 'qc_manager']
+        && resource.data.status == 'approved'
+        && touched().hasOnly(reportFields())
+        && request.resource.data.reportUrl is string
+        && request.resource.data.reportUrl.size() > 0;
 
       // Audit trail: append-only, forever — including for admin.
       match /events/{eventId} {

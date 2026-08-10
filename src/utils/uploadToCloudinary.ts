@@ -12,7 +12,7 @@ export async function uploadToCloudinary(
     qcNum?:           string;
     fieldId?:         string;   // for uploadType 'signature', the signer's role ('inspector' | 'customer')
     index?:           number;
-    uploadType?:      'checklist' | 'signature';
+    uploadType?:      'checklist' | 'signature' | 'report';
     skipCompression?: boolean;  // signatures: never through the JPEG pipeline —
                                  // it would mangle thin strokes and destroy the
                                  // transparent PNG background
@@ -27,6 +27,8 @@ export async function uploadToCloudinary(
 
   const folder = uploadType === 'signature' && qcNum && fieldId
     ? `ritesolar-qc/${qcNum}/signatures/${fieldId}`
+    : uploadType === 'report' && qcNum
+    ? `ritesolar-qc/${qcNum}/report`
     : qcNum && fieldId
     ? `ritesolar-qc/${qcNum}/${fieldId}`
     : 'ritesolar-qc/unfiled';

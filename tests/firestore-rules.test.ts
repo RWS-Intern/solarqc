@@ -79,6 +79,15 @@ beforeEach(async () => {
       verdict: null, verdictNote: '', rejectionReason: '',
       createdBy: ADMIN_UID, updatedAt: new Date(),
     });
+
+    await setDoc(doc(db, 'qcJobs', 'job-5-approved'), {
+      qcNum: 'QC-000005', status: 'approved', reworkRound: 0,
+      inspectorUid: INSPECTOR_UID, approverUid: APPROVER_UID,
+      answers: {}, tally: emptyTally,
+      verdict: 'pass', verdictNote: 'All clean.', rejectionReason: '',
+      reportUrl: null, reportedAt: null,
+      createdBy: ADMIN_UID, updatedAt: new Date(),
+    });
   });
 });
 
@@ -487,6 +496,73 @@ describe('manager assignment — admin/qc_manager can reassign, never touch cont
         status: 'assigned', updatedAt: new Date(),
       }));
     }
+  });
+});
+
+// Phase 8 — reportUrl/reportedAt used to sit inside managerFields() with no
+// status precondition and no content validation, meaning any admin/
+// qc_manager write to those two fields succeeded on a job in ANY status,
+// including an empty-string reportUrl. Moved to their own reportFields()
+// rule, gated on the job already being approved, with reportUrl required
+// to be a non-empty string.
+describe('property 6 — Phase 8: certificate report fields', () => {
+  it('lets admin write a valid reportUrl on an approved job', async () => {
+    const db = testEnv.authenticatedContext(ADMIN_UID).firestore();
+    await assertSucceeds(updateDoc(doc(db, 'qcJobs', 'job-5-approved'), {
+      reportUrl: 'https://res.cloudinary.com/x/report.pdf', reportedAt: new Date(), updatedAt: new Date(),
+    }));
+  });
+
+  it('lets qc_manager write a valid reportUrl on an approved job', async () => {
+    const db = testEnv.authenticatedContext(QC_MANAGER_UID).firestore();
+    await assertSucceeds(updateDoc(doc(db, 'qcJobs', 'job-5-approved'), {
+      reportUrl: 'https://res.cloudinary.com/x/report.pdf', reportedAt: new Date(), updatedAt: new Date(),
+    }));
+  });
+
+  it('allows regenerating a certificate — a second write over an already-set reportUrl', async () => {
+    const db = testEnv.authenticatedContext(ADMIN_UID).firestore();
+    await assertSucceeds(updateDoc(doc(db, 'qcJobs', 'job-5-approved'), {
+      reportUrl: 'https://res.cloudinary.com/x/report-v1.pdf', reportedAt: new Date(), updatedAt: new Date(),
+    }));
+    await assertSucceeds(updateDoc(doc(db, 'qcJobs', 'job-5-approved'), {
+      reportUrl: 'https://res.cloudinary.com/x/report-v2.pdf', reportedAt: new Date(), updatedAt: new Date(),
+    }));
+  });
+
+  it('rejects the same write on a job that is not approved', async () => {
+    const db = testEnv.authenticatedContext(ADMIN_UID).firestore();
+    await assertFails(updateDoc(doc(db, 'qcJobs', 'job-1'), {
+      reportUrl: 'https://res.cloudinary.com/x/report.pdf', reportedAt: new Date(), updatedAt: new Date(),
+    }));
+  });
+
+  it('rejects an empty-string reportUrl', async () => {
+    const db = testEnv.authenticatedContext(ADMIN_UID).firestore();
+    await assertFails(updateDoc(doc(db, 'qcJobs', 'job-5-approved'), {
+      reportUrl: '', reportedAt: new Date(), updatedAt: new Date(),
+    }));
+  });
+
+  it('rejects an inspector writing reportUrl, even on their own approved job', async () => {
+    const db = testEnv.authenticatedContext(INSPECTOR_UID).firestore();
+    await assertFails(updateDoc(doc(db, 'qcJobs', 'job-5-approved'), {
+      reportUrl: 'https://res.cloudinary.com/x/report.pdf', reportedAt: new Date(), updatedAt: new Date(),
+    }));
+  });
+
+  it('rejects an approver writing reportUrl', async () => {
+    const db = testEnv.authenticatedContext(APPROVER_UID).firestore();
+    await assertFails(updateDoc(doc(db, 'qcJobs', 'job-5-approved'), {
+      reportUrl: 'https://res.cloudinary.com/x/report.pdf', reportedAt: new Date(), updatedAt: new Date(),
+    }));
+  });
+
+  it('rejects a viewer writing reportUrl', async () => {
+    const db = testEnv.authenticatedContext(VIEWER_UID).firestore();
+    await assertFails(updateDoc(doc(db, 'qcJobs', 'job-5-approved'), {
+      reportUrl: 'https://res.cloudinary.com/x/report.pdf', reportedAt: new Date(), updatedAt: new Date(),
+    }));
   });
 });
 
