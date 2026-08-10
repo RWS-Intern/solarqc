@@ -169,11 +169,9 @@ export function SignupPage() {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-brand-background px-4">
         <div className="mb-8 text-center">
-          <div className="inline-flex items-center justify-center h-16 w-16 rounded-full bg-brand-blue mb-4">
-            <span className="text-2xl font-extrabold text-white leading-none">RS</span>
-          </div>
+          <img src="/logo/rite-solar-full-logo.png" alt="Rite Solar" className="w-40 h-auto mx-auto mb-4" />
           <h1 className="text-3xl font-extrabold text-brand-navy leading-tight">SolarQC</h1>
-          <p className="text-sm text-gray-500 mt-1">Rite Solar Field Operations</p>
+          <p className="text-sm text-gray-500 mt-1">Quality Check Assured Performance</p>
         </div>
         <Card className="w-full max-w-sm shadow-md">
           <CardContent className="pt-6 text-center flex flex-col gap-3">
@@ -191,11 +189,9 @@ export function SignupPage() {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-brand-background px-4">
       <div className="mb-8 text-center">
-        <div className="inline-flex items-center justify-center h-16 w-16 rounded-full bg-brand-blue mb-4">
-          <span className="text-2xl font-extrabold text-white leading-none">RS</span>
-        </div>
+        <img src="/logo/rite-solar-full-logo.png" alt="Rite Solar" className="w-40 h-auto mx-auto mb-4" />
         <h1 className="text-3xl font-extrabold text-brand-navy leading-tight">SolarQC</h1>
-        <p className="text-sm text-gray-500 mt-1">Rite Solar Field Operations</p>
+        <p className="text-sm text-gray-500 mt-1">Quality Check Assured Performance</p>
       </div>
 
       <Card className="w-full max-w-sm shadow-md">

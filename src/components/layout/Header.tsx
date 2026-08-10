@@ -37,9 +37,9 @@ export function Header() {
 
   return (
     <header className="flex h-14 w-full items-center justify-between bg-gradient-to-r from-brand-navy to-brand-blue px-4 shadow-md">
-      <div className="flex flex-col leading-tight">
+      <div className="flex items-center gap-2">
+        <img src="/logo/rite-solar-icon-mark.png" alt="Rite Solar" className="h-7 w-7" />
         <span className="text-base font-bold text-white">SolarQC</span>
-        <span className="text-xs text-white/70">Rite Solar</span>
       </div>
 
       <div className="flex items-center gap-3">

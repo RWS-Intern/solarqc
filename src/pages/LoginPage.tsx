@@ -90,12 +90,12 @@ export function LoginPage() {
     <div className="min-h-screen flex flex-col items-center justify-center px-5 py-10 bg-gradient-to-br from-brand-navy via-brand-blue to-[#00B4D8]">
       {/* Logo */}
       <div className="mb-6 flex flex-col items-center gap-3">
-        <div className="h-20 w-20 rounded-full bg-white/20 backdrop-blur flex items-center justify-center shadow-lg border border-white/30">
-          <span className="text-4xl">☀️</span>
+        <div className="rounded-2xl bg-white shadow-lg px-6 py-4">
+          <img src="/logo/rite-solar-full-logo.png" alt="Rite Solar" className="w-44 h-auto" />
         </div>
         <div className="text-center">
           <h1 className="text-3xl font-extrabold text-white tracking-tight">SolarQC</h1>
-          <p className="text-sm text-white/70 mt-1">Rite Solar Field Operations</p>
+          <p className="text-sm text-white/70 mt-1">Quality Check Assured Performance</p>
         </div>
       </div>
 

@@ -4,7 +4,7 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const src = join(__dirname, '../public/solar-icon.png');
+const src = join(__dirname, '../public/logo/rite-solar-icon-mark-512.png');
 const outDir = join(__dirname, '../public/icons');
 
 mkdirSync(outDir, { recursive: true });
