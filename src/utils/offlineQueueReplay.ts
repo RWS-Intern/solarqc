@@ -54,6 +54,28 @@ async function appendReplayedChecklistPhoto(jobId: string, fieldId: string, url:
   });
 }
 
+// Same reasoning as appendReplayedChecklistPhoto — reads the current
+// panels array inside the transaction rather than trusting a stale local
+// reference, since the live document may have changed since this photo
+// was queued. Only ever fills in photoUrl at panelIndex; the panel's
+// serialNumber (a plain field write, never queued — see §4) is left as
+// whatever the transaction's own fresh read found.
+async function appendReplayedPanelPhoto(jobId: string, panelIndex: number, url: string): Promise<void> {
+  const jobRef = doc(db, 'qcJobs', jobId);
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(jobRef);
+    if (!snap.exists()) throw new Error(`Job ${jobId} no longer exists`);
+    const data   = snap.data() as { system?: QcJob['system'] };
+    const panels = data.system?.panels ?? [];
+    if (!panels[panelIndex]) throw new Error(`Panel ${panelIndex} no longer exists on job ${jobId}`);
+    const nextPanels = panels.map((p, i) => (i === panelIndex ? { ...p, photoUrl: url } : p));
+    tx.update(jobRef, {
+      'system.panels': nextPanels,
+      updatedAt: serverTimestamp(),
+    });
+  });
+}
+
 async function writeReplayedSignOff(
   jobId: string,
   role: SignOff['role'],
@@ -69,6 +91,19 @@ async function writeReplayedSignOff(
 async function replayOne(item: QueuedPhoto): Promise<void> {
   const ext  = item.mimeType.split('/')[1] ?? 'jpg';
   const file = new File([item.blob], `${item.kind}-${item.fieldId}-${item.id}.${ext}`, { type: item.mimeType });
+
+  if (item.kind === 'panel') {
+    // fieldId is always `panel_${index}` (PhotoZone's panel usage sets
+    // it), which doubles as both the queue key and the source of the
+    // numeric panel index the upload folder and the patch both need.
+    const panelIndex = Number(item.fieldId.replace('panel_', ''));
+    const { url } = await uploadToCloudinary(file, {
+      qcNum: item.qcNum, index: panelIndex, uploadType: 'panel_nameplate',
+    });
+    await appendReplayedPanelPhoto(item.jobId, panelIndex, url);
+    return;
+  }
+
   const { url } = await uploadToCloudinary(file, {
     qcNum: item.qcNum,
     fieldId: item.fieldId,

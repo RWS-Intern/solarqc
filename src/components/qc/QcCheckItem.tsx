@@ -131,6 +131,10 @@ export function QcCheckItem({
   }
 
   if (field.type === 'photo_only') {
+    // No verdict, so no photoRequired toggle either — isRequired IS the
+    // only thing gating whether minPhotos is enforced here, matching
+    // qcValidation.ts's own photo_only branch.
+    const photoIssue = hasIssue('photo_required');
     return (
       <div id={field.fieldId} className="rounded-xl border border-gray-200 bg-white p-4 flex flex-col gap-3">
         {header}
@@ -138,7 +142,7 @@ export function QcCheckItem({
           label={field.label}
           photos={answer?.photoUrls ?? []}
           onPhotosChange={(urls) => { onAnswerChange(field.fieldId, { photoUrls: urls }); setTouched(true); }}
-          minPhotos={field.photoRequired ? (field.minPhotos ?? 1) : 0}
+          minPhotos={field.isRequired ? (field.minPhotos ?? 1) : 0}
           maxPhotos={field.maxPhotos ?? 5}
           jobId={jobId}
           qcNum={qcNum}
@@ -147,7 +151,9 @@ export function QcCheckItem({
           disabled={disabled}
           onPhotoClick={onPhotoClick}
         />
-        {hasIssue('required') && <p className="text-xs text-brand-red">This point is required.</p>}
+        {photoIssue && (
+          <p className="text-xs text-brand-red">Needs at least {field.minPhotos ?? 1} photo(s).</p>
+        )}
         {reviewExtras}
       </div>
     );

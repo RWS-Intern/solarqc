@@ -499,6 +499,87 @@ describe('manager assignment — admin/qc_manager can reassign, never touch cont
   });
 });
 
+describe('DCR panel serials & nameplate photos — assigned inspector only, assigned/in_progress', () => {
+  const systemPatch = {
+    system: {
+      sizeKw: 5, moduleType: 'dcr', moduleCount: 2,
+      panels: [
+        { serialNumber: 'SN-1', photoUrl: 'https://res.cloudinary.com/x/1.jpg' },
+        { serialNumber: 'SN-2', photoUrl: 'https://res.cloudinary.com/x/2.jpg' },
+      ],
+    },
+  };
+
+  it('allows the assigned inspector to patch system on their own assigned job', async () => {
+    const db = testEnv.authenticatedContext(INSPECTOR_UID).firestore();
+    await assertSucceeds(updateDoc(doc(db, 'qcJobs', 'job-3-assigned'), {
+      ...systemPatch, updatedAt: new Date(),
+    }));
+  });
+
+  it('allows the assigned inspector to patch system on their own in_progress job', async () => {
+    const db = testEnv.authenticatedContext(INSPECTOR_UID).firestore();
+    await assertSucceeds(updateDoc(doc(db, 'qcJobs', 'job-1'), {
+      ...systemPatch, updatedAt: new Date(),
+    }));
+  });
+
+  it('rejects a different inspector patching a job that is not theirs', async () => {
+    const db = testEnv.authenticatedContext(OTHER_INSPECTOR_UID).firestore();
+    await assertFails(updateDoc(doc(db, 'qcJobs', 'job-3-assigned'), {
+      ...systemPatch, updatedAt: new Date(),
+    }));
+  });
+
+  it('rejects the assigned inspector once the job is pending_approval', async () => {
+    const db = testEnv.authenticatedContext(INSPECTOR_UID).firestore();
+    await assertFails(updateDoc(doc(db, 'qcJobs', 'job-2-pending'), {
+      ...systemPatch, updatedAt: new Date(),
+    }));
+  });
+
+  it('rejects the assigned inspector once the job is approved', async () => {
+    const db = testEnv.authenticatedContext(INSPECTOR_UID).firestore();
+    await assertFails(updateDoc(doc(db, 'qcJobs', 'job-5-approved'), {
+      ...systemPatch, updatedAt: new Date(),
+    }));
+  });
+
+  // Deliberately excluded from this rule's status window, unlike
+  // inspectorFields() — rework is for fixing flagged checklist issues,
+  // not reopening panel data.
+  it('rejects the assigned inspector once the job is in rework', async () => {
+    await testEnv.withSecurityRulesDisabled((ctx) =>
+      updateDoc(doc(ctx.firestore(), 'qcJobs', 'job-3-assigned'), { status: 'rework' }),
+    );
+    const db = testEnv.authenticatedContext(INSPECTOR_UID).firestore();
+    await assertFails(updateDoc(doc(db, 'qcJobs', 'job-3-assigned'), {
+      ...systemPatch, updatedAt: new Date(),
+    }));
+  });
+
+  it('rejects admin patching system — this is inspector-only, unlike managerFields()', async () => {
+    const db = testEnv.authenticatedContext(ADMIN_UID).firestore();
+    await assertFails(updateDoc(doc(db, 'qcJobs', 'job-3-assigned'), {
+      ...systemPatch, updatedAt: new Date(),
+    }));
+  });
+
+  it('rejects an approver patching system', async () => {
+    const db = testEnv.authenticatedContext(APPROVER_UID).firestore();
+    await assertFails(updateDoc(doc(db, 'qcJobs', 'job-3-assigned'), {
+      ...systemPatch, updatedAt: new Date(),
+    }));
+  });
+
+  it('rejects smuggling a verdict write in alongside a system patch', async () => {
+    const db = testEnv.authenticatedContext(INSPECTOR_UID).firestore();
+    await assertFails(updateDoc(doc(db, 'qcJobs', 'job-3-assigned'), {
+      ...systemPatch, verdict: 'pass', updatedAt: new Date(),
+    }));
+  });
+});
+
 // Phase 8 — reportUrl/reportedAt used to sit inside managerFields() with no
 // status precondition and no content validation, meaning any admin/
 // qc_manager write to those two fields succeeded on a job in ANY status,

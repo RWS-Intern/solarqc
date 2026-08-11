@@ -31,6 +31,11 @@ const SYSTEM_TYPES: { value: NonNullable<QcJob['system']['systemType']>; label: 
   { value: 'offgrid', label: 'Off-grid' },
 ];
 
+const MODULE_TYPES: { value: NonNullable<QcJob['system']['moduleType']>; label: string }[] = [
+  { value: 'dcr',     label: 'DCR (Domestic Content Requirement)' },
+  { value: 'non_dcr', label: 'Non-DCR' },
+];
+
 export function CustomerForm({ open, onClose }: CustomerFormProps) {
   const { createQcJob } = useQcJobActions();
   const { users } = useUserStore();
@@ -51,14 +56,21 @@ export function CustomerForm({ open, onClose }: CustomerFormProps) {
   const [moduleMake,    setModuleMake]    = useState('');
   const [inverterMake,  setInverterMake]  = useState('');
   const [inverterModel, setInverterModel] = useState('');
+  const [inverterSerial, setInverterSerial] = useState('');
   const [systemType,    setSystemType]    = useState<string>('');
   const [installationDate, setInstallationDate] = useState('');
   const [installerCrew,    setInstallerCrew]     = useState('');
   const [inspectorUid,     setInspectorUid]      = useState<string>('');
   const [scheduledDate,    setScheduledDate]     = useState('');
 
+  // DCR classification only — simple info the admin reasonably knows at
+  // job creation, same as systemType. The actual panel count and each
+  // panel's serial/nameplate photo are the inspector's on-site
+  // ground-truth data, captured on QcFillPage instead.
+  const [moduleType,  setModuleType]  = useState<'' | 'dcr' | 'non_dcr'>('');
+
   const [submitting, setSubmitting] = useState(false);
-  const [createdNum, setCreatedNum] = useState<string | null>(null);
+  const [created,    setCreated]    = useState(false);
 
   const mobileDigits = mobile.replace(/\D/g, '');
   const mobileError  = mobile.length > 0 && mobileDigits.length !== 10;
@@ -68,9 +80,10 @@ export function CustomerForm({ open, onClose }: CustomerFormProps) {
   const lngNum       = Number(lng);
   const latError     = lat.length > 0 && (Number.isNaN(latNum) || latNum < -90 || latNum > 90);
   const lngError     = lng.length > 0 && (Number.isNaN(lngNum) || lngNum < -180 || lngNum > 180);
+
   const canSubmit    = name.trim() && !mobileError && mobileDigits.length === 10
     && state.trim() && district.trim() && sizeKw.length > 0 && !sizeError
-    && !latError && !lngError;
+    && !latError && !lngError && moduleType !== '';
 
   // Same address+district+state string §4's directionsUrl() falls back to
   // when a job has no coordinates yet — reusing it here means whoever's
@@ -84,8 +97,9 @@ export function CustomerForm({ open, onClose }: CustomerFormProps) {
   function reset() {
     setName(''); setMobile(''); setAltMobile(''); setAddress(''); setState(''); setDistrict('');
     setPincode(''); setSalesRef(''); setLat(''); setLng(''); setSizeKw(''); setModuleMake(''); setInverterMake('');
-    setInverterModel(''); setSystemType(''); setInstallationDate(''); setInstallerCrew('');
-    setInspectorUid(''); setScheduledDate(''); setSubmitting(false); setCreatedNum(null);
+    setInverterModel(''); setInverterSerial(''); setSystemType(''); setInstallationDate(''); setInstallerCrew('');
+    setInspectorUid(''); setScheduledDate(''); setModuleType('');
+    setSubmitting(false); setCreated(false);
   }
 
   function handleClose() {
@@ -113,7 +127,7 @@ export function CustomerForm({ open, onClose }: CustomerFormProps) {
           })()
         : null;
 
-      const jobId = await createQcJob({
+      await createQcJob({
         customer: {
           name: name.trim(), nameLower, nameWords,
           mobile: mobileDigits,
@@ -132,15 +146,16 @@ export function CustomerForm({ open, onClose }: CustomerFormProps) {
           moduleMake: moduleMake.trim() || undefined,
           inverterMake: inverterMake.trim() || undefined,
           inverterModel: inverterModel.trim() || undefined,
+          inverterSerial: inverterSerial.trim() || undefined,
           installationDate: installationDate || undefined,
           installerCrew: installerCrew.trim() || undefined,
           systemType: (systemType as QcJob['system']['systemType']) || undefined,
+          moduleType: (moduleType as QcJob['system']['moduleType']) || undefined,
         },
         inspector,
         scheduledDate: scheduledDate ? new Date(scheduledDate) : null,
       });
-      void jobId;
-      setCreatedNum('created');
+      setCreated(true);
       showToast('QC job created successfully.', 'success');
     } catch (err) {
       console.error('[CustomerForm] create failed:', err);
@@ -161,7 +176,7 @@ export function CustomerForm({ open, onClose }: CustomerFormProps) {
           <DialogTitle>Add Customer &amp; Create QC Job</DialogTitle>
         </DialogHeader>
 
-        {createdNum ? (
+        {created ? (
           <div className="flex flex-col items-center gap-4 mt-2 text-center">
             <CheckCircle2 className="h-12 w-12 text-green-500" />
             <p className="text-base font-semibold text-gray-800">QC job created.</p>
@@ -278,13 +293,34 @@ export function CustomerForm({ open, onClose }: CustomerFormProps) {
                 <Input id="cf-invertermodel" value={inverterModel} onChange={(e) => setInverterModel(e.target.value)} />
               </div>
               <div className="flex flex-col gap-1.5">
+                <Label htmlFor="cf-inverterserial">Inverter serial</Label>
+                <Input id="cf-inverterserial" value={inverterSerial} onChange={(e) => setInverterSerial(e.target.value)} />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="flex flex-col gap-1.5">
                 <Label htmlFor="cf-installdate">Installation date</Label>
                 <Input id="cf-installdate" type="date" value={installationDate} onChange={(e) => setInstallationDate(e.target.value)} />
               </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="cf-crew">Installer crew</Label>
+                <Input id="cf-crew" value={installerCrew} onChange={(e) => setInstallerCrew(e.target.value)} />
+              </div>
             </div>
+
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="cf-crew">Installer crew</Label>
-              <Input id="cf-crew" value={installerCrew} onChange={(e) => setInstallerCrew(e.target.value)} />
+              <Label>Module type <span className="text-brand-red">*</span></Label>
+              <Select value={moduleType} onValueChange={(v) => setModuleType(v as 'dcr' | 'non_dcr')}>
+                <SelectTrigger><SelectValue placeholder="Select…" /></SelectTrigger>
+                <SelectContent>
+                  {MODULE_TYPES.map((t) => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              {moduleType === 'dcr' && (
+                <p className="text-[11px] text-gray-400">
+                  Panel count, serial numbers and nameplate photos are captured on-site by the inspector.
+                </p>
+              )}
             </div>
 
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mt-2">Assignment (optional)</p>

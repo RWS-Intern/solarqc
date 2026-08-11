@@ -238,6 +238,26 @@ export async function generateQcReport(job: QcJob): Promise<Blob> {
 
     for (const field of section.fields) {
       const ans = job.answers[field.fieldId];
+
+      // photo_only has no verdict — a PASS/FAIL/N/A tag would mean
+      // nothing here. Same attestation-not-dossier reasoning as every
+      // other checklist photo in this app: state that it was documented
+      // and how many photos, never embed the photos themselves.
+      if (field.type === 'photo_only') {
+        const photoCount = ans?.photoUrls?.length ?? 0;
+        const documented = photoCount > 0;
+        ensureSpace(ctx, 14);
+        const codeLabel = `${field.code ? field.code + ' ' : ''}${field.label}`;
+        drawWrapped(ctx, codeLabel, MARGIN, PAGE_WIDTH - MARGIN * 2 - 130, { size: 9, font: bold });
+        const tagText = documented ? `Documented (${photoCount} photo${photoCount !== 1 ? 's' : ''})` : 'Not documented';
+        const tagW = font.widthOfTextAtSize(tagText, 8.5);
+        ctx.page.drawText(tagText, {
+          x: PAGE_WIDTH - MARGIN - tagW, y: ctx.y + (9 * 1.35) - 9, size: 8.5, font, color: documented ? GREEN : GRAY,
+        });
+        ctx.y -= 4;
+        continue;
+      }
+
       const status = ans?.status ?? null;
       const statusLabel = status === 'pass' ? 'PASS' : status === 'fail' ? 'FAIL' : status === 'na' ? 'N/A' : '—';
       const statusColor = status === 'pass' ? GREEN : status === 'fail' ? RED : GRAY;

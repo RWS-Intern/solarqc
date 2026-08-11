@@ -31,6 +31,17 @@ export function computeQcTally(
     const ans = answers[field.fieldId];
     if (!ans) continue;
 
+    // A photo_only field has no verdict at all — no status is ever set,
+    // so it could never trip the pass/fail/na branches below regardless.
+    // Made explicit anyway (rather than relying on that absence) so this
+    // stays isolated from pass/fail/severity/suggestedVerdict even if
+    // that invariant ever changes: "answered" here means enough photos
+    // attached, full stop, and it counts toward nothing else.
+    if (field.type === 'photo_only') {
+      if ((ans.photoUrls?.length ?? 0) >= (field.minPhotos ?? 1)) answered++;
+      continue;
+    }
+
     const hasStatus = ans.status === 'pass' || ans.status === 'fail' || ans.status === 'na';
     const hasValue  = (ans.value !== undefined && ans.value !== '') || ans.numericValue !== undefined;
     if (!hasStatus && !hasValue) continue;

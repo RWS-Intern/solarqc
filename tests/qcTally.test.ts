@@ -106,4 +106,46 @@ describe('computeQcTally', () => {
     expect(tally.total).toBe(5);
     expect(isFieldVisible(gated, answers)).toBe(true);
   });
+
+  describe('photo_only fields', () => {
+    const PHOTO_ONLY = field({ fieldId: 'q_photo', type: 'photo_only', minPhotos: 1 });
+    const template = [...TEMPLATE, PHOTO_ONLY];
+    const baseAnswers = {
+      q_1: answer('q_1', { status: 'pass' }),
+      q_2: answer('q_2', { status: 'pass' }),
+      q_3: answer('q_3', { status: 'pass' }),
+      q_4: answer('q_4', { status: 'pass' }),
+    };
+
+    it('counts toward total but not toward answered with zero photos', () => {
+      const tally = computeQcTally(template, baseAnswers);
+      expect(tally.total).toBe(5);
+      expect(tally.answered).toBe(4);
+    });
+
+    it('counts toward answered once it meets minPhotos, never toward pass/fail/na', () => {
+      const answers = { ...baseAnswers, q_photo: answer('q_photo', { photoUrls: ['https://x/1.jpg'] }) };
+      const tally = computeQcTally(template, answers);
+      expect(tally.answered).toBe(5);
+      expect(tally.pass).toBe(4);   // unchanged — photo_only never joins this count
+      expect(tally.fail).toBe(0);
+      expect(tally.na).toBe(0);
+    });
+
+    it('a critical-severity photo_only field (hypothetical) still cannot produce a criticalFail — no status path exists to reach it', () => {
+      const criticalPhotoOnly = field({ fieldId: 'q_photo2', type: 'photo_only', severity: 'critical', minPhotos: 1 });
+      const answers = { q_photo2: answer('q_photo2', { photoUrls: ['https://x/1.jpg'] }) };
+      const tally = computeQcTally([criticalPhotoOnly], answers);
+      expect(tally.criticalFail).toBe(0);
+      expect(tally.suggestedVerdict).toBe('pass');
+    });
+
+    it('suggestedVerdict is identical whether or not the photo_only field has been touched', () => {
+      const withoutPhoto = computeQcTally(template, baseAnswers);
+      const withPhoto = computeQcTally(template, { ...baseAnswers, q_photo: answer('q_photo', { photoUrls: ['https://x/1.jpg'] }) });
+      expect(withoutPhoto.suggestedVerdict).toBe(withPhoto.suggestedVerdict);
+      expect(withoutPhoto.pass).toBe(withPhoto.pass);
+      expect(withoutPhoto.criticalFail).toBe(withPhoto.criticalFail);
+    });
+  });
 });

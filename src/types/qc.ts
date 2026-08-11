@@ -107,6 +107,11 @@ export interface QcJob {
     installationDate?: string;
     installerCrew?:    string;
     systemType?:       'ongrid' | 'hybrid' | 'offgrid';
+    moduleType?:       'dcr' | 'non_dcr';
+    // DCR compliance only — one entry per panel, each backed by a photo
+    // of that panel's nameplate. Length always equals moduleCount when
+    // present; never populated for moduleType 'non_dcr'.
+    panels?:           Array<{ serialNumber: string; photoUrl: string }>;
   };
 
   inspectorUid:    string | null;

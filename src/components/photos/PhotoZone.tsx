@@ -20,6 +20,17 @@ interface PhotoZoneProps {
   fieldId?:             string;
   capture?:             'environment' | 'user';
   onPhotoClick?:        (url: string, allUrls: string[], index: number) => void;
+  // DCR panel nameplate slots only — every other call site omits these
+  // and gets the original checklist-photo behavior unchanged.
+  uploadType?:          'checklist' | 'panel_nameplate';
+  queueKind?:           'checklist' | 'panel';
+  // Overrides the auto-computed per-photo index passed to
+  // uploadToCloudinary. PhotoZone's own index counts "which photo is
+  // this within this instance" (for multi-photo checklist fields) — a
+  // panel nameplate slot is always single-photo, and needs its OWN
+  // panel index (which panel this is, 0..N-1) for the Cloudinary
+  // folder instead, a different number entirely.
+  uploadIndex?:         number;
 }
 
 // A queued-but-unconfirmed photo — same visual footprint as a confirmed
@@ -89,10 +100,13 @@ export function PhotoZone({
   fieldId,
   capture,
   onPhotoClick,
+  uploadType = 'checklist',
+  queueKind  = 'checklist',
+  uploadIndex,
 }: PhotoZoneProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [pendingUploads, setPendingUploads] = useState<PendingUpload[]>([]);
-  const queuedPhotos = useOfflinePhotosFor(jobId, fieldId);
+  const queuedPhotos = useOfflinePhotosFor(jobId, fieldId, queueKind);
 
   const latestPhotosRef       = useRef<string[]>(photos);
   const onChangeRef           = useRef(onPhotosChange);
@@ -152,8 +166,8 @@ export function PhotoZone({
       },
       qcNum,
       fieldId,
-      index,
-      uploadType: 'checklist',
+      index: uploadIndex ?? index,
+      uploadType,
     })
       .then(({ url }) => {
         setPendingUploads((prev) => prev.filter((p) => p.tempId !== tempId));
@@ -175,7 +189,7 @@ export function PhotoZone({
         if (jobId && isConnectivityFailure(err)) {
           try {
             await enqueuePhoto({
-              kind: 'checklist', jobId, qcNum: qcNum ?? '', fieldId: fieldId ?? '',
+              kind: queueKind, jobId, qcNum: qcNum ?? '', fieldId: fieldId ?? '',
               blob: file, mimeType: file.type || 'image/jpeg',
             });
             _emitToast("Offline — photo saved on this device and will upload once you're back online.", 'success');

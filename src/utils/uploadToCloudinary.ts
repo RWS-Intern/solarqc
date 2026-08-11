@@ -11,8 +11,8 @@ export async function uploadToCloudinary(
     onProgress?:      (percent: number) => void;
     qcNum?:           string;
     fieldId?:         string;   // for uploadType 'signature', the signer's role ('inspector' | 'customer')
-    index?:           number;
-    uploadType?:      'checklist' | 'signature' | 'report';
+    index?:           number;   // for uploadType 'panel_nameplate', the panel's index
+    uploadType?:      'checklist' | 'signature' | 'report' | 'panel_nameplate';
     skipCompression?: boolean;  // signatures: never through the JPEG pipeline —
                                  // it would mangle thin strokes and destroy the
                                  // transparent PNG background
@@ -23,12 +23,14 @@ export async function uploadToCloudinary(
 
   if (!cloudName || !uploadPreset) throw new Error('Cloudinary env vars not set');
 
-  const { onProgress, qcNum, fieldId, uploadType, skipCompression } = options ?? {};
+  const { onProgress, qcNum, fieldId, index, uploadType, skipCompression } = options ?? {};
 
   const folder = uploadType === 'signature' && qcNum && fieldId
     ? `ritesolar-qc/${qcNum}/signatures/${fieldId}`
     : uploadType === 'report' && qcNum
     ? `ritesolar-qc/${qcNum}/report`
+    : uploadType === 'panel_nameplate' && qcNum && index != null
+    ? `ritesolar-qc/${qcNum}/panels/${index}`
     : qcNum && fieldId
     ? `ritesolar-qc/${qcNum}/${fieldId}`
     : 'ritesolar-qc/unfiled';

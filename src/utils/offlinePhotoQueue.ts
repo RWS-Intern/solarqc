@@ -9,8 +9,9 @@ export interface QueuedPhoto {
   id:        string;
   jobId:     string;
   qcNum:     string;
-  kind:      'checklist' | 'signature';
-  fieldId:   string;   // checklist fieldId, OR the signature's role ('inspector' | 'approver' | 'customer')
+  kind:      'checklist' | 'signature' | 'panel';
+  fieldId:   string;   // checklist fieldId, the signature's role ('inspector' | 'approver' | 'customer'),
+                        // OR a panel's own id (`panel_${index}`)
   blob:      Blob;
   mimeType:  string;
   createdAt: number;

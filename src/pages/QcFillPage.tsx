@@ -5,6 +5,7 @@ import { useAuthStore } from '@/store/authStore';
 import { useQcFill } from '@/hooks/useQcFill';
 import { useQcJobActions } from '@/hooks/useQcJobActions';
 import { QcSection } from '@/components/qc/QcSection';
+import { DcrPanelSection } from '@/components/qc/DcrPanelSection';
 import { QcTallyBar } from '@/components/qc/QcTallyBar';
 import { SignOffBlock } from '@/components/qc/SignOffBlock';
 import { Button } from '@/components/ui/button';
@@ -36,6 +37,7 @@ export function QcFillPage() {
     answers, answerField,
     location, locationCapturedAt, locationUnavailable, captureLocation,
     inspectorSignOff, customerSignOff, onInspectorSign, onCustomerSign,
+    panels, setPanelCount, updatePanelSerial, updatePanelPhoto,
     tally, dirty, saving,
     saveDraft, onSectionCollapse,
   } = useQcFill(id);
@@ -49,8 +51,8 @@ export function QcFillPage() {
   // Confirm on the checkbox internally, so a non-null signature is a
   // sufficient proxy; no separate declarationAccepted state to track.
   const allIssues = useMemo(
-    () => validateQcJob(job?.template ?? [], answers, inspectorSignOff, !!inspectorSignOff),
-    [job?.template, answers, inspectorSignOff],
+    () => validateQcJob(job?.template ?? [], answers, inspectorSignOff, !!inspectorSignOff, job?.system.moduleType, panels),
+    [job?.template, answers, inspectorSignOff, job?.system.moduleType, panels],
   );
 
   const criticalFailFields = useMemo(() => {
@@ -110,7 +112,7 @@ export function QcFillPage() {
     if (!job) return;
     // Re-run validation fresh rather than trusting the last render's
     // memoized allIssues — state may have shifted between render and click.
-    const freshIssues = validateQcJob(job.template, answers, inspectorSignOff, !!inspectorSignOff);
+    const freshIssues = validateQcJob(job.template, answers, inspectorSignOff, !!inspectorSignOff, job.system.moduleType, panels);
     if (freshIssues.length > 0) {
       _emitToast(
         `Can't submit — ${freshIssues.length} outstanding issue${freshIssues.length !== 1 ? 's' : ''}.`,
@@ -179,6 +181,19 @@ export function QcFillPage() {
       </div>
 
       <div className="flex flex-col gap-3 pt-3 pb-4">
+        {job!.system.moduleType === 'dcr' && (
+          <DcrPanelSection
+            panels={panels}
+            onSetPanelCount={setPanelCount}
+            onUpdateSerial={updatePanelSerial}
+            onPanelPhotoChange={updatePanelPhoto}
+            jobId={job!.id}
+            qcNum={job!.qcNum}
+            disabled={isLocked}
+            allIssues={allIssues}
+          />
+        )}
+
         {sections.map((section) => (
           <QcSection
             key={section.key}

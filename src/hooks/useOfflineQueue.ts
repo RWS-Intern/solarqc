@@ -24,9 +24,12 @@ export function useOfflineQueueCount(): number {
   return count;
 }
 
-// Queued-but-unconfirmed checklist photos for one field — PhotoZone merges
-// these into its thumbnail grid alongside the confirmed `photos` prop.
-export function useOfflinePhotosFor(jobId: string | undefined, fieldId: string | undefined): QueuedPhoto[] {
+// Queued-but-unconfirmed photos for one field — PhotoZone merges these into
+// its thumbnail grid alongside the confirmed `photos` prop. `kind` defaults
+// to 'checklist' (every existing call site), 'panel' for DCR nameplate slots.
+export function useOfflinePhotosFor(
+  jobId: string | undefined, fieldId: string | undefined, kind: QueuedPhoto['kind'] = 'checklist',
+): QueuedPhoto[] {
   const [items, setItems] = useState<QueuedPhoto[]>([]);
 
   useEffect(() => {
@@ -35,13 +38,13 @@ export function useOfflinePhotosFor(jobId: string | undefined, fieldId: string |
     let mounted = true;
     function refresh() {
       void listQueuedPhotosFor(jid, fid).then((all) => {
-        if (mounted) setItems(all.filter((p) => p.kind === 'checklist'));
+        if (mounted) setItems(all.filter((p) => p.kind === kind));
       });
     }
     refresh();
     const unsubscribe = onQueueChange(refresh);
     return () => { mounted = false; unsubscribe(); };
-  }, [jobId, fieldId]);
+  }, [jobId, fieldId, kind]);
 
   return items;
 }

@@ -4,7 +4,8 @@ import { isFieldVisible } from './qcTally';
 export interface QcValidationIssue {
   fieldId?: string;  // undefined = job-level, not tied to one check point
   code:     'required' | 'photo_required' | 'remark_required'
-          | 'photo_required_on_fail' | 'signature_missing' | 'declaration_unchecked';
+          | 'photo_required_on_fail' | 'signature_missing' | 'declaration_unchecked'
+          | 'panel_incomplete';
   message:  string;
 }
 
@@ -13,6 +14,12 @@ export function validateQcJob(
   answers:             Record<string, QcAnswer>,
   inspectorSignOff:    QcJob['inspectorSignOff'],
   declarationAccepted: boolean,
+  // DCR panel tracking (QcFillPage.tsx) — moduleType from the job's own
+  // system (never edited by the inspector), panels from local draft state
+  // (the in-progress count/serials/photos, same as answers above is the
+  // local draft rather than the server's last-saved copy).
+  moduleType?:         QcJob['system']['moduleType'],
+  panels?:             QcJob['system']['panels'],
 ): QcValidationIssue[] {
   const issues: QcValidationIssue[] = [];
 
@@ -20,6 +27,24 @@ export function validateQcJob(
     if (field.type === 'section_header') continue;
     if (!isFieldVisible(field, answers)) continue;
     const ans = answers[field.fieldId];
+
+    // photo_only has no status/value/numericValue to ever be "answered"
+    // by — the generic isRequired check below would flag it as
+    // permanently unanswered regardless of how many photos are
+    // attached. Its own required-ness IS the photo count, so check that
+    // directly instead, using the same photo_required issue code every
+    // other photo-count check in this file already uses.
+    if (field.type === 'photo_only') {
+      if (!field.isRequired) continue;
+      const photoCount = ans?.photoUrls?.length ?? 0;
+      if (photoCount < (field.minPhotos ?? 1)) {
+        issues.push({
+          fieldId: field.fieldId, code: 'photo_required',
+          message: `${field.code ? field.code + ' — ' : ''}${field.label} needs at least ${field.minPhotos ?? 1} photo(s).`,
+        });
+      }
+      continue;
+    }
 
     if (field.isRequired) {
       const answered = !!ans && (
@@ -56,6 +81,28 @@ export function validateQcJob(
           message: `${field.label}: a photo is required for a Fail.`,
         });
       }
+    }
+  }
+
+  // DCR: a panel missing a serial number or a photo is exactly as
+  // incomplete as an unanswered checklist item — same reasoning, same
+  // submit-blocking treatment. Not entering a panel count yet counts too.
+  if (moduleType === 'dcr') {
+    const list = panels ?? [];
+    if (list.length === 0) {
+      issues.push({
+        code: 'panel_incomplete',
+        message: 'Panel count and nameplate photos are required for a DCR system.',
+      });
+    } else {
+      list.forEach((p, i) => {
+        if (!p.serialNumber.trim() || !p.photoUrl) {
+          issues.push({
+            fieldId: `panel_${i}`, code: 'panel_incomplete',
+            message: `Panel ${i + 1}: ${!p.serialNumber.trim() ? 'serial number' : 'nameplate photo'} required.`,
+          });
+        }
+      });
     }
   }
 

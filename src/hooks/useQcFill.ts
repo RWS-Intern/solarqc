@@ -37,11 +37,17 @@ export function useQcFill(jobId: string | null | undefined) {
   const [dirty,    setDirty]    = useState(false);
   const [saving,   setSaving]   = useState(false);
 
+  // DCR panel tracking (§3/§4 of the QcFillPage move) — local draft state,
+  // same relationship to job.system.panels as `answers` above has to
+  // job.answers. Undefined until a moduleType:'dcr' job is loaded.
+  const [panels, setPanels] = useState<QcJob['system']['panels']>(undefined);
+
   const initializedForJobId  = useRef<string | null>(null);
   const dirtyRef              = useRef(false);
   const locationDirtyRef      = useRef(false);
   const inspectorSignDirtyRef = useRef(false);
   const customerSignDirtyRef  = useRef(false);
+  const panelsDirtyRef        = useRef(false);
   const currentUserRef        = useRef(currentUser);
   useEffect(() => { currentUserRef.current = currentUser; }, [currentUser]);
 
@@ -80,11 +86,13 @@ export function useQcFill(jobId: string | null | undefined) {
     setLocationUnavailable(false);
     setInspectorSignOff(job.inspectorSignOff);
     setCustomerSignOff(job.customerSignOff);
+    setPanels(job.system?.panels);
     dirtyRef.current = false;
     setDirty(false);
     locationDirtyRef.current = false;
     inspectorSignDirtyRef.current = false;
     customerSignDirtyRef.current = false;
+    panelsDirtyRef.current = false;
 
     if (!job.location) captureLocation();
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -139,6 +147,26 @@ export function useQcFill(jobId: string | null | undefined) {
     setCustomerSignOff((prev) => (
       !customerSignDirtyRef.current && job.customerSignOff && !prev ? job.customerSignOff : prev
     ));
+
+    // Same reasoning, applied to panel nameplate photos: a background
+    // replay (offlineQueueReplay.ts) can confirm a photoUrl directly on
+    // the live doc while this hook's local draft sits unaware. Only ever
+    // adopts a photoUrl the server has that the local draft doesn't —
+    // never touches serialNumber, so an in-progress edit there is safe.
+    setPanels((prev) => {
+      const serverPanels = job.system?.panels;
+      if (!serverPanels || !prev) return prev;
+      let changed = false;
+      const next = prev.map((p, i) => {
+        const serverP = serverPanels[i];
+        if (serverP?.photoUrl && p.photoUrl !== serverP.photoUrl) {
+          changed = true;
+          return { ...p, photoUrl: serverP.photoUrl };
+        }
+        return p;
+      });
+      return changed ? next : prev;
+    });
   }, [job]);
 
   const answerField = useCallback((fieldId: string, patch: Partial<QcAnswer>) => {
@@ -162,6 +190,36 @@ export function useQcFill(jobId: string | null | undefined) {
       };
     });
     dirtyRef.current = true;
+    setDirty(true);
+  }, []);
+
+  // Grows or shrinks the panel list to match a newly entered/changed
+  // count, preserving whatever's already been filled in at each
+  // surviving index — never wiping serials/photos just because the
+  // count was edited again.
+  const setPanelCount = useCallback((count: number) => {
+    setPanels((prev) => {
+      const current = prev ?? [];
+      if (current.length === count) return prev ?? [];
+      return Array.from({ length: count }, (_, i) => current[i] ?? { serialNumber: '', photoUrl: '' });
+    });
+    panelsDirtyRef.current = true;
+    setDirty(true);
+  }, []);
+
+  const updatePanelSerial = useCallback((index: number, value: string) => {
+    setPanels((prev) => (prev ?? []).map((p, i) => (i === index ? { ...p, serialNumber: value } : p)));
+    panelsDirtyRef.current = true;
+    setDirty(true);
+  }, []);
+
+  // The online-success path only — PhotoZone calls this directly once an
+  // upload confirms. The offline-queued path never touches this; it lands
+  // via the replay-merge effect above instead, same split as checklist
+  // photos already have between answerField and that same effect.
+  const updatePanelPhoto = useCallback((index: number, url: string) => {
+    setPanels((prev) => (prev ?? []).map((p, i) => (i === index ? { ...p, photoUrl: url } : p)));
+    panelsDirtyRef.current = true;
     setDirty(true);
   }, []);
 
@@ -212,6 +270,21 @@ export function useQcFill(jobId: string | null | undefined) {
       locationDirtyRef.current = false;
       inspectorSignDirtyRef.current = false;
       customerSignDirtyRef.current = false;
+
+      // A separate write, not folded into the payload above — firestore.
+      // rules scopes DCR panel edits to their own narrower rule
+      // (assigned/in_progress only, no rework, inspector-owned-job only),
+      // so bundling 'system' into the same call as answers/tally would
+      // need both rules' field sets to cover the union of everything
+      // touched, defeating the point of having two narrowly-scoped rules.
+      if (panelsDirtyRef.current && panels) {
+        await updateDoc(doc(db, 'qcJobs', job.id), {
+          system: { ...job.system, panels, moduleCount: panels.length },
+          updatedAt: serverTimestamp(),
+        });
+        panelsDirtyRef.current = false;
+      }
+
       dirtyRef.current = false;
       setDirty(false);
     } catch (err) {
@@ -220,7 +293,7 @@ export function useQcFill(jobId: string | null | undefined) {
       setSaving(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [job, answers, location, inspectorSignOff, customerSignOff]);
+  }, [job, answers, location, inspectorSignOff, customerSignOff, panels]);
 
   // Always call the latest saveDraft closure from the interval/visibility
   // listeners below without re-subscribing them on every keystroke.
@@ -276,6 +349,7 @@ export function useQcFill(jobId: string | null | undefined) {
     answers, answerField,
     location, locationCapturedAt, locationUnavailable, captureLocation,
     inspectorSignOff, customerSignOff, onInspectorSign, onCustomerSign,
+    panels, setPanelCount, updatePanelSerial, updatePanelPhoto,
     tally, dirty, saving,
     saveDraft, onSectionCollapse,
   };

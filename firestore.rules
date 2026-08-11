@@ -42,6 +42,22 @@ service cloud.firestore {
     function reportFields() {
       return ['reportUrl', 'reportedAt', 'updatedAt'];
     }
+    // DCR panel serials & nameplate photos (QcFillPage.tsx) — the assigned
+    // inspector fills these in on-site, the same way they fill in
+    // checklist answers, so this is scoped to the SAME actor as
+    // inspectorFields() but deliberately NOT the same status window:
+    // assigned/in_progress only, excluding 'rework'. Rework is about
+    // fixing flagged checklist issues from a rejected round, not
+    // reopening panel data that was already correct — there's no reason
+    // to re-invite panel edits there. Kept as its own field set rather
+    // than folded into inspectorFields() because saveDraft() writes it
+    // as a separate updateDoc call (see useQcFill.ts) — bundling
+    // 'system' into the same write as answers/tally would require both
+    // rules' field sets to cover the union of everything touched, which
+    // defeats having two narrowly-scoped rules at all.
+    function panelFields() {
+      return ['system', 'updatedAt'];
+    }
 
     match /qcJobs/{jobId} {
       allow read: if signedIn() && active() && (
@@ -61,6 +77,13 @@ service cloud.firestore {
         && touched().hasOnly(inspectorFields())
         && (!touched().hasAny(['status'])
             || request.resource.data.status in ['in_progress', 'pending_approval']);
+
+      // DCR panel serials & nameplate photos — see panelFields() above.
+      allow update: if signedIn() && active()
+        && role() == 'qc_inspector'
+        && resource.data.inspectorUid == request.auth.uid
+        && resource.data.status in ['assigned', 'in_progress']
+        && touched().hasOnly(panelFields());
 
       // Approver (or admin — roles.ts already grants admin the
       // approveJobs capability, and plan §5.1 lists both roles for
