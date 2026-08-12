@@ -36,7 +36,7 @@ export function DcrPanelSection({
   const completeCount = list.filter((p) => p.serialNumber.trim() && p.photoUrl).length;
   const chip = total > 0
     ? `${completeCount}/${total}${completeCount === total ? ' ✓' : ''}`
-    : 'Set panel count';
+    : disabled ? 'No panels recorded' : 'Set panel count';
 
   function commitCount() {
     const n = Math.floor(Number(countInput));

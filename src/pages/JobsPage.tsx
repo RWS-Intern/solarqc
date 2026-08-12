@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Search, UserCog } from 'lucide-react';
 import {
   collection, query, where, orderBy, limit, getDocs,
@@ -145,10 +146,18 @@ function AssignDialog({ job, onClose }: { job: JobListItem | null; onClose: () =
 }
 
 function JobRow({ job, canAssign, onAssign }: { job: JobListItem; canAssign: boolean; onAssign: (job: JobListItem) => void }) {
+  const navigate = useNavigate();
   const color = QC_STATUS_COLOR[job.status];
   const showAssign = canAssign && (job.status === 'unassigned' || job.status === 'assigned');
   return (
-    <div className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3">
+    <div
+      className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 cursor-pointer hover:border-brand-blue/40 hover:bg-blue-50/30 transition-colors"
+      onClick={() => navigate(`/jobs/${job.id}`)}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate(`/jobs/${job.id}`); }}
+      aria-label={`Open ${job.qcNum} — ${job.customer.name}`}
+    >
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="font-mono text-xs text-gray-400">{job.qcNum}</span>
@@ -163,7 +172,11 @@ function JobRow({ job, canAssign, onAssign }: { job: JobListItem; canAssign: boo
         </p>
       </div>
       {showAssign && (
-        <Button size="sm" variant="outline" onClick={() => onAssign(job)} className="shrink-0 flex items-center gap-1.5">
+        <Button
+          size="sm" variant="outline"
+          onClick={(e) => { e.stopPropagation(); onAssign(job); }}
+          className="shrink-0 flex items-center gap-1.5"
+        >
           <UserCog className="h-3.5 w-3.5" />{job.status === 'assigned' ? 'Reassign' : 'Assign'}
         </Button>
       )}

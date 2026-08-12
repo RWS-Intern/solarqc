@@ -4,13 +4,12 @@ import { ArrowLeft } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import { useQcJob } from '@/hooks/useQcJob';
 import { useQcJobActions } from '@/hooks/useQcJobActions';
-import { QcSection } from '@/components/qc/QcSection';
+import { JobReadOnlyView } from '@/components/qc/JobReadOnlyView';
 import { VerdictForm } from '@/components/qc/VerdictForm';
 import { EvidenceGallery } from '@/components/qc/EvidenceGallery';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { _emitToast } from '@/components/ui/toast';
-import { groupBySections, sortSectionForReview } from '@/utils/qcSections';
 import { QC_STATUS_LABELS, QC_STATUS_COLOR } from '@/config/qcStatus';
 import { cn } from '@/lib/utils';
 import type { VerdictOutcome } from '@/components/qc/VerdictForm';
@@ -37,14 +36,6 @@ export function ApprovalReviewPage() {
     initializedForId.current = job.id;
     setApproverComments(job.approverComments ?? {});
     setReworkPointIds(job.reworkPointIds ?? []);
-  }, [job]);
-
-  const sections = useMemo(() => {
-    if (!job) return [];
-    return groupBySections(job.template).map((s) => ({
-      ...s,
-      fields: sortSectionForReview(s.fields, job.answers),
-    }));
   }, [job]);
 
   const criticalFailFields = useMemo(() => {
@@ -172,25 +163,15 @@ export function ApprovalReviewPage() {
       </div>
 
       <div className="flex flex-col gap-3 pb-4">
-        {sections.map((section) => (
-          <QcSection
-            key={section.key}
-            title={section.title}
-            fields={section.fields}
-            answers={job.answers}
-            onAnswerChange={() => {}}
-            allIssues={[]}
-            onCollapse={() => {}}
-            jobId={job.id}
-            qcNum={job.qcNum}
-            disabled
-            onPhotoClick={(_url, allUrls, index) => setGallery({ photos: allUrls, index })}
-            approverComments={approverComments}
-            onApproverCommentChange={canReview ? updateComment : undefined}
-            reworkPointIds={reworkPointIds}
-            onToggleRework={canReview ? toggleRework : undefined}
-          />
-        ))}
+        <JobReadOnlyView
+          job={job}
+          onPhotoClick={(_url, allUrls, index) => setGallery({ photos: allUrls, index })}
+          approverComments={approverComments}
+          onApproverCommentChange={canReview ? updateComment : undefined}
+          reworkPointIds={reworkPointIds}
+          onToggleRework={canReview ? toggleRework : undefined}
+          sortFailedFirst
+        />
 
         {canReview && currentUser && (
           <VerdictForm

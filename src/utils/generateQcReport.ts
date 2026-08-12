@@ -173,7 +173,10 @@ export async function generateQcReport(job: QcJob): Promise<Blob> {
   doc.registerFontkit(fontkit);
 
   const fontBytes = await fetch('/fonts/NotoSans-Regular.ttf').then((r) => r.arrayBuffer());
-  const font = await doc.embedFont(fontBytes, { subset: true });
+  // subset:true corrupts glyphs once this font draws many distinct short
+  // strings across a multi-page document (confirmed via isolated repro —
+  // pdf-lib subsetting defect, unrelated to page breaks or draw order).
+  const font = await doc.embedFont(fontBytes, { subset: false });
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
   const san  = makeSanitizer(fontBytes);
 

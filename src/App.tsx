@@ -13,6 +13,7 @@ import { TemplatePage } from '@/pages/TemplatePage';
 import { ReportsPage }  from '@/pages/ReportsPage';
 import { ErrorLogsPage }       from '@/pages/ErrorLogsPage';
 import { JobsPage }     from '@/pages/JobsPage';
+import { JobDetailPage } from '@/pages/JobDetailPage';
 import { MyJobsPage }   from '@/pages/MyJobsPage';
 import { QcFillPage }   from '@/pages/QcFillPage';
 import { ApprovalsPage } from '@/pages/ApprovalsPage';
@@ -74,6 +75,9 @@ export default function App() {
 
             <Route path="/jobs" element={
               <ProtectedRoute allow={['admin', 'qc_manager', 'viewer']}><JobsPage /></ProtectedRoute>
+            } />
+            <Route path="/jobs/:id" element={
+              <ProtectedRoute allow={['admin', 'qc_manager', 'viewer']}><JobDetailPage /></ProtectedRoute>
             } />
             <Route path="/my-jobs" element={
               <ProtectedRoute allow={['qc_inspector']}><MyJobsPage /></ProtectedRoute>
