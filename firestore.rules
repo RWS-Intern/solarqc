@@ -194,12 +194,39 @@ service cloud.firestore {
       allow read:   if signedIn() && (request.auth.uid == uid
                        || role() in ['admin', 'qc_manager']);
       // Self-create fixes the signup deadlock in plan §11.6 — a brand-new
-      // user has no doc yet, so role()/active() would throw. Admin-create
-      // restores the old app's admin-can-create-any-user's-doc behavior,
-      // needed by /team's "Add User" flow (useUserActions.createUser()),
-      // which writes the new user's doc from the admin's own session.
+      // user has no doc yet, so role()/active() would throw. Pinned to a
+      // fixed low-privilege role and active:false — otherwise a self-create
+      // with no content check at all let any new signup grant themselves
+      // role:'admin', active:true directly, with no invite and no way for
+      // anyone (even another admin) to later delete the doc client-side
+      // (allow delete below is unconditionally false). An admin must
+      // explicitly promote/activate afterward via the update rule.
+      // The hasAll(['role','active']) guard is deliberate, not decorative —
+      // omitting role/active from the create payload entirely (rather than
+      // setting them to something else) must not slip past the value
+      // checks below via undefined-field-comparison semantics. Rather than
+      // rely on however Cloud Firestore's rules engine happens to resolve
+      // that (docs are genuinely inconsistent on this), hasAll() makes
+      // field presence an explicit, unambiguous precondition.
+      // NOTE: SignupPage.tsx's invite flow (/signup/:inviteId) self-creates
+      // with role:inviteRole, active:true — this pin makes that flow fail
+      // for any invite that isn't qc_inspector. Not a regression: the
+      // invites collection has no rules of its own anywhere in this file,
+      // so that flow's pre-auth getDoc(invites/{id}) is already denied and
+      // it cannot succeed today regardless. Restoring it for real needs its
+      // own fix — cross-checking self-create against a real, unconsumed
+      // invites/{id} doc (email + role match, status still pending) — not
+      // done here; flagged separately.
+      // Admin-create restores the old app's admin-can-create-any-user's-doc
+      // behavior, needed by /team's "Add User" flow
+      // (useUserActions.createUser()), which writes the new user's doc from
+      // the admin's own session — unrestricted, since that admin is already
+      // trusted with any role/active value.
       allow create: if signedIn() && (
-           request.auth.uid == uid
+           (request.auth.uid == uid
+            && request.resource.data.keys().hasAll(['role', 'active'])
+            && request.resource.data.role == 'qc_inspector'
+            && request.resource.data.active == false)
         || (active() && role() == 'admin')
       );
       allow update: if signedIn() && (
