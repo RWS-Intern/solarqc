@@ -18,6 +18,8 @@ import {
 import { Input }  from '@/components/ui/input';
 import { Label }  from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
+import { StateCombobox }    from '@/components/ui/StateCombobox';
+import { DistrictCombobox } from '@/components/ui/DistrictCombobox';
 import type { UserRole } from '@/types';
 
 interface CreateUserModalProps {
@@ -31,16 +33,25 @@ export function CreateUserModal({ open, onClose }: CreateUserModalProps) {
   const [name,          setName]          = useState('');
   const [email,         setEmail]         = useState('');
   const [role,          setRole]          = useState<UserRole>('qc_inspector');
+  const [state,         setState]         = useState('');
+  const [district,      setDistrict]      = useState('');
   const [mobileNumber,  setMobileNumber]  = useState('');
   const [submitting,    setSubmitting]    = useState(false);
   const [createdEmail,  setCreatedEmail]  = useState<string | null>(null);
 
   const mobileError = mobileNumber.length > 0 && mobileNumber.length !== 10;
+  // Inspectors are the role whose numbers grow and need to stay findable by
+  // geography (Team page's own filters already expect this) — every other
+  // role keeps district/state genuinely optional, matching the schema.
+  const locationRequired = role === 'qc_inspector';
+  const locationError = locationRequired && (!state.trim() || !district.trim());
 
   function reset() {
     setName('');
     setEmail('');
     setRole('qc_inspector');
+    setState('');
+    setDistrict('');
     setMobileNumber('');
     setSubmitting(false);
     setCreatedEmail(null);
@@ -52,10 +63,10 @@ export function CreateUserModal({ open, onClose }: CreateUserModalProps) {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!name.trim() || !email.trim() || mobileError) return;
+    if (!name.trim() || !email.trim() || mobileError || locationError) return;
     setSubmitting(true);
     try {
-      await createUser(name.trim(), email.trim(), role, undefined, mobileNumber || undefined, undefined);
+      await createUser(name.trim(), email.trim(), role, district || undefined, mobileNumber || undefined, state || undefined);
       setCreatedEmail(email.trim());
     } catch {
       // Error toast already shown inside createUser
@@ -121,6 +132,26 @@ export function CreateUserModal({ open, onClose }: CreateUserModalProps) {
               </Select>
             </div>
 
+            <div className="grid grid-cols-2 gap-3">
+              <div className="flex flex-col gap-1.5">
+                <Label>
+                  State {locationRequired && <span className="text-brand-red">*</span>}
+                  {!locationRequired && <span className="text-gray-400 font-normal"> (optional)</span>}
+                </Label>
+                <StateCombobox value={state} onChange={(v) => { setState(v); setDistrict(''); }} />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label>
+                  District {locationRequired && <span className="text-brand-red">*</span>}
+                  {!locationRequired && <span className="text-gray-400 font-normal"> (optional)</span>}
+                </Label>
+                <DistrictCombobox value={district} onChange={setDistrict} state={state} />
+              </div>
+            </div>
+            {locationError && (
+              <p className="text-xs text-brand-red -mt-2">State and district are required for inspectors</p>
+            )}
+
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="cu-mobile">Mobile Number <span className="text-gray-400 font-normal">(optional)</span></Label>
               <Input
@@ -152,7 +183,7 @@ export function CreateUserModal({ open, onClose }: CreateUserModalProps) {
               <Button
                 type="submit"
                 className="flex-1"
-                disabled={submitting || !name.trim() || !email.trim() || mobileError}
+                disabled={submitting || !name.trim() || !email.trim() || mobileError || locationError}
               >
                 {submitting ? (
                   <span className="flex items-center gap-2">

@@ -116,6 +116,11 @@ export function UserCard({ user, isSelf, onEdit, onToggleActive, onView, onChang
         </div>
 
         <p className="text-xs text-gray-500 mt-0.5 truncate">{user.email}</p>
+        {(user.district || user.state) && (
+          <p className="text-xs text-gray-400 mt-0.5">
+            {user.district}{user.district && user.state ? ', ' : ''}{user.state}
+          </p>
+        )}
         {!isOnline && lastSeen && (
           <p className="text-xs font-medium text-gray-600 mt-0.5">Last seen {timeAgo(lastSeen)}</p>
         )}
@@ -125,11 +130,6 @@ export function UserCard({ user, isSelf, onEdit, onToggleActive, onView, onChang
           {hasCode && user.engineerCode && (
             <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-gray-100 text-gray-600 font-mono">
               {user.engineerCode}
-            </span>
-          )}
-          {user.district && (
-            <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-blue-50 text-blue-600">
-              {user.district}
             </span>
           )}
           {!user.active && (

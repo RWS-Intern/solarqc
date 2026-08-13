@@ -5,6 +5,8 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input }  from '@/components/ui/input';
 import { Label }  from '@/components/ui/label';
+import { StateCombobox }    from '@/components/ui/StateCombobox';
+import { DistrictCombobox } from '@/components/ui/DistrictCombobox';
 import { useUserActions }    from '@/hooks/useUserActions';
 import { roleLabel } from '@/config/roles';
 import type { User } from '@/types';
@@ -15,19 +17,26 @@ interface EditUserModalProps {
 }
 
 export function EditUserModal({ user, onClose }: EditUserModalProps) {
-  const { updateUserName, updateUserMobile } = useUserActions();
+  const { updateUserName, updateUserMobile, updateUserDistrict } = useUserActions();
 
   const [name,         setName]         = useState('');
   const [mobileNumber, setMobileNumber] = useState('');
+  const [state,        setState]        = useState('');
+  const [district,     setDistrict]     = useState('');
   const [saving,       setSaving]       = useState(false);
   const [nameError,    setNameError]    = useState('');
 
   const mobileError = mobileNumber.length > 0 && mobileNumber.length !== 10;
+  // Same scoped rule as CreateUserModal — required for inspectors only.
+  const locationRequired = user?.role === 'qc_inspector';
+  const locationError = locationRequired && (!state.trim() || !district.trim());
 
   useEffect(() => {
     if (user) {
       setName(user.name);
       setMobileNumber(user.mobileNumber ?? '');
+      setState(user.state ?? '');
+      setDistrict(user.district ?? '');
       setNameError('');
     }
   }, [user]);
@@ -38,13 +47,17 @@ export function EditUserModal({ user, onClose }: EditUserModalProps) {
       setNameError('Name is required');
       return;
     }
-    if (mobileError) return;
+    if (mobileError || locationError) return;
     setSaving(true);
     try {
       await updateUserName(user.id, name);
       // Only sync tasks when mobile actually changed (avoids spurious batch-writes)
       if (mobileNumber.trim() !== (user?.mobileNumber ?? '')) {
         await updateUserMobile(user.id, mobileNumber.trim());
+      }
+      // Same pattern — only write when something actually changed.
+      if (state.trim() !== (user?.state ?? '') || district.trim() !== (user?.district ?? '')) {
+        await updateUserDistrict(user.id, district.trim(), state.trim());
       }
       onClose();
     } catch {
@@ -111,6 +124,26 @@ export function EditUserModal({ user, onClose }: EditUserModalProps) {
             />
           </div>
 
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex flex-col gap-1.5">
+              <Label>
+                State {locationRequired && <span className="text-brand-red">*</span>}
+                {!locationRequired && <span className="text-gray-400 font-normal"> (optional)</span>}
+              </Label>
+              <StateCombobox value={state} onChange={(v) => { setState(v); setDistrict(''); }} disabled={saving} />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label>
+                District {locationRequired && <span className="text-brand-red">*</span>}
+                {!locationRequired && <span className="text-gray-400 font-normal"> (optional)</span>}
+              </Label>
+              <DistrictCombobox value={district} onChange={setDistrict} state={state} disabled={saving} />
+            </div>
+          </div>
+          {locationError && (
+            <p className="text-xs text-brand-red -mt-2">State and district are required for inspectors</p>
+          )}
+
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="edit-mobile">Mobile Number <span className="text-gray-400 font-normal">(optional)</span></Label>
             <Input
@@ -141,7 +174,7 @@ export function EditUserModal({ user, onClose }: EditUserModalProps) {
             <Button
               className="flex-1"
               onClick={handleSave}
-              disabled={saving || mobileError}
+              disabled={saving || mobileError || locationError}
             >
               {saving ? (
                 <span className="flex items-center gap-2">
