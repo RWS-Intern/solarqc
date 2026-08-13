@@ -76,9 +76,10 @@ export const ROLES: Record<UserRole, RoleConfig> = {
     label: 'Viewer', badgeBg: 'bg-gray-400', badgeText: 'text-white',
     defaultRoute: '/dashboard',
     navItems: [
-      { to: '/dashboard', label: 'Home',    icon: 'LayoutDashboard' },
-      { to: '/jobs',      label: 'Jobs',    icon: 'ClipboardList'   },
-      { to: '/reports',   label: 'Reports', icon: 'BarChart2'       },
+      { to: '/dashboard',  label: 'Home',      icon: 'LayoutDashboard' },
+      { to: '/jobs',       label: 'Jobs',      icon: 'ClipboardList'   },
+      { to: '/customers',  label: 'Customers', icon: 'Users'           },
+      { to: '/reports',    label: 'Reports',   icon: 'BarChart2'       },
     ],
     capabilities: ['viewAllJobs', 'viewReports'],
   },

@@ -92,7 +92,7 @@ export default function App() {
               <ProtectedRoute allow={['approver', 'admin']}><ApprovalReviewPage /></ProtectedRoute>
             } />
             <Route path="/customers" element={
-              <ProtectedRoute allow={['admin', 'qc_manager']}><CustomersPage /></ProtectedRoute>
+              <ProtectedRoute allow={['admin', 'qc_manager', 'viewer']}><CustomersPage /></ProtectedRoute>
             } />
 
             <Route path="/team"     element={<ProtectedRoute allow={['admin']}><TeamPage /></ProtectedRoute>} />

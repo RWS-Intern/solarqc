@@ -1,14 +1,12 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, UserCog } from 'lucide-react';
-import {
-  collection, query, where, orderBy, limit, getDocs,
-} from 'firebase/firestore';
-import { db } from '@/firebase/config';
 import { useAuthStore } from '@/store/authStore';
 import { useUserStore } from '@/store/userStore';
 import { useQcJobs } from '@/hooks/useQcJobs';
 import { useQcJobActions } from '@/hooks/useQcJobActions';
+import { useQcStatusCounts } from '@/hooks/useQcStatusCounts';
+import { useJobSearch, type JobListItem } from '@/hooks/useJobSearch';
 import { can } from '@/config/roles';
 import { QC_STATUS_LABELS, QC_STATUS_COLOR } from '@/config/qcStatus';
 import {
@@ -20,76 +18,11 @@ import {
 import { Button }   from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
-import type { QcJob, QcStatus } from '@/types/qc';
+import type { QcStatus } from '@/types/qc';
 
 const TAB_ORDER: QcStatus[] = [
   'unassigned', 'assigned', 'in_progress', 'pending_approval', 'rework', 'approved', 'cancelled',
 ];
-
-// What JobRow/AssignDialog actually render — a search hit only fetches
-// these fields, so it's typed narrower rather than cast up to the full
-// QcJob shape. A real QcJob (from tab browsing) satisfies this structurally
-// with no cast needed either way.
-type JobListItem = Pick<QcJob, 'id' | 'qcNum' | 'status' | 'customer' | 'inspectorUid' | 'inspectorName' | 'updatedAt'>;
-
-function docToJobListItem(id: string, data: Record<string, unknown>): JobListItem {
-  const toDate = (v: unknown) => (v as { toDate?: () => Date } | null)?.toDate?.() ?? null;
-  return {
-    id,
-    qcNum: (data['qcNum'] as string) ?? '',
-    status: (data['status'] as QcStatus) ?? 'unassigned',
-    customer: (data['customer'] as QcJob['customer']) ?? {
-      name: '', nameLower: '', nameWords: [], mobile: '', address: '', district: '', state: '',
-    },
-    inspectorUid:  (data['inspectorUid']  as string | null) ?? null,
-    inspectorName: (data['inspectorName'] as string) ?? '',
-    updatedAt: toDate(data['updatedAt']) ?? new Date(0),
-  };
-}
-
-// Search switches the query mode away from tab-filtering entirely — same
-// pattern the old sales app used, since Firestore can't combine an
-// arbitrary search term with a status filter without more indexes than
-// exist. Auto-detects mobile (10 digits) vs a QC number vs a name.
-async function searchJobs(term: string): Promise<JobListItem[]> {
-  const trimmed = term.trim();
-  const digits = trimmed.replace(/\D/g, '');
-
-  if (digits.length === 10 && digits === trimmed.replace(/[\s-]/g, '')) {
-    const snap = await getDocs(query(
-      collection(db, 'qcJobs'),
-      where('archived', '==', false),
-      where('customer.mobile', '==', digits),
-    ));
-    return snap.docs.map((d) => docToJobListItem(d.id, d.data()));
-  }
-
-  if (/^qc-?\d+/i.test(trimmed) || /^\d+$/.test(trimmed)) {
-    const prefix = trimmed.toUpperCase().startsWith('QC') ? trimmed.toUpperCase() : `QC-${trimmed.padStart(6, '0')}`;
-    // NB: the "+ ''" suffix is what makes this a prefix range instead
-    // of collapsing to an exact match ('' sorts after every normal
-    // character) — see plan §11.4, the bug being deliberately NOT repeated.
-    const snap = await getDocs(query(
-      collection(db, 'qcJobs'),
-      where('archived', '==', false),
-      where('qcNum', '>=', prefix),
-      where('qcNum', '<=', prefix + ''),
-      orderBy('qcNum'),
-      limit(50),
-    ));
-    return snap.docs.map((d) => docToJobListItem(d.id, d.data()));
-  }
-
-  const firstWord = trimmed.toLowerCase().split(/\s+/)[0];
-  if (!firstWord) return [];
-  const snap = await getDocs(query(
-    collection(db, 'qcJobs'),
-    where('archived', '==', false),
-    where('customer.nameWords', 'array-contains', firstWord),
-    limit(50),
-  ));
-  return snap.docs.map((d) => docToJobListItem(d.id, d.data()));
-}
 
 function AssignDialog({ job, onClose }: { job: JobListItem | null; onClose: () => void }) {
   const { users } = useUserStore();
@@ -189,28 +122,16 @@ export function JobsPage() {
   const canAssign = can(currentUser?.role, 'assignJobs');
 
   const [activeTab, setActiveTab] = useState<QcStatus>('unassigned');
-  const [search,     setSearch]     = useState('');
-  const [searchResults, setSearchResults] = useState<JobListItem[] | null>(null);
-  const [searching,  setSearching]  = useState(false);
   const [assignTarget, setAssignTarget] = useState<JobListItem | null>(null);
 
   const { jobs, loading, hasMore, loadingMore, loadMore } = useQcJobs({ status: activeTab });
+  const { search, setSearch, results: searchResults, searching, isSearchMode } = useJobSearch();
+  // Independent per-status counts for the pills — not derived from
+  // whichever single tab's jobs happen to be loaded, since every other
+  // tab's real count would otherwise be unknown until visited.
+  const { counts: statusCounts, loading: countsLoading } = useQcStatusCounts(TAB_ORDER);
 
-  useEffect(() => {
-    const trimmed = search.trim();
-    if (!trimmed) { setSearchResults(null); return; }
-    setSearching(true);
-    const handle = setTimeout(() => {
-      searchJobs(trimmed)
-        .then(setSearchResults)
-        .catch((err) => { console.error('[JobsPage] search failed:', err); setSearchResults([]); })
-        .finally(() => setSearching(false));
-    }, 350);
-    return () => clearTimeout(handle);
-  }, [search]);
-
-  const isSearchMode = search.trim().length > 0;
-  const displayedJobs = useMemo(() => (isSearchMode ? searchResults ?? [] : jobs), [isSearchMode, searchResults, jobs]);
+  const displayedJobs = useMemo(() => (isSearchMode ? searchResults : jobs), [isSearchMode, searchResults, jobs]);
 
   return (
     <div className="w-full max-w-2xl mx-auto">
@@ -239,7 +160,7 @@ export function JobsPage() {
                 activeTab === s ? 'bg-brand-blue text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200',
               )}
             >
-              {QC_STATUS_LABELS[s]}
+              {QC_STATUS_LABELS[s]}{!countsLoading && ` (${statusCounts[s] ?? 0})`}
             </button>
           ))}
         </div>

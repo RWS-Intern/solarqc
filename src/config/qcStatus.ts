@@ -1,5 +1,13 @@
 import type { QcStatus } from '@/types/qc';
 
+// The canonical status list for org-wide breakdowns (DashboardPage's
+// OrgSection, CustomersPage's stage chips) — one shared array so every
+// consumer's counts stay in lockstep rather than drifting if each page
+// defined its own subset/ordering.
+export const ALL_STATUSES: QcStatus[] = [
+  'unassigned', 'assigned', 'in_progress', 'pending_approval', 'approved', 'rework', 'cancelled',
+];
+
 export const QC_STATUS_LABELS: Record<QcStatus, string> = {
   unassigned:       'Unassigned',
   assigned:         'Assigned',
