@@ -21,19 +21,23 @@ export function usePresence() {
 
     const presenceRef = ref(rtdb, `presence/${uid}`);
 
+    // None of these are awaited — presence is a best-effort side signal,
+    // never something any other code path waits on. Still catch failures
+    // explicitly so a denied/offline write surfaces as a logged error
+    // instead of an uncaught promise rejection.
     set(presenceRef, {
       online:   true,
       lastSeen: Date.now(),
       name,
       role,
-    });
+    }).catch((err) => console.error('[usePresence] online write failed:', err));
 
     onDisconnect(presenceRef).set({
       online:   false,
       lastSeen: serverTimestamp(),
       name,
       role,
-    });
+    }).catch((err) => console.error('[usePresence] onDisconnect registration failed:', err));
 
     return () => {
       // Use the stored ref so the write succeeds even if currentUser is
@@ -46,7 +50,7 @@ export function usePresence() {
         lastSeen: serverTimestamp(),
         name:     '',
         role:     '',
-      });
+      }).catch((err) => console.error('[usePresence] offline cleanup write failed:', err));
     };
   }, [currentUser?.uid]);
 }

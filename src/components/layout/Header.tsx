@@ -17,16 +17,22 @@ export function Header() {
   // listener sets connection state again — useTaskStore no longer has one.
 
   const handleLogout = async () => {
-    // Write offline BEFORE signing out — after signOut the RTDB connection
-    // loses auth context and the write would be rejected.
+    // Best-effort — attempted BEFORE signing out, since after signOut the
+    // RTDB connection loses auth context and the write would be rejected
+    // outright. Deliberately NOT awaited: this must never be able to block
+    // the actual sign-out below. It previously was awaited with no error
+    // handling, so a rejected write here (confirmed live: the RTDB rules
+    // deploy had never actually gone out, so every presence write was
+    // permission-denied for every role) silently broke logout completely —
+    // signOut() was simply never reached.
     const uid = auth.currentUser?.uid;
     if (uid) {
-      await set(ref(rtdb, `presence/${uid}`), {
+      set(ref(rtdb, `presence/${uid}`), {
         online:   false,
         lastSeen: serverTimestamp(),
         name:     currentUser?.name ?? '',
         role:     currentUser?.role ?? '',
-      });
+      }).catch((err) => console.error('[Header] presence cleanup on logout failed:', err));
     }
     await signOut(auth);
     setCurrentUser(null);
