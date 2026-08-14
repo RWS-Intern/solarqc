@@ -409,7 +409,14 @@ describe('qcJobs read isolation', () => {
   });
 });
 
-describe('qcJobs create/delete — admin only', () => {
+// Go-live fix — manageCustomers (roles.ts: "upload customers, create QC
+// jobs") already granted qc_manager the "Add single customer" UI on
+// CustomersPage.tsx, but this rule was admin-only regardless, so
+// createQcJob()'s transaction always failed closed for qc_manager.
+// Confirmed live against production (real qc_manager account, real
+// commit rejected) before this fix went in. Delete stays admin-only —
+// no capability grants qc_manager job deletion anywhere else.
+describe('qcJobs create — admin + qc_manager, delete — admin only', () => {
   it('allows admin to create a job', async () => {
     const db = testEnv.authenticatedContext(ADMIN_UID).firestore();
     await assertSucceeds(setDoc(doc(db, 'qcJobs', 'job-new'), {
@@ -417,15 +424,20 @@ describe('qcJobs create/delete — admin only', () => {
       answers: {}, tally: emptyTally, createdBy: ADMIN_UID, updatedAt: new Date(),
     }));
   });
-  it('rejects qc_manager creating a job', async () => {
+  it('allows qc_manager to create a job', async () => {
     const db = testEnv.authenticatedContext(QC_MANAGER_UID).firestore();
-    await assertFails(setDoc(doc(db, 'qcJobs', 'job-new'), {
-      qcNum: 'QC-000099', status: 'unassigned', reworkRound: 0, answers: {}, tally: emptyTally,
+    await assertSucceeds(setDoc(doc(db, 'qcJobs', 'job-new'), {
+      qcNum: 'QC-000099', status: 'unassigned', reworkRound: 0,
+      answers: {}, tally: emptyTally, createdBy: QC_MANAGER_UID, updatedAt: new Date(),
     }));
   });
   it('allows admin to delete a job', async () => {
     const db = testEnv.authenticatedContext(ADMIN_UID).firestore();
     await assertSucceeds(deleteDoc(doc(db, 'qcJobs', 'job-1')));
+  });
+  it('rejects qc_manager deleting a job', async () => {
+    const db = testEnv.authenticatedContext(QC_MANAGER_UID).firestore();
+    await assertFails(deleteDoc(doc(db, 'qcJobs', 'job-1')));
   });
   it('rejects approver deleting a job', async () => {
     const db = testEnv.authenticatedContext(APPROVER_UID).firestore();
@@ -699,7 +711,7 @@ describe('errorLogs — write your own, read admin-only', () => {
   });
 });
 
-describe('appConfig — read by anyone signed in, write by admin only', () => {
+describe('appConfig — read by anyone signed in, write mostly admin only', () => {
   beforeEach(async () => {
     await testEnv.withSecurityRulesDisabled((ctx) =>
       setDoc(doc(ctx.firestore(), 'appConfig', 'global'), { orgName: 'Rite Solar' }),
@@ -714,11 +726,46 @@ describe('appConfig — read by anyone signed in, write by admin only', () => {
     const db = testEnv.unauthenticatedContext().firestore();
     await assertFails(getDoc(doc(db, 'appConfig', 'global')));
   });
-  it('lets admin write appConfig', async () => {
+  it('lets admin write qcNumCounter', async () => {
     const db = testEnv.authenticatedContext(ADMIN_UID).firestore();
     await assertSucceeds(updateDoc(doc(db, 'appConfig', 'global'), { qcNumCounter: 1 }));
   });
-  it('rejects qc_manager writing appConfig — closes the old field/proposal/backend write hole', async () => {
+  it('lets admin write qcTemplate too — the unrestricted admin branch', async () => {
+    const db = testEnv.authenticatedContext(ADMIN_UID).firestore();
+    await assertSucceeds(updateDoc(doc(db, 'appConfig', 'global'), { qcTemplate: [{ fieldId: 'x' }] }));
+  });
+
+  // Go-live fix — createQcJob()'s own transaction increments qcNumCounter
+  // on this same document as part of the same atomic commit that creates
+  // the job; resolveAndAutoAddStateDistrict() separately writes
+  // districts/districtsByState when a customer's state/district is new.
+  // Both were admin-only regardless, so the whole commit (job included)
+  // failed closed for qc_manager. Confirmed live against production
+  // before this narrow fix went in.
+  it('lets qc_manager write qcNumCounter specifically', async () => {
+    const db = testEnv.authenticatedContext(QC_MANAGER_UID).firestore();
+    await assertSucceeds(updateDoc(doc(db, 'appConfig', 'global'), { qcNumCounter: 1 }));
+  });
+  it('lets qc_manager write districts/districtsByState — what resolveAndAutoAddStateDistrict() needs', async () => {
+    const db = testEnv.authenticatedContext(QC_MANAGER_UID).firestore();
+    await assertSucceeds(updateDoc(doc(db, 'appConfig', 'global'), {
+      districts: ['Nagpur'], 'districtsByState.Maharashtra': ['Nagpur'],
+    }));
+  });
+  it('rejects qc_manager writing qcTemplate — narrowly scoped, not blanket access to the document', async () => {
+    const db = testEnv.authenticatedContext(QC_MANAGER_UID).firestore();
+    await assertFails(updateDoc(doc(db, 'appConfig', 'global'), { qcTemplate: [{ fieldId: 'x' }] }));
+  });
+  it('rejects qc_manager sneaking qcTemplate in alongside an otherwise-valid qcNumCounter write', async () => {
+    const db = testEnv.authenticatedContext(QC_MANAGER_UID).firestore();
+    await assertFails(updateDoc(doc(db, 'appConfig', 'global'), {
+      qcNumCounter: 1, qcTemplate: [{ fieldId: 'x' }],
+    }));
+  });
+  it('rejects a disabled qc_manager writing qcNumCounter', async () => {
+    await testEnv.withSecurityRulesDisabled((ctx) =>
+      updateDoc(doc(ctx.firestore(), 'users', QC_MANAGER_UID), { active: false }),
+    );
     const db = testEnv.authenticatedContext(QC_MANAGER_UID).firestore();
     await assertFails(updateDoc(doc(db, 'appConfig', 'global'), { qcNumCounter: 1 }));
   });

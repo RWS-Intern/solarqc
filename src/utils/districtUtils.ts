@@ -57,9 +57,14 @@ export async function resolveAndAutoAddStateDistrict(
     updates['districts'] = arrayUnion(resolvedDistrict);
   }
 
+  // Awaited deliberately — every caller already awaits this whole function
+  // inside its own try/catch (CustomerForm.tsx, useUserActions.ts), so a
+  // failure here now surfaces the same way any other failed write would,
+  // instead of being silently swallowed while the job/user still gets
+  // created with a district/state that never actually made it into the
+  // app's own filter config.
   if (Object.keys(updates).length > 0) {
-    updateDoc(configRef, updates).catch((err) =>
-      console.error('[resolveAndAutoAddStateDistrict] failed:', err));
+    await updateDoc(configRef, updates);
   }
 
   return { resolvedState, resolvedDistrict };

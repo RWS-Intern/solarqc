@@ -65,7 +65,17 @@ service cloud.firestore {
         || (role() == 'qc_inspector' && resource.data.inspectorUid == request.auth.uid)
       );
 
-      allow create, delete: if signedIn() && active() && role() == 'admin';
+      // Create matches manageCustomers (roles.ts: "upload customers,
+      // create QC jobs") -- already granted to both admin and qc_manager,
+      // and CustomersPage.tsx's action cards are gated on exactly that
+      // capability. This rule was admin-only regardless, silently
+      // blocking qc_manager's half of createQcJob()'s atomic transaction
+      // even after appConfig/global's own qc_manager allowance above --
+      // the UI offered an action neither half of the rules actually let
+      // qc_manager finish. Delete stays admin-only -- no capability grants
+      // qc_manager job deletion anywhere else in this app.
+      allow create: if signedIn() && active() && role() in ['admin', 'qc_manager'];
+      allow delete: if signedIn() && active() && role() == 'admin';
 
       // Inspector: own job, only in a fillable state, only inspector
       // fields, and status may only move in_progress -> pending_approval
@@ -188,6 +198,21 @@ service cloud.firestore {
     match /appConfig/{docId} {
       allow read:  if signedIn();
       allow write: if signedIn() && active() && role() == 'admin';
+
+      // qc_manager: only what createQcJob()'s own transaction and
+      // resolveAndAutoAddStateDistrict() legitimately touch when creating
+      // a job — the qcNumCounter increment, and (if the customer's
+      // state/district is new) districts/districtsByState. Never
+      // qcTemplate, declarationTexts, superAdminUid, or anything else —
+      // manageTemplate stays admin-only (App.tsx's own /template route
+      // agrees). manageCustomers already grants qc_manager the "Add
+      // single customer"/CSV-import UI (CustomersPage.tsx); this closes
+      // the gap where that UI promised something this rule didn't
+      // actually let them finish — job creation's atomic transaction
+      // needs this same document's write to succeed as part of the same
+      // commit, or the whole thing (job included) fails closed.
+      allow update: if signedIn() && active() && role() == 'qc_manager'
+        && touched().hasOnly(['qcNumCounter', 'districts', 'districtsByState']);
     }
 
     match /users/{uid} {
