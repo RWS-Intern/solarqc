@@ -1,7 +1,7 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 import { groupBySections } from '@/utils/qcSections';
-import type { QcJob, SignOff } from '@/types/qc';
+import type { QcJob, QcFieldType, SignOff } from '@/types/qc';
 
 // A signed attestation — status, severity, remark per point, both
 // signatures, the verdict — not a photo dossier. A QC job can carry up
@@ -33,6 +33,16 @@ const GLYPH_FALLBACKS: Record<string, string> = {
   '≤': '<=', '≥': '>=', '≠': '!=',
   '→': '->', '←': '<-',
 };
+
+// The only two types QcCheckItem.tsx ever sets an ans.status on (its
+// PASS/FAIL/N/A buttons only render for these) — everything else
+// (number/text/longtext/select/date, signature once implemented) stores
+// straight to value/numericValue and never has a verdict. A PASS/FAIL/
+// severity tag for one of those would be exactly as meaningless as it
+// would be for photo_only, which already got its own branch below for
+// the same reason — this just generalizes that same reasoning instead
+// of leaving every other non-verdict type to fall through into it.
+const VERDICT_BEARING_TYPES: QcFieldType[] = ['passfail', 'measurement'];
 
 function makeSanitizer(fontBytes: ArrayBuffer): (text: string) => string {
   // fontkit's own TS types call for a Node Buffer, but it only ever reads
@@ -257,6 +267,26 @@ export async function generateQcReport(job: QcJob): Promise<Blob> {
         ctx.page.drawText(tagText, {
           x: PAGE_WIDTH - MARGIN - tagW, y: ctx.y + (9 * 1.35) - 9, size: 8.5, font, color: documented ? GREEN : GRAY,
         });
+        ctx.y -= 4;
+        continue;
+      }
+
+      // Free-text/number/date/select (and signature, unimplemented on
+      // the fill screen) never get ans.status set — no PASS/FAIL/N/A
+      // exists for them, so a verdict tag here would read as nonsense
+      // ("— [MAJOR]" for a serial-number field, say), and any severity
+      // sitting on one of these is inert leftover data regardless (see
+      // qcTally.ts/qcValidation.ts — both only ever branch on severity
+      // inside an ans.status === 'fail' check, which these types can
+      // never reach). Same reasoning as the photo_only branch above,
+      // just without a photo count to report instead.
+      if (!VERDICT_BEARING_TYPES.includes(field.type)) {
+        ensureSpace(ctx, 14);
+        const codeLabel = `${field.code ? field.code + ' ' : ''}${field.label}`;
+        drawWrapped(ctx, codeLabel, MARGIN, PAGE_WIDTH - MARGIN * 2, { size: 9, font: bold });
+        const value = ans?.value ?? (ans?.numericValue !== undefined ? `${ans.numericValue}${field.unit ? ` ${field.unit}` : ''}` : '');
+        drawWrapped(ctx, value ? `Value: ${value}` : 'Not answered', MARGIN + 10, PAGE_WIDTH - MARGIN * 2 - 10, { size: 8.5, color: GRAY });
+        if (ans?.remark) drawWrapped(ctx, `Remark: ${ans.remark}`, MARGIN + 10, PAGE_WIDTH - MARGIN * 2 - 10, { size: 8.5, color: GRAY });
         ctx.y -= 4;
         continue;
       }
