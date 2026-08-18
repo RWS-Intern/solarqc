@@ -16,6 +16,10 @@ interface QcSectionProps {
   jobId?:         string;
   qcNum?:         string;
   disabled?:      boolean;
+  // See QcCheckItem.tsx's own comment — distinct from `disabled`, swaps
+  // the visual language to a flat badge/plain text. Only ever passed
+  // true from JobReadOnlyView.tsx.
+  readOnly?:      boolean;
   // Review-mode only (ApprovalReviewPage) — threaded straight through to
   // each QcCheckItem; no-ops in fill mode when not passed.
   onPhotoClick?:            (url: string, allUrls: string[], index: number) => void;
@@ -26,7 +30,7 @@ interface QcSectionProps {
 }
 
 export function QcSection({
-  title, fields, answers, onAnswerChange, allIssues, onCollapse, jobId, qcNum, disabled,
+  title, fields, answers, onAnswerChange, allIssues, onCollapse, jobId, qcNum, disabled, readOnly,
   onPhotoClick, approverComments, onApproverCommentChange, reworkPointIds, onToggleRework,
 }: QcSectionProps) {
   const [expanded, setExpanded] = useState(true);
@@ -82,6 +86,7 @@ export function QcSection({
               jobId={jobId}
               qcNum={qcNum}
               disabled={disabled}
+              readOnly={readOnly}
               onPhotoClick={onPhotoClick}
               approverComment={approverComments?.[field.fieldId]}
               onApproverCommentChange={onApproverCommentChange}

@@ -19,6 +19,17 @@ const STATUS_STYLE: Record<Exclude<CheckStatus, null>, { active: string; label: 
   na:   { active: 'bg-gray-500 text-white border-gray-500',   label: 'N/A'  },
 };
 
+// Read-only rendering of a recorded status — same flat-pill visual
+// language as the job-status badges on JobsPage/CustomersPage
+// (rounded-full, light bg, no border/shadow), deliberately never the
+// solid button-shaped STATUS_STYLE.active above, which is reserved for
+// the real, tappable PASS/FAIL/N/A buttons on the fill screen.
+const STATUS_BADGE: Record<Exclude<CheckStatus, null>, string> = {
+  pass: 'bg-green-100 text-green-700',
+  fail: 'bg-red-100 text-red-700',
+  na:   'bg-gray-100 text-gray-600',
+};
+
 interface QcCheckItemProps {
   field:          QcFieldDefinition;
   answer:         QcAnswer | undefined;
@@ -27,6 +38,15 @@ interface QcCheckItemProps {
   jobId?:         string;
   qcNum?:         string;
   disabled?:      boolean;
+  // Distinct from `disabled`. `disabled` only blocks interaction (still
+  // used on a locked fill screen post-submission, where the inspector
+  // should keep seeing their own real buttons/inputs, just inert).
+  // `readOnly` additionally swaps the visual language to a flat badge /
+  // plain text — for JobReadOnlyView.tsx's two consumers (the approver's
+  // review screen, the admin/viewer route) only, where what's shown is
+  // someone else's already-completed record, not a temporarily-frozen
+  // version of the fill screen. Never passed from QcFillPage.tsx.
+  readOnly?:      boolean;
   // Review-mode only (ApprovalReviewPage) — all optional, all no-ops in
   // fill mode (Phases 4–5) when simply not passed.
   onPhotoClick?:           (url: string, allUrls: string[], index: number) => void;
@@ -37,7 +57,7 @@ interface QcCheckItemProps {
 }
 
 export function QcCheckItem({
-  field, answer, onAnswerChange, allIssues, jobId, qcNum, disabled,
+  field, answer, onAnswerChange, allIssues, jobId, qcNum, disabled, readOnly,
   onPhotoClick, approverComment, onApproverCommentChange, flaggedForRework, onToggleRework,
 }: QcCheckItemProps) {
   // Live validation, not submit-time: this field's own outstanding issues
@@ -161,10 +181,17 @@ export function QcCheckItem({
 
   if (field.type === 'number' || field.type === 'text' || field.type === 'longtext' || field.type === 'date') {
     const inputType = field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : 'text';
+    const rawValue = field.type === 'number' ? answer?.numericValue : answer?.value;
     return (
       <div id={field.fieldId} className="rounded-xl border border-gray-200 bg-white p-4 flex flex-col gap-3">
         {header}
-        {field.type === 'longtext' ? (
+        {readOnly ? (
+          <p className="text-sm text-gray-900 whitespace-pre-wrap">
+            {rawValue !== undefined && rawValue !== ''
+              ? String(rawValue)
+              : <span className="text-gray-400 italic">Not answered</span>}
+          </p>
+        ) : field.type === 'longtext' ? (
           <Textarea
             value={answer?.value ?? ''}
             onChange={(e) => onAnswerChange(field.fieldId, { value: e.target.value })}
@@ -194,15 +221,21 @@ export function QcCheckItem({
     return (
       <div id={field.fieldId} className="rounded-xl border border-gray-200 bg-white p-4 flex flex-col gap-3">
         {header}
-        <select
-          value={answer?.value ?? ''}
-          onChange={(e) => { onAnswerChange(field.fieldId, { value: e.target.value }); setTouched(true); }}
-          disabled={disabled}
-          className="h-10 w-full max-w-xs rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-        >
-          <option value="">— Select —</option>
-          {field.options.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
-        </select>
+        {readOnly ? (
+          <p className="text-sm text-gray-900">
+            {answer?.value || <span className="text-gray-400 italic">Not answered</span>}
+          </p>
+        ) : (
+          <select
+            value={answer?.value ?? ''}
+            onChange={(e) => { onAnswerChange(field.fieldId, { value: e.target.value }); setTouched(true); }}
+            disabled={disabled}
+            className="h-10 w-full max-w-xs rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          >
+            <option value="">— Select —</option>
+            {field.options.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+          </select>
+        )}
         {hasIssue('required') && <p className="text-xs text-brand-red">This point is required.</p>}
         {reviewExtras}
       </div>
@@ -220,35 +253,52 @@ export function QcCheckItem({
       {header}
 
       {field.type === 'measurement' && (
-        <MeasurementInput
-          value={answer?.numericValue}
-          unit={field.unit}
-          expectedMin={field.expectedMin}
-          expectedMax={field.expectedMax}
-          onChange={(v) => onAnswerChange(field.fieldId, { numericValue: v })}
-          onBlur={() => setTouched(true)}
-          disabled={disabled}
-        />
+        readOnly ? (
+          <p className="text-sm text-gray-900">
+            {answer?.numericValue !== undefined
+              ? <>Value: {answer.numericValue}{field.unit ? ` ${field.unit}` : ''}</>
+              : <span className="text-gray-400 italic">Not measured</span>}
+          </p>
+        ) : (
+          <MeasurementInput
+            value={answer?.numericValue}
+            unit={field.unit}
+            expectedMin={field.expectedMin}
+            expectedMax={field.expectedMax}
+            onChange={(v) => onAnswerChange(field.fieldId, { numericValue: v })}
+            onBlur={() => setTouched(true)}
+            disabled={disabled}
+          />
+        )
       )}
 
-      <div className={cn('grid gap-2', showNA ? 'grid-cols-3' : 'grid-cols-2')}>
-        {(['pass', 'fail', 'na'] as const)
-          .filter((s) => s !== 'na' || showNA)
-          .map((s) => (
-            <button
-              key={s}
-              type="button"
-              disabled={disabled}
-              onClick={() => setStatus(s)}
-              className={cn(
-                'h-11 rounded-lg border text-sm font-semibold transition-colors',
-                answer?.status === s ? STATUS_STYLE[s].active : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50',
-              )}
-            >
-              {STATUS_STYLE[s].label}
-            </button>
-          ))}
-      </div>
+      {readOnly ? (
+        <span className={cn(
+          'inline-flex self-start rounded-full px-2.5 py-1 text-xs font-semibold',
+          answer?.status ? STATUS_BADGE[answer.status] : 'bg-gray-100 text-gray-400',
+        )}>
+          {answer?.status ? STATUS_STYLE[answer.status].label : 'Not answered'}
+        </span>
+      ) : (
+        <div className={cn('grid gap-2', showNA ? 'grid-cols-3' : 'grid-cols-2')}>
+          {(['pass', 'fail', 'na'] as const)
+            .filter((s) => s !== 'na' || showNA)
+            .map((s) => (
+              <button
+                key={s}
+                type="button"
+                disabled={disabled}
+                onClick={() => setStatus(s)}
+                className={cn(
+                  'h-11 rounded-lg border text-sm font-semibold transition-colors',
+                  answer?.status === s ? STATUS_STYLE[s].active : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50',
+                )}
+              >
+                {STATUS_STYLE[s].label}
+              </button>
+            ))}
+        </div>
+      )}
       {hasIssue('required') && <p className="text-xs text-brand-red">This point is required.</p>}
 
       <div className="flex flex-col gap-1.5">
@@ -273,19 +323,28 @@ export function QcCheckItem({
         />
       </div>
 
-      <div className="flex flex-col gap-1">
-        <label className="text-xs font-medium text-gray-500">
-          Remark {remarkRequired ? <span className="text-brand-red">(required for a Fail)</span> : '(optional)'}
-        </label>
-        <Textarea
-          value={answer?.remark ?? ''}
-          onChange={(e) => onAnswerChange(field.fieldId, { remark: e.target.value })}
-          onBlur={() => setTouched(true)}
-          disabled={disabled}
-          className={cn('text-sm', remarkRequired && 'border-brand-red focus-visible:ring-brand-red')}
-        />
-        {remarkRequired && <p className="text-xs text-brand-red">⚠ Remark required for a Fail.</p>}
-      </div>
+      {readOnly ? (
+        answer?.remark && (
+          <div className="flex flex-col gap-1">
+            <p className="text-xs font-medium text-gray-500">Remark</p>
+            <p className="text-sm text-gray-900 whitespace-pre-wrap">{answer.remark}</p>
+          </div>
+        )
+      ) : (
+        <div className="flex flex-col gap-1">
+          <label className="text-xs font-medium text-gray-500">
+            Remark {remarkRequired ? <span className="text-brand-red">(required for a Fail)</span> : '(optional)'}
+          </label>
+          <Textarea
+            value={answer?.remark ?? ''}
+            onChange={(e) => onAnswerChange(field.fieldId, { remark: e.target.value })}
+            onBlur={() => setTouched(true)}
+            disabled={disabled}
+            className={cn('text-sm', remarkRequired && 'border-brand-red focus-visible:ring-brand-red')}
+          />
+          {remarkRequired && <p className="text-xs text-brand-red">⚠ Remark required for a Fail.</p>}
+        </div>
+      )}
 
       {reviewExtras}
     </div>

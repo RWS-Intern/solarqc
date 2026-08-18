@@ -110,6 +110,7 @@ export function JobReadOnlyView({
           jobId={job.id}
           qcNum={job.qcNum}
           disabled
+          readOnly
           onPhotoClick={onPhotoClick}
           approverComments={approverComments}
           onApproverCommentChange={onApproverCommentChange}
