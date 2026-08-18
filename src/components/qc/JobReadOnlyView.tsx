@@ -94,6 +94,7 @@ export function JobReadOnlyView({
           qcNum={job.qcNum}
           disabled
           allIssues={[]}
+          onPhotoClick={onPhotoClick}
         />
       )}
 

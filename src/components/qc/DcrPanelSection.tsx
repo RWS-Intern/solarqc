@@ -18,6 +18,11 @@ interface DcrPanelSectionProps {
   qcNum:              string;
   disabled?:          boolean;
   allIssues:          QcValidationIssue[];
+  // Threaded straight into each panel's PhotoZone, same as every other
+  // PhotoZone call site (QcCheckItem.tsx) — PhotoZone already builds the
+  // (url, allUrls, index) click payload itself, so this component just
+  // needs to forward whatever its caller passed, not build anything new.
+  onPhotoClick?:      (url: string, allUrls: string[], index: number) => void;
 }
 
 // Only rendered when job.system.moduleType === 'dcr' (QcFillPage.tsx). A
@@ -26,7 +31,7 @@ interface DcrPanelSectionProps {
 // conditional on job data, so it doesn't belong in groupBySections().
 export function DcrPanelSection({
   panels, onSetPanelCount, onUpdateSerial, onPanelPhotoChange,
-  jobId, qcNum, disabled, allIssues,
+  jobId, qcNum, disabled, allIssues, onPhotoClick,
 }: DcrPanelSectionProps) {
   const [expanded, setExpanded] = useState(true);
   const list = panels ?? [];
@@ -106,6 +111,7 @@ export function DcrPanelSection({
                     queueKind="panel"
                     capture="environment"
                     disabled={disabled}
+                    onPhotoClick={onPhotoClick}
                   />
                 </div>
 

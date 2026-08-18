@@ -6,6 +6,7 @@ import { useQcFill } from '@/hooks/useQcFill';
 import { useQcJobActions } from '@/hooks/useQcJobActions';
 import { QcSection } from '@/components/qc/QcSection';
 import { DcrPanelSection } from '@/components/qc/DcrPanelSection';
+import { EvidenceGallery } from '@/components/qc/EvidenceGallery';
 import { QcTallyBar } from '@/components/qc/QcTallyBar';
 import { SignOffBlock } from '@/components/qc/SignOffBlock';
 import { Button } from '@/components/ui/button';
@@ -44,6 +45,7 @@ export function QcFillPage() {
 
   const [criticalConfirmOpen, setCriticalConfirmOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [gallery, setGallery] = useState<{ photos: string[]; index: number } | null>(null);
 
   const sections = useMemo(() => groupBySections(job?.template ?? []), [job?.template]);
 
@@ -191,6 +193,7 @@ export function QcFillPage() {
             qcNum={job!.qcNum}
             disabled={isLocked}
             allIssues={allIssues}
+            onPhotoClick={(_url, allUrls, index) => setGallery({ photos: allUrls, index })}
           />
         )}
 
@@ -206,6 +209,7 @@ export function QcFillPage() {
             jobId={job!.id}
             qcNum={job!.qcNum}
             disabled={isLocked}
+            onPhotoClick={(_url, allUrls, index) => setGallery({ photos: allUrls, index })}
           />
         ))}
 
@@ -268,6 +272,15 @@ export function QcFillPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {gallery && (
+        <EvidenceGallery
+          photos={gallery.photos}
+          startIndex={gallery.index}
+          onClose={() => setGallery(null)}
+          location={location}
+        />
+      )}
     </div>
   );
 }
