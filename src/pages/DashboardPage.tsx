@@ -91,7 +91,15 @@ function OrgSection() {
             count={counts[status]}
             loading={loading}
             color={QC_STATUS_COLOR[status]}
-            onClick={() => navigate('/jobs')}
+            // Same query-string pattern as the critical-fails tile below
+            // (/customers?criticalFail=1) — JobsPage reads ?status=
+            // directly off the URL to seed its active tab, rather than
+            // relying on React Router `state`, which doesn't survive a
+            // refresh. Every tile was landing on the same default
+            // 'unassigned' tab before this, regardless of which was
+            // clicked — navigate('/jobs') carried no status at all, and
+            // JobsPage never had anything to read even if it had.
+            onClick={() => navigate(`/jobs?status=${status}`)}
           />
         ))}
         <CountCard

@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Search, UserCog } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import { useUserStore } from '@/store/userStore';
@@ -117,11 +117,23 @@ function JobRow({ job, canAssign, onAssign }: { job: JobListItem; canAssign: boo
   );
 }
 
+function isQcStatus(value: string | null): value is QcStatus {
+  return !!value && (TAB_ORDER as string[]).includes(value);
+}
+
 export function JobsPage() {
   const { currentUser } = useAuthStore();
   const canAssign = can(currentUser?.role, 'assignJobs');
 
-  const [activeTab, setActiveTab] = useState<QcStatus>('unassigned');
+  // Same proven pattern as the Dashboard's critical-fails tile
+  // (/customers?criticalFail=1) — a plain URL query string the
+  // destination page reads directly, rather than React Router `state`,
+  // which doesn't survive a refresh. Read once on mount so a tile link
+  // seeds the initial tab; manual tab clicks below are just local state,
+  // matching how CustomersPage's own criticalFailOnly toggle behaves.
+  const [searchParams] = useSearchParams();
+  const initialTab = searchParams.get('status');
+  const [activeTab, setActiveTab] = useState<QcStatus>(isQcStatus(initialTab) ? initialTab : 'unassigned');
   const [assignTarget, setAssignTarget] = useState<JobListItem | null>(null);
 
   const { jobs, loading, hasMore, loadingMore, loadMore } = useQcJobs({ status: activeTab });
