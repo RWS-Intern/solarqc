@@ -95,6 +95,12 @@ function docToQcJob(d: QueryDocumentSnapshot<DocumentData>): QcJob {
 
 interface UseQcJobsOptions {
   status?: QcStatus;
+  // "Has a critical fail on record" isn't a status — a job in any status
+  // tab could have one — so it's a separate, composable axis rather than
+  // another value status could take. Reuses the exact same
+  // tally.criticalFail > 0 condition useQcCriticalFailCount() already
+  // counts with, just fetching real documents instead of a count.
+  criticalFailOnly?: boolean;
 }
 
 export function useQcJobs(opts: UseQcJobsOptions = {}) {
@@ -102,6 +108,7 @@ export function useQcJobs(opts: UseQcJobsOptions = {}) {
   const role = currentUser?.role;
   const uid  = currentUser?.uid;
   const status = opts.status;
+  const criticalFailOnly = opts.criticalFailOnly ?? false;
 
   const [jobs,        setJobs]        = useState<QcJob[]>([]);
   const [loading,      setLoading]    = useState(true);
@@ -130,6 +137,7 @@ export function useQcJobs(opts: UseQcJobsOptions = {}) {
       // wasn't declared for this phase.
     }
     if (status) constraints.push(where('status', '==', status));
+    if (criticalFailOnly) constraints.push(where('tally.criticalFail', '>', 0));
     return constraints;
   }
 
@@ -162,7 +170,7 @@ export function useQcJobs(opts: UseQcJobsOptions = {}) {
 
     return unsubscribe;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [role, uid, status]);
+  }, [role, uid, status, criticalFailOnly]);
 
   const loadMore = useCallback(async () => {
     if (!currentUser || !lastDocRef.current || loadingMore) return;
@@ -186,7 +194,7 @@ export function useQcJobs(opts: UseQcJobsOptions = {}) {
       setLoadingMore(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [role, uid, status, loadingMore, currentUser]);
+  }, [role, uid, status, criticalFailOnly, loadingMore, currentUser]);
 
   return { jobs, loading, loadingMore, hasMore, loadMore, hasPendingWrites };
 }

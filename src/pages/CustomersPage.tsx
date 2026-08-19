@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Upload, UserPlus, Search, Phone } from 'lucide-react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Upload, UserPlus, Search, Phone, AlertTriangle } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import { can } from '@/config/roles';
 import { useQcJobs } from '@/hooks/useQcJobs';
-import { useQcStatusCounts } from '@/hooks/useQcStatusCounts';
+import { useQcStatusCounts, useQcCriticalFailCount } from '@/hooks/useQcStatusCounts';
 import { useJobSearch, type JobListItem } from '@/hooks/useJobSearch';
 import { CountCard } from '@/components/qc/CountCard';
 import { QC_STATUS_LABELS, QC_STATUS_COLOR, ALL_STATUSES } from '@/config/qcStatus';
@@ -62,6 +62,14 @@ export function CustomersPage() {
   const [showImport, setShowImport] = useState(false);
   const [showForm,   setShowForm]   = useState(false);
 
+  // "Has a critical fail" isn't a status a job sits in — it's an
+  // independent axis that composes with either browsing mode below,
+  // seeded from the Dashboard tile's ?criticalFail=1 link (or set
+  // directly here) and never touching `search`'s own state.
+  const [searchParams] = useSearchParams();
+  const [criticalFailOnly, setCriticalFailOnly] = useState(searchParams.get('criticalFail') === '1');
+  const criticalFailTotal = useQcCriticalFailCount();
+
   // One shared count fetch for both the per-status chips and "Total
   // customers" — the total is just their sum, not a second query.
   const { counts, loading: countsLoading } = useQcStatusCounts(ALL_STATUSES);
@@ -70,9 +78,18 @@ export function CustomersPage() {
   // No status filter -- every job, every status, most recent first,
   // paginated via useQcJobs' own hasMore/loadMore (same mechanism
   // ReportsPage uses, just without the {status:'approved'} constraint).
-  const { jobs, loading, hasMore, loadingMore, loadMore } = useQcJobs();
+  // criticalFailOnly reuses the exact tally.criticalFail > 0 condition
+  // useQcCriticalFailCount() already counts with — same query shape,
+  // now fetching real documents instead of just a count.
+  const { jobs, loading, hasMore, loadingMore, loadMore } = useQcJobs({ criticalFailOnly });
   const { search, setSearch, results: searchResults, searching, isSearchMode } = useJobSearch();
-  const displayedJobs = isSearchMode ? searchResults : jobs;
+  // Search already reads the whole document (tally included) off
+  // Firestore — composing the critical-fail filter with a search hit is
+  // a client-side filter over data already fetched, not a second query.
+  const filteredSearchResults = criticalFailOnly
+    ? searchResults.filter((r) => r.tally.criticalFail > 0)
+    : searchResults;
+  const displayedJobs = isSearchMode ? filteredSearchResults : jobs;
 
   return (
     <div className="w-full max-w-2xl mx-auto">
@@ -123,7 +140,7 @@ export function CustomersPage() {
         ))}
       </div>
 
-      <div className="relative mb-4">
+      <div className="relative mb-3">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
         <input
           type="search"
@@ -134,13 +151,42 @@ export function CustomersPage() {
         />
       </div>
 
+      {/* A different axis from the status chips above, not an eighth
+          status — a critical fail can sit in any status tab at once, so
+          this is its own toggle rather than a row in that grid, and it
+          composes with search instead of being overridden by it. */}
+      <button
+        type="button"
+        onClick={() => setCriticalFailOnly((v) => !v)}
+        className={cn(
+          'inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors mb-4',
+          criticalFailOnly
+            ? 'bg-brand-red border-brand-red text-white'
+            : 'bg-white border-red-200 text-brand-red hover:bg-red-50',
+        )}
+      >
+        <AlertTriangle className="h-3.5 w-3.5" />
+        Critical fails only
+        {criticalFailTotal !== null && (
+          <span className={cn('rounded-full px-1.5 text-[10px]', criticalFailOnly ? 'bg-white/20' : 'bg-red-100')}>
+            {criticalFailTotal}
+          </span>
+        )}
+      </button>
+
       {(isSearchMode ? searching : loading) ? (
         <div className="flex flex-col gap-3">
           {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)}
         </div>
       ) : displayedJobs.length === 0 ? (
         <div className="text-center py-16 text-gray-400 text-sm">
-          {isSearchMode ? 'No customers match your search.' : 'No customers yet.'}
+          {isSearchMode && criticalFailOnly
+            ? 'No critical-fail jobs match your search.'
+            : isSearchMode
+            ? 'No customers match your search.'
+            : criticalFailOnly
+            ? 'No jobs with a critical fail on record.'
+            : 'No customers yet.'}
         </div>
       ) : (
         <div className="flex flex-col gap-3">

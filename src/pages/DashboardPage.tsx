@@ -99,7 +99,11 @@ function OrgSection() {
           count={criticalFailCount ?? undefined}
           loading={criticalFailCount === null}
           color={QC_STATUS_COLOR.rework}
-          onClick={() => navigate('/jobs')}
+          // Not a status — a critical fail can sit in any of the seven
+          // status tabs at once, so there's no single Jobs tab this could
+          // correctly point at. Customers is the flat, all-statuses view
+          // built for exactly this shape of filter.
+          onClick={() => navigate('/customers?criticalFail=1')}
         />
       </div>
     </div>

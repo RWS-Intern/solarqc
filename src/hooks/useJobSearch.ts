@@ -8,8 +8,11 @@ import type { QcJob, QcStatus } from '@/types/qc';
 // What JobRow/CustomersPage's directory rows actually render — a search
 // hit only fetches these fields, so it's typed narrower rather than cast
 // up to the full QcJob shape. A real QcJob (from tab/list browsing)
-// satisfies this structurally with no cast needed either way.
-export type JobListItem = Pick<QcJob, 'id' | 'qcNum' | 'status' | 'customer' | 'inspectorUid' | 'inspectorName' | 'updatedAt'>;
+// satisfies this structurally with no cast needed either way. `tally` is
+// included so CustomersPage's critical-fail filter can compose with a
+// search hit client-side — the full document (tally included) is already
+// read off Firestore either way, this just stops discarding it.
+export type JobListItem = Pick<QcJob, 'id' | 'qcNum' | 'status' | 'customer' | 'inspectorUid' | 'inspectorName' | 'updatedAt' | 'tally'>;
 
 function docToJobListItem(id: string, data: Record<string, unknown>): JobListItem {
   const toDate = (v: unknown) => (v as { toDate?: () => Date } | null)?.toDate?.() ?? null;
@@ -23,6 +26,10 @@ function docToJobListItem(id: string, data: Record<string, unknown>): JobListIte
     inspectorUid:  (data['inspectorUid']  as string | null) ?? null,
     inspectorName: (data['inspectorName'] as string) ?? '',
     updatedAt: toDate(data['updatedAt']) ?? new Date(0),
+    tally: (data['tally'] as QcJob['tally']) ?? {
+      total: 0, answered: 0, pass: 0, fail: 0, na: 0,
+      criticalFail: 0, majorFail: 0, minorFail: 0, suggestedVerdict: 'pass',
+    },
   };
 }
 
