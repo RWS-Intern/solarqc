@@ -72,10 +72,20 @@ git checkout qc-conversion
 npm install
 ```
 
-Create a `.env.local` file in the project root with the Firebase web config
-and Cloudinary settings. The exact variable names are read in
-`src/firebase/firebaseConfig.ts` and `src/utils/uploadToCloudinary.ts`.
-Never commit `.env.local`.
+Create a `.env.local` file in the project root with these variables. Never
+commit it.
+
+```
+VITE_FIREBASE_API_KEY=
+VITE_FIREBASE_AUTH_DOMAIN=
+VITE_FIREBASE_PROJECT_ID=
+VITE_FIREBASE_MESSAGING_SENDER_ID=
+VITE_FIREBASE_APP_ID=
+VITE_FIREBASE_DATABASE_URL=
+VITE_CLOUDINARY_CLOUD_NAME=
+VITE_CLOUDINARY_UPLOAD_PRESET=
+VITE_USE_EMULATORS=false   # true = use local Auth/Firestore emulators
+```
 
 ### Run locally
 
@@ -90,12 +100,12 @@ npm run dev
 | Command | What it does |
 |---|---|
 | `npm run dev` | Start the local dev server |
-| `npm run build` | Production build to `dist/` |
+| `npm run build` | Type-check and production build to `dist/` |
+| `npm run preview` | Serve the built `dist/` locally |
 | `npm run test:unit` | Unit tests for checklist tally and validation logic |
 | `npm run test:rules` | Firestore security-rules tests (starts the emulator; needs Java) |
-| `npx tsc -b` | Type-check |
-
-See `package.json` for the full list.
+| `npm run generate-icons` | Regenerate the favicon and PWA icons from the logo mark |
+| `npm run lint` | Not working yet: ESLint is not installed or configured |
 
 ---
 
@@ -181,6 +191,8 @@ Read these before changing anything structural.
 - Approvers cannot sign while offline.
 - Customer names in non-Latin scripts render as `?` on PDF certificates.
 - Job and customer details cannot be edited after the job is created.
+- Invite links (`/signup/:inviteId`) don't work. Add users from the Team page.
+- Jobs cannot be cancelled from the app yet.
 - The `signature` checklist field type is not implemented yet. Don't use it
   in the template.
 - The drawn sign-off is an internal audit trail, not a legally valid
